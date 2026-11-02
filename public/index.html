@@ -896,36 +896,50 @@ function stopSpeakCapture(abort){
   if(spMedia && spMedia.state!=="inactive"){ try{ spMedia.stop(); }catch(e){} }
   if(abort && spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; }
 }
-async function startSpeakCapture(){
+// Android: micro chỉ cho một bên dùng, ghi âm song song làm phần nhận giọng không nghe được → không ghi âm trên Android
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+const canRecordAlong = () => !IS_ANDROID && LS.get("recAudio", true) && navigator.mediaDevices && window.MediaRecorder;
+function startSpeakCapture(){
   const S=state.sp; const idx=S.i;
   stopVoice();
-  S.live=""; S.note=""; S.res[idx]=null; S.listening=true; render();
-  // Ghi âm để nghe lại (tuỳ chọn; nếu máy không cho thì bỏ qua)
-  spChunks=[];
-  if(LS.get("recAudio", true) && navigator.mediaDevices && window.MediaRecorder){
-    try{
-      spStream = await navigator.mediaDevices.getUserMedia({audio:true});
-      spMedia = new MediaRecorder(spStream);
-      spMedia.ondataavailable = e=>{ if(e.data && e.data.size) spChunks.push(e.data); };
-      spMedia.onstop = ()=>{ if(spChunks.length){ const old=S.audio[idx]; if(old) URL.revokeObjectURL(old); S.audio[idx]=URL.createObjectURL(new Blob(spChunks,{type:spMedia.mimeType||"audio/mp4"})); }
-        if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } if(state.view==="speak") render(); };
-      spMedia.start();
-    }catch(e){ spMedia=null; if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } }
-  }
-  let finalText="";
+  S.live=""; S.note=""; S.res[idx]=null; S.listening=true;
+  let finalText="", heard=false;
+  // Bật nhận giọng NGAY trong lần bấm (trước mọi việc khác) để trình duyệt cho dùng micro
   try{
     spRec = new SR(); spRec.lang="en-US"; spRec.interimResults=true; spRec.continuous = S.type==="tell"; spRec.maxAlternatives=1;
-  }catch(e){ spRec=null; S.listening=false; S.note="Máy này chưa nghe trực tiếp được. Bạn bấm vào ô bên dưới và dùng micro trên bàn phím nhé."; stopSpeakCapture(true); render(); return; }
-  spRec.onresult = ev=>{ let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=(finalText?" ":"")+r[0].transcript.trim(); else interim+=r[0].transcript; }
+  }catch(e){ spRec=null; S.listening=false; S.note="Máy này chưa nghe trực tiếp được. Bạn bấm vào ô bên dưới và dùng micro trên bàn phím nhé."; render(); return; }
+  spRec.onresult = ev=>{ heard=true; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=(finalText?" ":"")+r[0].transcript.trim(); else interim+=r[0].transcript; }
     S.live=(finalText+" "+interim).trim(); const el=document.getElementById("spLive"); if(el) el.textContent=S.live||"…"; };
   spRec.onerror = ev=>{
     if(spMedia && (ev.error==="audio-capture"||ev.error==="not-allowed"||ev.error==="service-not-allowed")){
       LS.set("recAudio", false); S.note="Mây tắt phần ghi âm để nghe bạn rõ hơn. Bấm 🎤 nói lại nhé.";
-    } else S.note = {"not-allowed":"Cần cho phép dùng micro.","no-speech":"Mây chưa nghe thấy gì. Bấm 🎤 rồi nói to, rõ nhé.","network":"Mạng chập chờn, thử lại nhé."}[ev.error] || (ev.error==="aborted"?"":"Mây nghe chưa rõ. Thử lại nhé.");
+    } else S.note = {"not-allowed":"Cần cho phép dùng micro: bấm biểu tượng ổ khoá cạnh địa chỉ web → Quyền → Micro → Cho phép, rồi thử lại.",
+      "service-not-allowed":"Trình duyệt chưa cho nhận giọng nói ở đây. Bạn dùng micro trên bàn phím để nói nhé.",
+      "no-speech":"Mây chưa nghe thấy gì. Bấm 🎤, nói to và rõ, nói xong dừng lại một chút nhé.",
+      "audio-capture":"Không dùng được micro (có thể app khác đang dùng). Đóng app khác rồi thử lại nhé.",
+      "network":"Mạng chập chờn nên Mây chưa nghe được. Thử lại nhé."}[ev.error] || (ev.error==="aborted"?"":"Mây nghe chưa rõ. Thử lại nhé.");
   };
   spRec.onend = ()=>{ spRec=null; S.listening=false; if(spMedia && spMedia.state!=="inactive"){ try{spMedia.stop();}catch(e){} }
-    const t=(finalText||S.live||"").trim(); if(t && state.sp===S && S.i===idx) checkSpeak(t); else if(state.view==="speak") render(); };
-  try{ spRec.start(); }catch(e){ spRec=null; S.listening=false; stopSpeakCapture(true); render(); }
+    const t=(finalText||S.live||"").trim();
+    if(t && state.sp===S && S.i===idx) return checkSpeak(t);
+    if(!S.note) S.note = heard ? "Mây nghe chưa rõ. Bấm 🎤 nói lại nhé." : "Mây chưa nghe thấy gì. Bấm 🎤, nói to và rõ, nói xong dừng lại một chút nhé.";
+    if(state.view==="speak") render(); };
+  spRec.onstart = ()=>{ if(canRecordAlong()) startRecordAlong(S, idx); };
+  try{ spRec.start(); }catch(e){ spRec=null; S.listening=false; S.note="Mây chưa bật được micro. Thử lại nhé."; }
+  render();
+}
+// Ghi âm để bé nghe lại giọng mình (chỉ trên máy, không gửi đi); máy không cho thì bỏ qua
+async function startRecordAlong(S, idx){
+  spChunks=[];
+  try{
+    spStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    if(!S.listening){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; return; }
+    spMedia = new MediaRecorder(spStream);
+    spMedia.ondataavailable = e=>{ if(e.data && e.data.size) spChunks.push(e.data); };
+    spMedia.onstop = ()=>{ if(spChunks.length){ const old=S.audio[idx]; if(old) URL.revokeObjectURL(old); S.audio[idx]=URL.createObjectURL(new Blob(spChunks,{type:spMedia.mimeType||"audio/mp4"})); }
+      if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } if(state.view==="speak") render(); };
+    spMedia.start();
+  }catch(e){ spMedia=null; if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } }
 }
 async function checkSpeak(text){
   const S=state.sp, idx=S.i;
@@ -948,9 +962,14 @@ function renderSpeak(){
     body = `<div class="greet">${mascot()}<div class="say">Mây đang soạn bài luyện nói… <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
   } else if(S.phase==="done"){
     const lv = S.items.map((_,i)=>S.res[i]?.level).filter(Boolean);
-    body = `<div class="qcard score">${mascot()}<h2>Xong rồi!</h2>
+    body = lv.length ? `<div class="qcard score">${mascot()}<h2>Xong rồi!</h2>
       <p>${lv.filter(x=>x==="great").length} câu tuyệt vời, ${lv.filter(x=>x==="good").length} câu khá, ${lv.filter(x=>x==="try_again").length} câu cần luyện thêm.</p>
-      <div class="row" style="justify-content:center"><button class="btn primary" id="spAgain">Luyện kiểu khác</button><button class="btn" id="spHome">Về trang chính</button></div></div>`;
+      ${lv.length<S.items.length?`<p class="muted">Bạn đã bỏ qua ${S.items.length-lv.length} câu chưa nói.</p>`:""}
+      <div class="row" style="justify-content:center"><button class="btn primary" id="spAgain">Luyện kiểu khác</button><button class="btn" id="spHome">Về trang chính</button></div></div>`
+      : `<div class="qcard score">${mascot()}<h2>Bạn chưa nói câu nào</h2>
+      <p>Mỗi câu, bạn bấm nút 🎤 rồi nói to, rõ. Khi Mây nghe được, chữ sẽ hiện trong ô bên dưới nút 🎤 và Mây sẽ chấm.</p>
+      <p class="muted">Nếu bấm 🎤 mà không thấy chữ hiện ra, hãy cho phép trình duyệt dùng micro, hoặc gõ/đọc chính tả câu đó vào ô.</p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="spRedo">Luyện lại từ đầu</button><button class="btn" id="spHome">Về trang chính</button></div></div>`;
   } else {
     const it=curItem(), r=S.res[S.i], t=SP_TYPES[S.type];
     let prompt="";
@@ -1004,6 +1023,7 @@ function renderSpeak(){
   on("spRetry",()=>{ S.res[S.i]=null; S.live=""; S.note=""; render(); });
   on("spNext",()=>{ stopSpeakCapture(true); if(S.i+1<S.items.length){ S.i++; S.live=""; S.note=""; S.showVi=false; render(); sayPrompt(); } else { S.phase="done"; render(); } });
   on("spAgain",()=>{ S.phase="setup"; render(); });
+  on("spRedo",()=>{ Object.assign(S,{phase:"item", i:0, live:"", note:"", showVi:false}); render(); sayPrompt(); });
   on("spHome",()=>{ go("home"); refreshState(); });
 }
 
