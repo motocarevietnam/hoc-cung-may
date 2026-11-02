@@ -44,6 +44,8 @@ $routes = [
     'parent/plan'         => 'r_parent_plan',
     'parent/plan_generate'=> 'r_parent_plan_generate',
     'parent/plan_save'    => 'r_parent_plan_save',
+    'parent/rewards'      => 'r_parent_rewards',
+    'parent/rewards_save' => 'r_parent_rewards_save',
     'parent/google'       => 'r_parent_google',
     'parent/google_connect' => 'r_parent_google_connect',
     'parent/google_disconnect' => 'r_parent_google_disconnect',
@@ -117,8 +119,7 @@ function r_chat(array $b): never
     q('UPDATE conversations SET updated_at = ? WHERE id = ?', [time(), $conv]);
 
     $asked = (int)q('SELECT COUNT(*) FROM messages WHERE conv_id = ? AND role = \'user\'', [$conv])->fetchColumn();
-    $stars = $asked === 3 ? add_stars(1) : stars();
-    out(['conv_id' => $conv, 'text' => $reply, 'stars' => $stars]);
+    out(['conv_id' => $conv, 'text' => $reply, 'stars' => stars()]);
 }
 
 function r_quiz(array $b): never
@@ -193,11 +194,10 @@ function r_answer(array $b): never
     if ($first) $answers[$key] = $picked;
     $right = $answers[$key] === $x['answer'];
 
-    $stars = stars();
+    // Sao không tính theo từng câu đúng (không chạy theo điểm): hoàn thành lượt đố vui trong "Hôm nay" mới được sao
     $bonus = false;
     if ($first) {
-        if ($right) $stars = add_stars(1);
-        else remember_mistake($quiz['subject'], $quiz['topic'], $x);
+        if (!$right) remember_mistake($quiz['subject'], $quiz['topic'], $x);
         q('UPDATE quizzes SET answers = ? WHERE id = ?', [json_encode($answers), $quiz['id']]);
     }
 
@@ -209,12 +209,8 @@ function r_answer(array $b): never
     if ($done && $first) {
         q('UPDATE quizzes SET score = ?, finished_at = ? WHERE id = ?', [$score, time(), $quiz['id']]);
         log_activity($quiz['subject'], $quiz['topic'], 'quiz', $score, count($questions));
-        if ($score >= count($questions) - 1) {
-            $stars = add_stars(2);
-            $bonus = true;
-        }
     }
-    out(['right' => $right, 'answer' => $x['answer'], 'explain' => $x['explain'], 'stars' => $stars,
+    out(['right' => $right, 'answer' => $x['answer'], 'explain' => $x['explain'], 'stars' => stars(),
          'done' => $done, 'score' => $score, 'total' => count($questions), 'bonus' => $bonus, 'due' => due_count()]);
 }
 
@@ -235,7 +231,6 @@ function r_review_answer(array $b): never
     $picked = (int)($b['picked'] ?? -1);
     $right = $picked === (int)$m['answer'];
     $mastered = false;
-    $stars = stars();
 
     if ($right) {
         // Hộp Leitner: đúng thì lên hộp, khoảng cách ôn dài dần 1 → 3 → 7 ngày; đúng ở hộp 3 là thuộc hẳn
@@ -247,12 +242,14 @@ function r_review_answer(array $b): never
         } else {
             q('UPDATE mistakes SET box = ?, due_at = ? WHERE id = ?', [$box, strtotime("+{$days} days", strtotime('today')), $m['id']]);
         }
-        $stars = add_stars(1);
+        // Làm đúng câu từng sai = tự sửa sai; thuộc hẳn (đúng qua đủ các lần ôn cách quãng) = tiến bộ có bằng chứng
+        award('self_fix', "fix:review:{$m['id']}:{$box}", 'Làm đúng câu từng sai: ' . mb_substr($m['q'], 0, 60));
+        if ($mastered) award('progress', "progress:mistake:{$m['id']}", 'Thuộc hẳn: ' . mb_substr($m['q'], 0, 60));
     } else {
         q('UPDATE mistakes SET box = 0, due_at = ?, times_wrong = times_wrong + 1 WHERE id = ?', [strtotime('tomorrow'), $m['id']]);
     }
     log_activity($m['subject'], $m['topic'], 'review', $right ? 1 : 0, 1);
-    out(['right' => $right, 'answer' => (int)$m['answer'], 'explain' => $m['explain'], 'stars' => $stars,
+    out(['right' => $right, 'answer' => (int)$m['answer'], 'explain' => $m['explain'], 'stars' => stars(),
          'mastered' => $mastered, 'due' => due_count()]);
 }
 
@@ -387,10 +384,11 @@ function r_homework(array $b): never
         if ($x['practice']) remember_mistake($subject, $topic, $x['practice']);
     }
 
-    // Thưởng sao: lần đầu 2 sao vì tự giác gửi bài; bài chấm lại chỉ được sao khi có câu sửa đúng
-    // (1 sao mỗi câu, tối đa 3). Đúng hết thêm 1 sao.
-    $base = $recheckOf ? min(3, $improved) : 2;
-    $stars = add_stars($base + ($graded > 0 && $right === $graded && ($recheckOf === 0 || $improved > 0) ? 1 : 0));
+    // Mỗi câu bé tự sửa đúng khi chấm lại = tự sửa sai (gửi bài thì đã được sao hoàn thành nhiệm vụ qua "Hôm nay")
+    foreach ($items as $x) {
+        if (!empty($x['fixed'])) award('self_fix', 'fix:hw:' . $recheckOf . ':' . hw_label_key($x['label']), 'Tự sửa đúng ' . $x['label']);
+    }
+    $stars = stars();
 
     $response = ['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $improved > 0), 'stars' => $stars, 'due' => due_count()];
     if (!drive_connected()) out($response);
@@ -569,11 +567,8 @@ function r_speak_check(array $b): never
     $first = q('SELECT COUNT(*) FROM speaking_tries WHERE session_id = ? AND idx = ?', [$sess['id'], $idx])->fetchColumn() == 0;
     q('INSERT INTO speaking_tries (session_id, idx, transcript, result, level, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         [$sess['id'], $idx, $transcript, json_encode($result, JSON_UNESCAPED_UNICODE), $level, time()]);
-    $gotGreat = q("SELECT COUNT(*) FROM speaking_tries WHERE session_id = ? AND idx = ? AND level = 'great'", [$sess['id'], $idx])->fetchColumn();
     if ($first) log_activity('ceng', $sess['topic'], 'speaking', $level === 'try_again' ? 0 : 1, 1);
-    // 1 sao cho lần đầu đạt "great" ở mỗi câu
-    $stars = ($level === 'great' && (int)$gotGreat === 1) ? add_stars(1) : stars();
-    out(['result' => $result, 'stars' => $stars]);
+    out(['result' => $result, 'stars' => stars()]);
 }
 
 /* ---------------- kế hoạch học: ngày, tuần, tháng, quý ---------------- */
@@ -837,6 +832,36 @@ function r_parent_homework(array $b): never
     out(['homework' => $row]);
 }
 
+/* ---------------- Sổ sao và luật thưởng (Góc ba mẹ) ---------------- */
+
+function r_parent_rewards(array $b): never
+{
+    $rules = array_map(fn($r) => ['code' => $r['code'], 'label' => $r['label'], 'stars' => (int)$r['stars'],
+        'daily_cap' => $r['daily_cap'] === null ? null : (int)$r['daily_cap'], 'weekly_cap' => $r['weekly_cap'] === null ? null : (int)$r['weekly_cap'],
+        'enabled' => (bool)$r['enabled']], q('SELECT * FROM reward_rules ORDER BY sort, code')->fetchAll());
+    $ledger = q('SELECT created_at, rule_code, stars, note, balance_after FROM star_ledger ORDER BY id DESC LIMIT 60')->fetchAll();
+    $week = q("SELECT COALESCE(SUM(CASE WHEN stars > 0 AND rule_code NOT IN ('opening','refund') THEN stars END), 0) AS earned,
+                      COALESCE(SUM(CASE WHEN rule_code = 'task_complete' THEN 1 END), 0) AS tasks
+               FROM star_ledger WHERE week = ?", [week_start()])->fetch();
+    out(['balance' => stars(), 'rules' => $rules, 'ledger' => $ledger,
+         'daily_max' => (int)setting('stars_daily_max', '40'), 'weekly_goal' => (int)setting('weekly_goal_tasks', '12'),
+         'week' => ['earned' => (int)$week['earned'], 'tasks' => (int)$week['tasks']]]);
+}
+
+function r_parent_rewards_save(array $b): never
+{
+    $cap = fn($v) => ($v === null || $v === '') ? null : max(0, min(100, (int)$v));
+    foreach (is_array($b['rules'] ?? null) ? $b['rules'] : [] as $r) {
+        if (!is_array($r)) continue;
+        q('UPDATE reward_rules SET stars = ?, daily_cap = ?, weekly_cap = ?, enabled = ?, updated_at = ? WHERE code = ?',
+            [max(0, min(100, (int)($r['stars'] ?? 0))), $cap($r['daily_cap'] ?? null), $cap($r['weekly_cap'] ?? null),
+             !empty($r['enabled']) ? 1 : 0, time(), (string)($r['code'] ?? '')]);
+    }
+    if (isset($b['daily_max'])) set_setting('stars_daily_max', (string)max(0, min(500, (int)$b['daily_max'])));
+    if (isset($b['weekly_goal'])) set_setting('weekly_goal_tasks', (string)max(0, min(50, (int)$b['weekly_goal'])));
+    r_parent_rewards([]);
+}
+
 /* ---------------- Google Drive (Góc ba mẹ) ---------------- */
 
 function r_parent_google(array $b): never
@@ -911,7 +936,8 @@ function r_parent_clear(array $b): never
     };
     $pdo->beginTransaction();
     foreach ($tables as $t) $pdo->exec("DELETE FROM {$t}");
-    if ($what === 'all') set_setting('stars', '0');
     $pdo->commit();
+    // Sổ sao không bị xoá: thêm một dòng đưa số dư về 0
+    if ($what === 'all' && stars() !== 0) ledger_add('reset', -stars(), 'reset:' . time() . ':' . bin2hex(random_bytes(3)), 'Ba mẹ xoá toàn bộ dữ liệu học');
     out(['ok' => true]);
 }
