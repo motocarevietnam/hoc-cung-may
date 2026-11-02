@@ -808,29 +808,9 @@ const TTS_VOICES = [
 ];
 const TTS_PITCH = ['vi-VN-HoaiMyNeural' => '+12%', 'vi-VN-NamMinhNeural' => '+15%'];
 
-// Nguồn giọng đọc tự nhiên: Azure (Việt + Anh) nếu có key Azure; nếu không thì FPT.AI (chỉ tiếng Việt,
-// tiếng Anh do iPad tự đọc); không có key nào thì Mây dùng giọng của máy.
-function tts_provider(): string
-{
-    if (trim((string)cfg('azure_speech_key', '')) !== '') return 'azure';
-    if (trim((string)cfg('fpt_tts_key', '')) !== '') return 'fpt';
-    return '';
-}
-
 function tts_enabled(): bool
 {
-    return tts_provider() !== '';
-}
-
-// Các thứ tiếng nguồn đang chọn đọc được, và danh sách giọng ba mẹ chọn được
-function tts_langs(): array
-{
-    return ['azure' => ['vi', 'en'], 'fpt' => ['vi']][tts_provider()] ?? [];
-}
-
-function tts_voice_list(): array
-{
-    return match (tts_provider()) { 'azure' => TTS_VOICES, 'fpt' => ['vi' => FPT_VOICES], default => [] };
+    return trim((string)cfg('azure_speech_key', '')) !== '';
 }
 
 function tts_voice(string $lang, string $want): string
@@ -1050,54 +1030,4 @@ function drive_cleanup(): int
         }
     }
     return $n;
-}
-
-/* ---------------- Giọng đọc tiếng Việt: FPT.AI Text-to-Speech v5 ---------------- */
-// API trả về JSON có đường link "async" tới file mp3; file sẵn sàng sau vài giây nên máy chủ chờ và tải về.
-
-const FPT_VOICES = [
-    'banmai' => 'Ban Mai (nữ, miền Bắc)', 'thuminh' => 'Thu Minh (nữ, miền Bắc)', 'myan' => 'Mỹ An (nữ, miền Trung)',
-    'lannhi' => 'Lan Nhi (nữ, miền Nam)', 'linhsan' => 'Linh San (nữ, miền Nam)',
-    'leminh' => 'Lê Minh (nam, miền Bắc)', 'giahuy' => 'Gia Huy (nam, miền Trung)',
-];
-
-function fpt_voice(string $want): string
-{
-    if (isset(FPT_VOICES[$want])) return $want;
-    $def = (string)cfg('fpt_tts_voice', 'banmai');
-    return isset(FPT_VOICES[$def]) ? $def : 'banmai';
-}
-
-function fpt_mp3(string $text, string $voice, float $rate): string
-{
-    $speed = max(-3, min(3, (int)round(($rate - 1) * 5)));   // FPT: -3 (chậm nhất) … 0 … +3 (nhanh nhất)
-    $dir = __DIR__ . '/cache/tts';
-    $file = $dir . '/' . sha1("fpt|{$voice}|{$speed}|{$text}") . '.mp3';
-    if (is_file($file)) {
-        @touch($file);
-        return (string)file_get_contents($file);
-    }
-    $key = trim((string)cfg('fpt_tts_key', ''));
-    // Tài liệu ghi tên header là api-key hoặc api_key tuỳ trang: gửi cả hai cho chắc
-    [$code, $res] = google_http('POST', (string)cfg('fpt_tts_endpoint', 'https://api.fpt.ai/hmi/tts/v5'), [
-        'api-key: ' . $key, 'api_key: ' . $key, 'voice: ' . $voice, 'speed: ' . $speed, 'format: mp3',
-        'Content-Type: text/plain; charset=utf-8',
-    ], $text, 20);
-    $d = json_decode($res, true);
-    $url = is_array($d) ? (string)($d['async'] ?? '') : '';
-    if ($code !== 200 || $url === '' || !preg_match('#^https?://#', $url) || (int)($d['error'] ?? 0) !== 0) {
-        throw new UpstreamError('FPT TTS ' . $code . ' ' . substr($res, 0, 300));
-    }
-    // Chờ file mp3 sẵn sàng (thường vài giây), tối đa khoảng 20 giây
-    $deadline = microtime(true) + (float)cfg('fpt_tts_wait', 20);
-    $mp3 = '';
-    while (microtime(true) < $deadline) {
-        [$c, $body] = google_http('GET', $url, [], null, 10);
-        if ($c === 200 && strlen($body) > 500) { $mp3 = $body; break; }
-        usleep(700000);
-    }
-    if ($mp3 === '') throw new UpstreamError('FPT TTS: file chưa sẵn sàng sau thời gian chờ');
-    if (!is_dir($dir)) @mkdir($dir, 0750, true);
-    @file_put_contents($file, $mp3);
-    return $mp3;
 }

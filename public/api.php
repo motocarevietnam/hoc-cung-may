@@ -66,7 +66,7 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_provider' => tts_provider(), 'tts_langs' => tts_langs(), 'tts_voices' => tts_voice_list(),
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => TTS_VOICES,
          'drive' => drive_connected()]);
 }
 
@@ -482,16 +482,9 @@ function r_tts(array $b): never
         $chunks[] = ['l' => $l, 't' => $t];
     }
     if (!$chunks || $total > 2500) out(['error' => 'bad_request'], 400);
+    $voices = ['vi' => tts_voice('vi', (string)($b['vi'] ?? '')), 'en' => tts_voice('en', (string)($b['en'] ?? ''))];
     $rate = max(0.5, min(1.5, (float)($b['rate'] ?? 1)));
-    if (tts_provider() === 'fpt') {
-        // FPT chỉ đọc tiếng Việt: iPad tự đọc phần tiếng Anh
-        $vi = implode(' ', array_column(array_filter($chunks, fn($c) => $c['l'] === 'vi'), 't'));
-        if ($vi === '') out(['error' => 'bad_request'], 400);
-        $mp3 = fpt_mp3($vi, fpt_voice((string)($b['vi'] ?? '')), $rate);
-    } else {
-        $voices = ['vi' => tts_voice('vi', (string)($b['vi'] ?? '')), 'en' => tts_voice('en', (string)($b['en'] ?? ''))];
-        $mp3 = tts_mp3($chunks, $voices, $rate);
-    }
+    $mp3 = tts_mp3($chunks, $voices, $rate);
     header('Content-Type: audio/mpeg');
     header('Cache-Control: private, max-age=86400');
     header('Content-Length: ' . strlen($mp3));

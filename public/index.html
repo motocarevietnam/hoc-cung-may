@@ -299,8 +299,7 @@ const LS = {
 let pin = LS.get("pin","");
 let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
 let autoRead = LS.get("autoRead", true);
-const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null, tts: LS.get("ttsOn", false), ttsVoices: null,
-  ttsProvider: "", ttsLangs: LS.get("ttsLangs", [])};
+const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null, tts: LS.get("ttsOn", false), ttsVoices: null};
 const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null,
   plan:null, planTab:"day", parentPage:null, sched:null, pplan:null};
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -334,8 +333,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
-    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts);
-    me.ttsProvider = s.tts_provider || ""; me.ttsLangs = s.tts_langs || []; LS.set("ttsLangs", me.ttsLangs); me.drive = !!s.drive;
+    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -567,62 +565,26 @@ function unlockAudio(){
 ["touchend","click"].forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
 function stopVoice(){ ttsSeq++; if(asrc){ try{ asrc.stop(); }catch(e){} asrc=null; } try{ speechSynthesis.cancel(); }catch(e){} }
 const cloudOn = () => me.tts && LS.get("cloudVoice", true);
-const noEmoji = t => t.replace(/[\u{1F300}-\u{1FAFF}☀-➿️]/gu,"");
-// Lấy âm thanh từ máy chủ (Azure: cả đoạn nhiều giọng; FPT: một phần tiếng Việt) và giải mã sẵn để phát
-async function fetchVoice(chunks, rate){
+async function cloudSpeak(chunks, rate){
+  const seq = ++ttsSeq;
   const res = await fetch("/api/tts",{method:"POST", headers:{"content-type":"application/json","x-app-pin":pin},
     body:JSON.stringify({chunks, rate:(rate||.95)/.95, vi:LS.get("cloudVi",""), en:LS.get("cloudEn","")})});
   if(!res.ok) throw new Error("tts "+res.status);
   const data = await res.arrayBuffer();
+  if(seq!==ttsSeq) return;               // đã có câu khác chen vào
   const c = audioCtx(); if(!c) throw new Error("no audio");
-  return await new Promise((ok,no)=>c.decodeAudioData(data, ok, no));
-}
-function playBuffer(buf, seq){
-  return new Promise(async done=>{
-    if(seq!==ttsSeq) return done();
-    const c = audioCtx(); if(c.state==="suspended"){ try{ await c.resume(); }catch(e){} }
-    asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination);
-    asrc.onended = ()=>done(); asrc.start(0);
-  });
-}
-function deviceSay(ch, rate, seq){
-  return new Promise(done=>{
-    if(seq!==ttsSeq) return done();
-    try{
-      const c = voiceCfg(), u = new SpeechSynthesisUtterance(ch.t), v = pickVoice(ch.l);
-      u.lang = v ? v.lang : (ch.l==="vi" ? "vi-VN" : "en-GB"); if(v) u.voice = v;
-      u.pitch = Math.min(2, Math.max(0.5, +c.pitch||1.4));
-      u.rate = Math.min(1.6, Math.max(0.5, (rate||.95) * (+c.speed||1)));
-      const fin = ()=>{ clearTimeout(t); done(); };
-      const t = setTimeout(fin, 3000 + ch.t.length * 150);   // phòng khi máy không báo đọc xong
-      u.onend = fin; u.onerror = fin;
-      speechSynthesis.speak(u);
-    }catch(e){ done(); }
-  });
+  if(c.state==="suspended") await c.resume();
+  const buf = await new Promise((ok,no)=>c.decodeAudioData(data, ok, no));
+  if(seq!==ttsSeq) return;
+  asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination); asrc.start(0);
 }
 function speak(text, lang, rate){
-  const chunks = (lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
+  const chunks = lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
                : lang==="vi-only" ? [{l:"vi", t:String(text).replace(/\*\*/g,"")}]
-               : langChunks(text, lang)).map(c=>({l:c.l, t:noEmoji(c.t).trim()})).filter(c=>c.t);
+               : langChunks(text, lang);
   stopVoice();
-  const seq = ttsSeq;
-  if(!cloudOn()) return deviceSpeak(chunks, rate);
-  const langs = me.ttsLangs || [];
-  if(langs.includes("vi") && langs.includes("en")){
-    // Azure: một file cho cả đoạn; lỗi thì máy tự đọc
-    fetchVoice(chunks, rate).then(buf=>playBuffer(buf, seq)).catch(()=>{ if(seq===ttsSeq) deviceSpeak(chunks, rate); });
-    return;
-  }
-  // FPT: phần tiếng Việt lấy từ máy chủ (tải trước song song), phần tiếng Anh iPad đọc; phát lần lượt đúng thứ tự
-  (async()=>{
-    const audio = chunks.map(c => langs.includes(c.l) ? fetchVoice([c], rate).catch(()=>null) : null);
-    for(let i=0;i<chunks.length;i++){
-      if(seq!==ttsSeq) return;
-      const buf = audio[i] ? await audio[i] : null;
-      if(seq!==ttsSeq) return;
-      if(buf) await playBuffer(buf, seq); else await deviceSay(chunks[i], rate, seq);
-    }
-  })();
+  if(cloudOn()){ cloudSpeak(chunks.map(c=>({l:c.l, t:c.t.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"")})), rate).catch(()=>deviceSpeak(chunks, rate)); return; }
+  deviceSpeak(chunks, rate);
 }
 function deviceSpeak(chunks, rate){
   try{
@@ -1235,13 +1197,11 @@ function voiceCardHtml(){
     return list.length ? list.map(v=>`<option value="${esc(v.name)}" ${cur&&v.name===cur.name?"selected":""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
       : `<option value="">(máy chưa có giọng ${l==="vi"?"tiếng Việt":"tiếng Anh"})</option>`; };
   const tv = me.ttsVoices;
-  const prov = me.ttsProvider==="fpt" ? "FPT.AI cho tiếng Việt" : "Microsoft";
-  const sel = (id, l, key) => tv && tv[l] ? `<label for="${id}">Giọng ${l==="vi"?"tiếng Việt":"tiếng Anh"} (tự nhiên)</label><select class="field" id="${id}">${Object.entries(tv[l]).map(([k,n])=>`<option value="${k}" ${LS.get(key,"")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>` : "";
-  const cloud = me.tts ? `<div class="notice" style="margin-top:8px"><label style="display:flex;gap:10px;align-items:center;margin:0"><input type="checkbox" id="vCloud" ${LS.get("cloudVoice",true)?"checked":""} style="width:22px;height:22px"> <b>Dùng giọng tự nhiên (${prov})</b></label>
-      ${sel("cVi","vi","cloudVi")}${sel("cEn","en","cloudEn")}
-      ${me.ttsProvider==="fpt" ? `<p class="muted" style="margin:6px 0 0">Phần tiếng Anh vẫn do máy đọc (chọn giọng tiếng Anh ở dưới, nên tải bản "Nâng cao").</p>` : ""}
-      <p class="muted" style="margin:6px 0 0">Khi tắt, hoặc khi mạng lỗi/hết hạn mức, Mây dùng giọng của máy bên dưới.</p></div>`
-    : `<p class="muted" style="margin:8px 0 0">Muốn giọng tiếng Việt tự nhiên như người thật: điền key FPT.AI (fpt_tts_key) vào config.php trên VPS.</p>`;
+  const cloud = me.tts ? `<div class="notice" style="margin-top:8px"><label style="display:flex;gap:10px;align-items:center;margin:0"><input type="checkbox" id="vCloud" ${LS.get("cloudVoice",true)?"checked":""} style="width:22px;height:22px"> <b>Dùng giọng tự nhiên (Microsoft)</b></label>
+      ${tv?`<label for="cVi">Giọng tiếng Việt</label><select class="field" id="cVi">${Object.entries(tv.vi).map(([k,n])=>`<option value="${k}" ${LS.get("cloudVi","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <label for="cEn">Giọng tiếng Anh</label><select class="field" id="cEn">${Object.entries(tv.en).map(([k,n])=>`<option value="${k}" ${LS.get("cloudEn","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>`:""}
+      <p class="muted" style="margin:6px 0 0">Khi tắt, hoặc khi mạng lỗi, Mây dùng giọng của máy bên dưới.</p></div>`
+    : `<p class="muted" style="margin:8px 0 0">Muốn giọng tự nhiên như người thật (có giọng bé gái cho tiếng Anh): điền key Microsoft Azure Speech vào config.php trên VPS.</p>`;
   return `<div class="card"><h3>Giọng của Mây (trên máy này)</h3>${cloud}
     <p class="muted" style="margin:0">Mây dùng giọng đọc có sẵn của máy. Nâng <b>cao độ</b> để giọng trẻ như bạn nhỏ 8–10 tuổi. Nghe thử rồi chỉnh, máy tự lưu.</p>
     <label for="vVi">Giọng tiếng Việt</label><select class="field" id="vVi">${opts("vi")}</select>

@@ -22,9 +22,6 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   kể/miêu tả ngắn. Bé nghe mẫu (có đọc chậm), bấm 🎤 để nói; iPad chuyển giọng thành chữ, Mây so từng từ với câu mẫu
   và góp ý ngữ pháp, từ vựng, câu mẫu để nói lại. Bé nghe lại giọng mình ngay trên iPad (không gửi âm thanh lên máy chủ).
   Mây chỉ có phần chữ máy chép lại nên không chấm chi tiết từng âm; chấm phát âm chuyên sâu (Microsoft Azure) sẽ thêm sau.
-- **Giọng đọc của Mây** 🔊: mặc định dùng giọng có sẵn của iPad (Góc ba mẹ chỉnh giọng, cao độ, tốc độ). Tiếng Việt tự nhiên
-  bằng **FPT.AI** (`fpt_tts_key` trong config.php, tiếng Anh vẫn do iPad đọc), hoặc cả hai thứ tiếng bằng **Microsoft Azure**
-  (`azure_speech_key`). Máy chủ giữ key, chỉ gửi chữ cần đọc, lưu tạm file âm thanh 30 ngày; lỗi hoặc hết hạn mức thì quay về giọng iPad.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
