@@ -522,18 +522,51 @@ function pickVoice(l){
     || VOICE_PREF[l].map(n=>list.find(v=>v.name.includes(n))).find(Boolean)
     || list.find(v=>/female|nữ/i.test(v.name)) || list[0] || null;
 }
+// Tách đoạn thành các phần theo ngôn ngữ, để phần tiếng Anh đọc bằng giọng Anh, phần tiếng Việt bằng giọng Việt.
+// Ranh giới: câu, phần trong ngoặc (), ngoặc kép, chữ in đậm **…**, xuống dòng.
+const VI_CHARS = /[ăâđêôơưàáạảãầấậẩẫằắặẳẵèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ]/i;
+function langChunks(text, fallback){
+  const clean = String(text).replace(/[\u{1F300}-\u{1FAFF}☀-➿\u{1F1E6}-\u{1F1FF}️]/gu,"");
+  // Môn tiếng Anh: không cắt ở chữ in đậm (thường nằm giữa câu tiếng Anh).
+  // Môn tiếng Việt: cắt ở chữ in đậm để từ tiếng Anh in đậm được đọc bằng giọng Anh.
+  const re = fallback==="en"
+    ? /(\([^)]*\)|“[^”]*”|"[^"\n]*"|\n+|[^.!?…:\n(“"]+(?:[.!?…]+|:(?=\s)|$))/u
+    : /(\*\*[^*]+\*\*|\([^)]*\)|“[^”]*”|"[^"\n]*"|\n+|[^.!?…:\n(“"*]+(?:[.!?…]+|:(?=\s)|$))/u;
+  const parts = clean.split(re).filter(x=>x && x.trim());
+  const name = (typeof nick==="function" ? nick() : "").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+  const out = [];
+  let prev = fallback==="en" ? "en" : "vi";
+  for(let raw of parts){
+    const t = raw.replace(/\*\*/g,"").trim(); if(!t) continue;
+    const latin = (t.match(/[A-Za-z]{2,}/g)||[]).length;
+    // Tên "Mây" và tên bé có dấu nhưng không làm câu tiếng Anh thành tiếng Việt
+    let probe = t.split("Mây").join("");
+    if(name) probe = probe.split(name).join("");
+    let l;
+    if(VI_CHARS.test(probe)) l = "vi";
+    else if(latin >= 2 || (latin >= 1 && (fallback==="en" || /^["“(]|\*\*/.test(raw)))) l = "en";
+    else l = prev;            // số, ký hiệu, một từ lẻ: theo phần trước
+    if(out.length && out[out.length-1].l===l) out[out.length-1].t += " " + t; else out.push({l, t});
+    prev = l;
+  }
+  return out;
+}
 function speak(text, lang, rate){
   try{
     speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text.replace(/\*\*/g,"").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,""));
-    const l = lang==="en-only" ? "en" : guessLang(text, lang)==="vi" ? "vi" : "en";
     const c = voiceCfg();
-    const v = pickVoice(l);
-    u.lang = v ? v.lang : (l==="vi" ? "vi-VN" : "en-GB");
-    if(v) u.voice=v;
-    u.pitch = Math.min(2, Math.max(0.5, +c.pitch||1.4));
-    u.rate = Math.min(1.6, Math.max(0.5, (rate||.95) * (+c.speed||1)));
-    speechSynthesis.speak(u);
+    const chunks = lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
+                 : lang==="vi-only" ? [{l:"vi", t:String(text).replace(/\*\*/g,"")}]
+                 : langChunks(text, lang);
+    for(const ch of chunks){
+      const u = new SpeechSynthesisUtterance(ch.t);
+      const v = pickVoice(ch.l);
+      u.lang = v ? v.lang : (ch.l==="vi" ? "vi-VN" : "en-GB");
+      if(v) u.voice = v;
+      u.pitch = Math.min(2, Math.max(0.5, +c.pitch||1.4));
+      u.rate = Math.min(1.6, Math.max(0.5, (rate||.95) * (+c.speed||1)));
+      speechSynthesis.speak(u);
+    }
   }catch(e){}
 }
 try{ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>{}; }catch(e){}
@@ -1149,7 +1182,7 @@ function wireVoiceCard(){
   g("vEn").onchange=e=>LS.set("voiceEn", e.target.value);
   g("vPitch").oninput=e=>{ LS.set("pitch", +e.target.value); g("vPitchV").textContent=(+e.target.value).toFixed(1); };
   g("vSpeed").oninput=e=>{ LS.set("speed", +e.target.value); g("vSpeedV").textContent=(+e.target.value).toFixed(1); };
-  g("vTestVi").onclick=()=>speak(`Chào ${nick()}! Mình là Mây nè. Hôm nay mình cùng học vui nhé!`, "vi");
+  g("vTestVi").onclick=()=>speak(`Chào ${nick()}! Mình là Mây nè. Hôm nay mình cùng học vui nhé!`, "vi-only");
   g("vTestEn").onclick=()=>speak("Hi! I'm Mây. Let's practise English together!", "en-only");
   g("vReset").onclick=()=>{ ["voiceVi","voiceEn","pitch","speed"].forEach(k=>{ try{ localStorage.removeItem("may_"+k); }catch(e){} }); render(); };
 }
