@@ -19,6 +19,8 @@ $pdo->exec('DELETE FROM messages WHERE conv_id NOT IN (SELECT id FROM conversati
 // 2. Dọn bảng đếm lượt và đề đố vui cũ (giữ 60 ngày)
 $pdo->prepare('DELETE FROM usage WHERE day < ?')->execute([date('Y-m-d', strtotime('-60 days'))]);
 $pdo->prepare('DELETE FROM quizzes WHERE created_at < ?')->execute([strtotime('-60 days')]);
+// Kết quả chấm bài tập về nhà giữ 60 ngày (ảnh không bao giờ được lưu trên máy chủ)
+$pdo->prepare('DELETE FROM homework WHERE created_at < ?')->execute([strtotime('-60 days')]);
 
 // 3. Sao lưu: một file mỗi ngày, giữ N bản gần nhất
 $dir = __DIR__ . '/backups';

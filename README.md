@@ -6,6 +6,10 @@ Chạy bằng **PHP 8.1+ và SQLite** trên nginx + PHP-FPM có sẵn, **tách r
 
 ## Có gì trong bản này
 - Trò chuyện với Mây (nói bằng giọng hoặc gõ), đố vui 5 câu, Mây đọc to câu trả lời.
+- **Chấm bài về nhà** 📸: bé làm xong bài cô giao thì chụp ảnh (tối đa 4 trang) gửi Mây. Mây chấm từng câu, chỉ chỗ sai,
+  cho gợi ý để bé tự sửa; cách làm đúng chỉ hiện khi bé bấm xem sau khi đã sửa. Bé chụp lại bài đã sửa để Mây chấm lại.
+  Câu sai được biến thành bài luyện tương tự trong Sổ ôn tập. Ba mẹ xem tóm tắt và đáp án trong báo cáo.
+  Ảnh chỉ được gửi tới Claude để chấm, **không lưu trên VPS**; kết quả chấm giữ 60 ngày.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
@@ -107,3 +111,4 @@ Script giữ nguyên `config.php`, cơ sở dữ liệu và bản sao lưu.
 - Môn, chủ đề, giao diện: `public/index.html`
 - Tính cách, nguyên tắc của Mây, đề đố vui: `app/lib.php`
 - Giới hạn lượt mỗi ngày, số ngày giữ lịch sử, model: `app/config.php`
+- Cách Mây chấm bài tập về nhà: hàm `homework_system` và `homework_prompt` trong `app/lib.php`

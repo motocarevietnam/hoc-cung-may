@@ -13,8 +13,10 @@ return [
     // Model: chat cần nhanh, soạn đố vui cần chính xác
     'chat_model' => 'claude-haiku-5-5',
     'quiz_model' => 'claude-sonnet-5-5',
+    // Chấm bài tập về nhà từ ảnh chụp: cần đọc chữ viết tay và chấm chính xác
+    'homework_model' => 'claude-sonnet-5-5',
 
-    // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3)
+    // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3, 1 lần chấm bài tập = 5)
     'daily_limit' => 150,
 
     // Lịch sử trò chuyện tự xoá sau bao nhiêu ngày

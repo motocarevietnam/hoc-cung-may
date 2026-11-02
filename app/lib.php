@@ -21,6 +21,9 @@ const SUBJECTS = [
     'csci'  => ['name' => 'Science',    'sub' => 'Cambridge Primary',       'lang' => 'en'],
 ];
 
+// Các mức chấm một câu trong bài tập về nhà
+const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
+
 const SCHEMA = <<<SQL
 CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS conversations (
@@ -46,6 +49,11 @@ CREATE TABLE IF NOT EXISTS activity (
   type TEXT NOT NULL, score INTEGER, total INTEGER, created_at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_activity_day ON activity(day);
 CREATE TABLE IF NOT EXISTS usage (day TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS homework (
+  id INTEGER PRIMARY KEY, subject TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+  photos INTEGER NOT NULL DEFAULT 1, result TEXT NOT NULL, right_n INTEGER NOT NULL DEFAULT 0,
+  graded_n INTEGER NOT NULL DEFAULT 0, recheck_of INTEGER, created_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_homework_created ON homework(created_at);
 SQL;
 
 class UpstreamError extends RuntimeException {}
@@ -158,14 +166,14 @@ function due_count(): int
     return (int)q('SELECT COUNT(*) FROM mistakes WHERE mastered_at IS NULL AND due_at <= ?', [time()])->fetchColumn();
 }
 
-function ask_claude(string $model, string $system, array $messages, int $maxTokens): string
+function ask_claude(string $model, string $system, array $messages, int $maxTokens, int $timeout = 100): string
 {
     $ch = curl_init('https://api.anthropic.com/v1/messages');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_TIMEOUT => 100,
+        CURLOPT_TIMEOUT => $timeout,
         CURLOPT_HTTPHEADER => [
             'content-type: application/json',
             'x-api-key: ' . (string)cfg('anthropic_api_key', ''),
@@ -263,5 +271,61 @@ Môn: {$s['name']} ({$s['sub']}). Chủ đề: {$topicText}.{$focusText}
 Yêu cầu: câu hỏi ngắn, bối cảnh gần gũi với trẻ em Việt Nam, nội dung phù hợp trẻ em; mỗi câu có 3 hoặc 4 lựa chọn, chỉ một đáp án đúng; vị trí đáp án đúng thay đổi giữa các câu; độ khó tăng dần. Kiểm tra kỹ từng đáp án cho chính xác tuyệt đối.
 "explain": giải thích ngắn (dưới 30 từ) vì sao đáp án đúng. "hint": gợi ý không lộ đáp án.
 Chỉ trả về JSON, không thêm chữ nào khác, đúng dạng: {"questions":[{"q":"...","options":["...","..."],"answer":0,"explain":"...","hint":"..."}]} trong đó "answer" là chỉ số (bắt đầu từ 0) của lựa chọn đúng.
+TXT;
+}
+
+// Chấm bài tập về nhà từ ảnh chụp. Mây chấm từng câu, chỉ chỗ sai, gợi ý để bé tự sửa;
+// đáp án đúng ("fix") chỉ hiện khi bé bấm xem, sau khi đã thử sửa.
+function homework_system(string $id, string $nick): string
+{
+    $s = SUBJECTS[$id];
+    $nickText = $nick !== '' ? $nick : 'bạn';
+    $lang = $s['lang'] === 'vi'
+        ? 'Viết mọi lời nhận xét bằng tiếng Việt, dùng từ ngữ đúng như sách giáo khoa lớp 4 (chương trình GDPT 2018).'
+        : 'Bài làm theo chương trình Cambridge Primary Stage 4. Viết lời nhận xét bằng tiếng Việt dễ hiểu cho trẻ lớp 4, giữ nguyên thuật ngữ và câu tiếng Anh trong bài; với English, sửa lỗi ngữ pháp/chính tả bằng cách nói lại câu đúng bằng tiếng Anh.';
+    return <<<TXT
+Bạn là "Mây", bạn học AI của một bạn nhỏ lớp 4 ở Việt Nam (gọi bé là: {$nickText}). Bé vừa làm xong bài tập về nhà cô giáo giao và chụp ảnh gửi Mây chấm.
+Môn: {$s['name']} ({$s['sub']}).
+{$lang}
+
+Cách chấm:
+- Đọc kỹ đề bài và bài làm của bé trong ảnh. Tự giải lại từng câu thật cẩn thận, kiểm tra từng phép tính, rồi mới so với bài của bé.
+- Chữ viết tay có thể khó đọc. Nếu không đọc chắc chắn được một câu, đánh dấu "unclear" và nói rõ phần nào chưa đọc được. TUYỆT ĐỐI không đoán bừa rồi chấm sai.
+- Câu làm đúng nhưng trình bày chưa đủ (thiếu đơn vị, thiếu lời giải, thiếu đáp số…) thì chấm "partial" và nói rõ cần bổ sung gì.
+- Bài viết đoạn văn, tập làm văn, vẽ hình… không có đúng/sai rõ ràng: dùng "feedback", khen điểm hay cụ thể và góp ý 1–2 điều để bài hay hơn.
+- Với câu sai: "comment" chỉ ra bé sai ở bước nào mà KHÔNG nói đáp án; "hint" là gợi ý để bé tự sửa; "fix" mới là cách làm đúng và đáp án (bé chỉ xem sau khi đã tự sửa).
+- Nếu ảnh không phải bài tập, quá mờ hoặc không đọc được gì: đặt "readable" là false và nhắc bé chụp lại (đủ sáng, chụp thẳng, rõ cả trang).
+- Giọng vui vẻ, ấm áp, câu ngắn, khen trước rồi mới góp ý. Không chê bai. Không dùng ký hiệu khó đọc to.
+- Chỉ nhận xét về bài học. Không nhắc tới tên thật, tên trường hay thông tin cá nhân nếu thấy trong ảnh.
+- Nếu không chắc đáp án đúng của đề, nói thật và khuyên bé hỏi lại cô giáo.
+Chỉ trả lời bằng JSON.
+TXT;
+}
+
+function homework_prompt(string $note, int $photos, ?array $previous): string
+{
+    $noteText = $note !== '' ? "\nBé/ba mẹ ghi chú thêm về bài: " . $note : '';
+    $prevText = '';
+    if ($previous) {
+        $lines = [];
+        foreach ($previous['items'] ?? [] as $it) {
+            $lines[] = '- ' . ($it['label'] ?? '') . ': ' . ($it['status'] ?? '') . (($it['comment'] ?? '') !== '' ? ' (' . $it['comment'] . ')' : '');
+        }
+        $prevText = "\nĐây là bài bé ĐÃ SỬA LẠI sau lần chấm trước. Kết quả lần trước:\n" . implode("\n", $lines)
+            . "\nHãy khen cụ thể những câu bé đã sửa đúng, và chấm lại toàn bộ.";
+    }
+    return <<<TXT
+Bé gửi {$photos} ảnh bài tập về nhà (theo thứ tự trang).{$noteText}{$prevText}
+
+Trả về đúng một JSON dạng:
+{"readable":true,
+ "title":"tên ngắn của bài, ví dụ: Bài tập Toán – Phân số",
+ "praise":"1–2 câu khen điều bé làm tốt nhất",
+ "items":[{"label":"Bài 1a","task":"đề bài tóm tắt ngắn","student":"bé đã làm/ghi gì (tóm tắt)","status":"right|partial|wrong|unclear|feedback","comment":"nhận xét ngắn, với câu sai thì không lộ đáp án","hint":"gợi ý để tự sửa (bỏ trống nếu đúng)","fix":"cách làm đúng và đáp án (bỏ trống nếu đúng)",
+   "practice":{"q":"một câu trắc nghiệm TƯƠNG TỰ (khác số liệu) để bé luyện thêm","options":["...","...","..."],"answer":0,"explain":"giải thích dưới 30 từ","hint":"gợi ý không lộ đáp án"}}],
+ "tips":["tối đa 3 lời khuyên ngắn cho lần sau"],
+ "summary_for_parent":"2–3 câu tóm tắt cho ba mẹ: bé làm tốt gì, cần ôn gì"}
+Quy tắc: mỗi câu/ý trong bài là một phần tử "items" (tối đa 20). Chỉ thêm "practice" cho câu "wrong" hoặc "partial" có đáp án rõ ràng (3–4 lựa chọn, đúng một đáp án, "answer" là chỉ số bắt đầu từ 0); câu khác đặt "practice": null.
+Nếu "readable" là false thì "items" để rỗng và "praise" là lời nhắc bé chụp lại.
 TXT;
 }

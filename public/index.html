@@ -187,6 +187,32 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .transcript .t.user{background:var(--me);color:var(--me-ink);align-self:flex-end}
 .transcript .t.assistant{background:var(--surface);border:2px solid var(--line)}
 .btn.danger{border-color:var(--coral);color:var(--coral)}
+
+/* chấm bài tập về nhà */
+.hwbar{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--l2);color:var(--label-ink);border:2.5px solid var(--ink);border-radius:18px;padding:12px 16px;margin:0 0 22px;box-shadow:4px 4px 0 var(--ink)}
+.hwbar:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--ink)}
+.hwbar .ic{font-size:32px;line-height:1}
+.hwbar b{font-family:var(--display);font-size:22px;display:block;line-height:1.15}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin:12px 0}
+.ph{position:relative;aspect-ratio:3/4;border-radius:14px;overflow:hidden;border:2px solid var(--line);background:var(--surface-2)}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph .rm{position:absolute;top:6px;right:6px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(20,10,40,.7);color:#fff;font-size:18px;line-height:1}
+.ph .no{position:absolute;left:6px;bottom:6px;background:rgba(20,10,40,.7);color:#fff;border-radius:8px;padding:0 8px;font-size:13px}
+.addph{aspect-ratio:3/4;border:2.5px dashed var(--ink-soft);border-radius:14px;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:15px;color:var(--ink-soft)}
+.addph span{font-size:36px}
+.hwitem{background:var(--surface);border:2px solid var(--line);border-left-width:8px;border-radius:16px;padding:12px 14px;margin:10px 0}
+.hwitem.right{border-left-color:var(--mint)}.hwitem.wrong{border-left-color:var(--coral)}
+.hwitem.partial{border-left-color:var(--sun)}.hwitem.unclear,.hwitem.feedback{border-left-color:var(--l4)}
+.hwitem .top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.hwitem .top b{font-family:var(--display);font-size:19px}
+.st{font-size:13px;font-weight:600;border-radius:999px;padding:1px 10px;background:var(--surface-2)}
+.st.right{background:var(--mint-bg);color:var(--mint)}.st.wrong{background:var(--coral-bg);color:var(--coral)}
+.st.partial{background:#FFF1C7;color:#8A5A00}
+.hwitem .small{font-size:14px;color:var(--ink-soft);margin:2px 0}
+.hwitem .row{margin-top:8px}
+.hwitem .btn{font-size:15px;padding:6px 12px}
+.reveal{margin-top:8px;padding:10px 12px;border-radius:12px;background:var(--surface-2);font-size:15px}
+.tips{margin:6px 0 0;padding-left:20px}
 </style>
 </head>
 <body>
@@ -233,7 +259,7 @@ let pin = LS.get("pin","");
 let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
 let autoRead = LS.get("autoRead", true);
 const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0};
-const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null};
+const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null};
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let micLang = "vi", rec = null;
 
@@ -277,6 +303,9 @@ function copyFor(code){
     server_not_configured: "App chưa cài đặt xong (thiếu file config.php trên VPS).",
     upstream: "Mây chưa kết nối được tới Claude. Thử lại sau ít phút nhé.",
     bad_quiz: "Mây soạn câu hỏi bị lỗi. Bấm thử lại nhé.",
+    bad_photos: "Ảnh chưa gửi được. Bạn chụp lại (tối đa 4 ảnh) rồi thử lần nữa nhé.",
+    bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
+    http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
     cancelled: ""
   };
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
@@ -293,13 +322,14 @@ function render(){
   else if(state.view==="subject") renderSubject();
   else if(state.view==="chat") renderChat();
   else if(state.view==="quiz") renderQuiz();
+  else if(state.view==="homework") renderHomework();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   try{ speechSynthesis.cancel(); }catch(e){}
-  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; } // rời Góc ba mẹ là khoá báo cáo
+  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
 
@@ -311,6 +341,7 @@ function renderHome(){
       <div class="say"><b>${hello}, ${esc(nick())}!</b><br>Mình là Mây ☁️ Hôm nay mình học môn gì nào?</div>
     </div>
     ${noSampleNotice()}
+    <button class="hwbar" id="toHomework"><span class="ic">📸</span><span><b>Chấm bài về nhà</b>Làm xong bài cô giao thì chụp ảnh gửi Mây chấm nhé!</span></button>
     ${me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
     <div class="labels">
       ${SUBJECTS.map(s=>`<button class="label" style="background:${s.color}" data-s="${s.id}">
@@ -318,6 +349,7 @@ function renderHome(){
     </div>`;
   app.querySelectorAll(".label").forEach(b=>b.onclick=()=>{ state.subject=b.dataset.s; state.topic=""; go("subject"); });
   const tr=document.getElementById("toReview"); if(tr) tr.onclick=startReview;
+  document.getElementById("toHomework").onclick=()=>openHomework();
 }
 
 function renderSubject(){
@@ -554,9 +586,151 @@ function renderQuiz(){
   document.getElementById("back").onclick=()=>{ go(backTo); if(backTo==="home") refreshState(); };
 }
 
+/* ---------- chấm bài tập về nhà ---------- */
+const HW_ST = {right:"Đúng rồi", partial:"Gần đúng", wrong:"Cần sửa", unclear:"Mây chưa đọc rõ", feedback:"Góp ý"};
+function openHomework(subject){
+  const prev = state.hw;
+  state.hw = {subject: subject || prev?.subject || null, note:"", photos:[], recheckOf:null, list:null, revealed:{}, hinted:{}};
+  go("homework");
+  loadHomeworkList();
+}
+async function loadHomeworkList(open){
+  if(!ready()) return;
+  try{
+    const d = await api("/api/homework_list", open ? {open} : {});
+    if(!state.hw) return;
+    state.hw.list = d.list || [];
+    if(d.detail){ Object.assign(state.hw, {result:d.detail.result, id:d.detail.id, subject:d.detail.subject, past:d.detail.created_at, revealed:{}, hinted:{}}); }
+    if(state.view==="homework") render();
+  }catch(e){}
+}
+// Thu nhỏ ảnh ngay trên iPad (cạnh dài tối đa 1600px, JPEG) để gửi nhanh và đỡ tốn dung lượng
+async function shrinkPhoto(file){
+  const url = URL.createObjectURL(file);
+  try{
+    const img = new Image();
+    await new Promise((ok,no)=>{ img.onload=ok; img.onerror=no; img.src=url; });
+    const k = Math.min(1, 1600/Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth*k); c.height = Math.round(img.naturalHeight*k);
+    const g = c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(img,0,0,c.width,c.height);
+    let q = .85, data = c.toDataURL("image/jpeg", q);
+    while(data.length > 2_000_000 && q > .5){ q -= .1; data = c.toDataURL("image/jpeg", q); }
+    return data;
+  } finally { URL.revokeObjectURL(url); }
+}
+function renderHomework(){
+  const H = state.hw;
+  const head = `<button class="back" id="back">‹ Trang chính</button>`;
+  if(H.loading){
+    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">Mây đang chấm bài của ${esc(nick())}… <span class="thinking"><i></i><i></i><i></i></span><br><span class="muted">Mây đọc kỹ từng câu nên có thể mất khoảng một phút đó.</span></div></div>`;
+  } else if(H.result){
+    renderHomeworkResult(H, head); return;
+  } else {
+    const s = H.subject ? subjById(H.subject) : null;
+    const hist = (H.list||[]).map(x=>`<button data-id="${x.id}"><b>${esc(subjById(x.subject)?.name||"")}${x.title?": "+esc(x.title):""}</b><small>${fmtDate(x.created_at)}${x.graded?`, đúng ${x.right}/${x.graded} câu`:""}</small></button>`).join("");
+    app.innerHTML = head + `
+      <div class="sec-title"><div class="badge" style="background:var(--l2)">📸</div>
+        <div><h2>${H.recheckOf ? "Chấm lại bài đã sửa" : "Chấm bài về nhà"}</h2><div class="muted">Chụp bài đã làm xong, Mây chấm và góp ý</div></div></div>
+      ${noSampleNotice()}
+      <p style="margin:14px 0 4px"><b>1.</b> Bài tập môn gì?</p>
+      <div class="chips">${SUBJECTS.map(x=>`<button class="chip" aria-pressed="${H.subject===x.id}" data-s="${x.id}" ${H.recheckOf?"disabled":""}>${x.ic} ${esc(x.name)}${x.lang==="en"?" (Cambridge)":""}</button>`).join("")}</div>
+      <p style="margin:14px 0 4px"><b>2.</b> Chụp bài làm (tối đa 4 ảnh, mỗi trang một ảnh)</p>
+      <div class="photos">
+        ${H.photos.map((p,i)=>`<div class="ph"><img src="${p}" alt="Ảnh ${i+1}"><button class="rm" data-i="${i}" aria-label="Bỏ ảnh ${i+1}">×</button><span class="no">${i+1}</span></div>`).join("")}
+        ${H.photos.length<4 ? `<label class="addph"><span>📷</span>${H.photos.length?"Thêm trang":"Chụp ảnh"}<input type="file" id="phIn" accept="image/*" multiple hidden></label>` : ""}
+      </div>
+      <p class="muted" style="margin:0">Mẹo: đặt vở chỗ sáng, chụp thẳng từ trên xuống, thấy rõ cả đề bài và chữ của bạn.</p>
+      <p style="margin:14px 0 4px"><b>3.</b> Ghi chú cho Mây (không bắt buộc)</p>
+      <input class="field" id="hwNote" maxlength="300" placeholder="Ví dụ: Bài 3, 4 trang 25; cô dặn trình bày lời giải" value="${esc(H.note)}">
+      ${H.error ? `<div class="notice">${esc(H.error)}</div>` : ""}
+      <div class="row"><button class="btn primary" id="hwSend" ${(!H.subject||!H.photos.length||!ready()||H.shrinking)?"disabled":""}>${H.shrinking?"Đang xử lý ảnh…":"Gửi Mây chấm ✨"}</button></div>
+      ${hist ? `<div class="card"><h3>Bài đã chấm gần đây</h3><div class="convlist">${hist}</div></div>` : ""}`;
+    app.querySelectorAll(".chips .chip").forEach(c=>c.onclick=()=>{ H.subject=c.dataset.s; H.error=""; render(); });
+    app.querySelectorAll(".ph .rm").forEach(b=>b.onclick=()=>{ H.photos.splice(+b.dataset.i,1); render(); });
+    document.getElementById("hwNote").oninput=e=>{ H.note=e.target.value; };
+    const inp=document.getElementById("phIn");
+    if(inp) inp.onchange=async()=>{
+      const files=[...inp.files].slice(0, 4-H.photos.length); if(!files.length) return;
+      H.shrinking=true; H.error=""; render();
+      for(const f of files){
+        try{ H.photos.push(await shrinkPhoto(f)); }
+        catch(e){ H.error="Có một ảnh Mây không mở được. Bạn chụp lại ảnh đó nhé."; }
+      }
+      H.shrinking=false; if(state.view==="homework") render();
+    };
+    document.getElementById("hwSend").onclick=sendHomework;
+    app.querySelectorAll(".convlist button").forEach(b=>b.onclick=()=>loadHomeworkList(+b.dataset.id));
+  }
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+async function sendHomework(){
+  const H = state.hw;
+  if(!H.subject || !H.photos.length || H.loading || !ready()) return;
+  H.loading=true; H.error=""; render(); window.scrollTo(0,0);
+  try{
+    const d = await api("/api/homework",{subject:H.subject, note:H.note, photos:H.photos, recheck_of:H.recheckOf});
+    if(state.hw!==H) return;
+    setStars(d.stars);
+    if(typeof d.due==="number") me.due=d.due;
+    if(!d.readable){ H.error = d.praise; }
+    else { Object.assign(H, {result:d.result, id:d.id, photos:[], past:null, revealed:{}, hinted:{}}); }
+  }catch(e){ H.error = copyFor(e&&e.code); }
+  H.loading=false;
+  if(state.view==="homework" && state.hw===H){ render(); window.scrollTo(0,0); }
+}
+function renderHomeworkResult(H, head){
+  const R = H.result, s = subjById(H.subject);
+  const graded = R.items.filter(x=>["right","partial","wrong"].includes(x.status));
+  const ok = graded.filter(x=>x.status==="right").length;
+  const toFix = R.items.filter(x=>x.status==="wrong"||x.status==="partial").length;
+  const practice = R.items.filter(x=>x.practice).length;
+  app.innerHTML = head + `
+    <div class="sec-title"><div class="badge" style="background:${s?.color||"var(--l2)"}">${s?.ic||"📸"}</div>
+      <div><h2>${esc(R.title || "Bài tập về nhà")}</h2><div class="muted">${esc(s?.name||"")}${H.past?", chấm lúc "+fmtDate(H.past):""}</div></div></div>
+    <div class="greet" style="margin-top:14px">${mascot()}<div class="say">${fmt(R.praise||"Mây chấm xong rồi nè!")}
+      ${graded.length ? `<br><b>${ok}/${graded.length}</b> câu đúng${toFix?`, ${toFix} câu cần sửa`:" 🎉"}` : ""}
+      ${"speechSynthesis" in window ? ` <button class="speak" id="hwSpeak" aria-label="Đọc to">🔊</button>` : ""}</div></div>
+    ${toFix ? `<div class="notice">Với câu cần sửa: đọc nhận xét, bấm <b>💡 Gợi ý</b> rồi tự sửa vào vở. Sửa xong mới bấm xem cách làm đúng nhé!</div>` : ""}
+    ${R.items.map((x,i)=>`<div class="hwitem ${x.status}">
+      <div class="top"><b>${esc(x.label)}</b><span class="st ${x.status}">${HW_ST[x.status]||""}</span></div>
+      ${x.task ? `<div class="small">Đề: ${fmt(x.task)}</div>` : ""}
+      ${x.student ? `<div class="small">Bạn làm: ${fmt(x.student)}</div>` : ""}
+      ${x.comment ? `<div style="margin-top:4px">${fmt(x.comment)}</div>` : ""}
+      ${H.hinted[i]&&x.hint ? `<div class="reveal">💡 ${fmt(x.hint)}</div>` : ""}
+      ${H.revealed[i]&&x.fix ? `<div class="reveal">✅ ${fmt(x.fix)}</div>` : ""}
+      ${(x.hint&&!H.hinted[i]) || (x.fix&&!H.revealed[i]) ? `<div class="row">
+        ${x.hint&&!H.hinted[i] ? `<button class="btn" data-hint="${i}">💡 Gợi ý</button>` : ""}
+        ${x.fix&&!H.revealed[i] ? `<button class="btn" data-fix="${i}">Mình sửa xong rồi, xem cách làm đúng</button>` : ""}
+      </div>` : ""}
+    </div>`).join("")}
+    ${R.tips?.length ? `<div class="card"><h3>Lần sau nhớ nhé</h3><ul class="tips">${R.tips.map(t=>`<li>${fmt(t)}</li>`).join("")}</ul></div>` : ""}
+    ${practice ? `<p class="muted">Mây đã thêm ${practice} bài luyện tương tự vào Sổ ôn tập 📒, ngày mai Mây sẽ đố lại nhé.</p>` : ""}
+    <div class="row">
+      ${toFix ? `<button class="btn primary" id="hwRecheck">📸 Chụp bài đã sửa để chấm lại</button>` : ""}
+      ${toFix ? `<button class="btn" id="hwAsk">Hỏi Mây câu chưa hiểu</button>` : ""}
+      <button class="btn${toFix?"":" primary"}" id="hwNew">Chấm bài khác</button>
+    </div>
+    <p class="muted" style="margin-top:16px">Mây là AI nên đôi khi cũng chấm nhầm. Nếu thấy lạ, bạn hỏi lại ba mẹ hoặc cô giáo nhé.</p>`;
+  app.querySelectorAll("[data-hint]").forEach(b=>b.onclick=()=>{ H.hinted[b.dataset.hint]=true; render(); });
+  app.querySelectorAll("[data-fix]").forEach(b=>b.onclick=()=>{ H.revealed[b.dataset.fix]=true; render(); });
+  const sp=document.getElementById("hwSpeak"); if(sp) sp.onclick=()=>speak(R.praise||"", "vi");
+  const rc=document.getElementById("hwRecheck");
+  if(rc) rc.onclick=()=>{ Object.assign(H,{recheckOf:H.id, result:null, photos:[], error:"", past:null}); render(); window.scrollTo(0,0); };
+  const ak=document.getElementById("hwAsk");
+  if(ak) ak.onclick=()=>{
+    const x = R.items.find(y=>y.status==="wrong"||y.status==="partial");
+    state.subject=H.subject; state.topic=R.title||""; state.turns=[]; state.convId=null; go("chat");
+    sendChat(`Mình làm bài tập về nhà, Mây chấm câu ${x.label} chưa đúng: ${x.task}${x.student?` (mình làm: ${x.student})`:""}. Mây giảng lại giúp mình nhé.`);
+  };
+  document.getElementById("hwNew").onclick=()=>openHomework(H.subject);
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+
 /* ---------- góc ba mẹ ---------- */
 function renderParent(){
   if(state.transcript) return renderTranscript();
+  if(state.hwDetail) return renderParentHomework();
   const R = state.report;
   app.innerHTML = `
     <button class="back" id="back">‹ Về trang của bé</button>
@@ -605,6 +779,7 @@ function reportHtml(R){
     return `<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`;
   }).join("");
   const weak = (R.weak||[]).map(w=>`<li>${esc(subjById(w.subject)?.name||w.subject)}: ${esc(w.topic||"chưa rõ chủ đề")} (${w.n} câu)</li>`).join("");
+  const hws = (R.homework||[]).map(h=>`<button data-hw="${h.id}"><b>${esc(subjById(h.subject)?.name||"")}${h.title?": "+esc(h.title):""}${h.recheck?" (bài sửa lại)":""}</b><small>${fmtDate(h.created_at)}${h.graded?`, đúng ${h.right}/${h.graded} câu`:""}</small>${esc(h.summary||"")}</button>`).join("");
   const convs = (R.conversations||[]).map(c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`).join("");
   return `
     <div class="card">
@@ -631,6 +806,11 @@ function reportHtml(R){
       ${weak ? `<p class="muted" style="margin:10px 0 0">Phần bé hay sai:</p><ul class="weak">${weak}</ul>` : ""}
     </div>
     <div class="card">
+      <h3>Bài tập về nhà đã chấm</h3>
+      <p class="muted" style="margin:0">Ảnh không được lưu lại, chỉ lưu kết quả chấm (giữ 60 ngày). Bấm vào để xem chi tiết và đáp án.</p>
+      <div class="convlist">${hws || `<p class="muted">Bé chưa gửi bài nào.</p>`}</div>
+    </div>
+    <div class="card">
       <h3>Lịch sử trò chuyện</h3>
       <p class="muted" style="margin:0">Tự xoá sau ${R.retention_days} ngày. Bấm vào để đọc lại.</p>
       <div class="convlist">${convs || `<p class="muted">Chưa có cuộc trò chuyện nào.</p>`}</div>
@@ -651,7 +831,11 @@ function wireReport(R){
     try{ await api("/api/parent/settings",{nick:nickV, focus:focusV},true); me.nick=nickV; LS.set("nick",nickV); R.settings={nick:nickV,focus:focusV}; msg.textContent="Đã lưu"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
-  app.querySelectorAll(".convlist button").forEach(b=>b.onclick=async()=>{
+  app.querySelectorAll(".convlist button[data-hw]").forEach(b=>b.onclick=async()=>{
+    try{ state.hwDetail = (await api("/api/parent/homework",{id:+b.dataset.hw},true)).homework; render(); window.scrollTo(0,0); }
+    catch(e){ alert(copyFor(e&&e.code)); }
+  });
+  app.querySelectorAll(".convlist button[data-id]").forEach(b=>b.onclick=async()=>{
     try{ state.transcript = await api("/api/parent/conversation",{id:+b.dataset.id},true); render(); window.scrollTo(0,0); }
     catch(e){ alert(copyFor(e&&e.code)); }
   });
@@ -672,6 +856,23 @@ function renderTranscript(){
     <p class="muted" style="margin:4px 0 0">${fmtDate(c.started_at)}</p>
     <div class="transcript">${T.messages.map(m=>`<div class="t ${m.role==="assistant"?"assistant":"user"}">${fmt(m.content)}</div>`).join("")}</div>`;
   document.getElementById("back").onclick=()=>{ state.transcript=null; render(); window.scrollTo(0,0); };
+}
+
+function renderParentHomework(){
+  const h = state.hwDetail, R = h.result || {items:[]};
+  app.innerHTML = `
+    <button class="back" id="back">‹ Báo cáo</button>
+    <h2 style="font-size:28px">${esc(subjById(h.subject)?.name||"")}${R.title?": "+esc(R.title):""}</h2>
+    <p class="muted" style="margin:4px 0 0">${fmtDate(h.created_at)}, ${h.photos} ảnh${h.recheck_of?", bài bé đã sửa lại":""}${h.note?`. Ghi chú: ${esc(h.note)}`:""}</p>
+    ${R.summary_for_parent ? `<div class="card"><h3>Tóm tắt cho ba mẹ</h3><p style="margin:0">${fmt(R.summary_for_parent)}</p></div>` : ""}
+    ${(R.items||[]).map(x=>`<div class="hwitem ${esc(x.status)}">
+      <div class="top"><b>${esc(x.label)}</b><span class="st ${esc(x.status)}">${HW_ST[x.status]||""}</span></div>
+      ${x.task?`<div class="small">Đề: ${fmt(x.task)}</div>`:""}${x.student?`<div class="small">Bé làm: ${fmt(x.student)}</div>`:""}
+      ${x.comment?`<div style="margin-top:4px">${fmt(x.comment)}</div>`:""}
+      ${x.fix?`<div class="reveal">✅ ${fmt(x.fix)}</div>`:""}
+    </div>`).join("")}
+    ${R.tips?.length ? `<div class="card"><h3>Lời khuyên Mây đưa cho bé</h3><ul class="tips">${R.tips.map(t=>`<li>${fmt(t)}</li>`).join("")}</ul></div>` : ""}`;
+  document.getElementById("back").onclick=()=>{ state.hwDetail=null; render(); window.scrollTo(0,0); };
 }
 
 /* ---------- break reminder ---------- */
