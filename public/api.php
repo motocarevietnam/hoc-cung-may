@@ -354,17 +354,30 @@ function r_homework(array $b): never
     // Thưởng sao: 2 sao vì đã tự giác gửi bài, thêm 1 sao nếu đúng hết; bài sửa lại được thêm 1 sao
     $stars = add_stars(2 + ($graded > 0 && $right === $graded ? 1 : 0) + ($recheckOf ? 1 : 0));
 
-    out(['readable' => true, 'id' => $id, 'result' => homework_for_kid($result), 'stars' => $stars, 'due' => due_count()]);
+    out(['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $recheckOf > 0), 'stars' => $stars, 'due' => due_count()]);
 }
 
-// Gửi xuống máy của bé: bỏ phần tóm tắt cho ba mẹ và đáp án của bài luyện
-function homework_for_kid(array $r): array
+// Gửi xuống máy của bé: bỏ phần tóm tắt cho ba mẹ và đáp án của bài luyện.
+// Cách làm đúng ("fix") chỉ gửi khi bài đã được chấm lại: bé phải tự sửa và chụp lại trước đã.
+function homework_for_kid(array $r, bool $answersOpen): array
 {
     unset($r['summary_for_parent']);
+    $r['answers_open'] = $answersOpen;
     $r['items'] = is_array($r['items'] ?? null) ? $r['items'] : [];
-    foreach ($r['items'] as &$x) $x['practice'] = $x['practice'] !== null;
+    foreach ($r['items'] as &$x) {
+        $x['practice'] = ($x['practice'] ?? null) !== null;
+        $x['has_fix'] = ($x['fix'] ?? '') !== '';
+        if (!$answersOpen) $x['fix'] = '';
+    }
     unset($x);
     return $r;
+}
+
+// Đáp án của một bài được mở khi: bài này là bài chấm lại, hoặc bé đã gửi bài sửa lại của nó
+function homework_answers_open(int $id, mixed $recheckOf): bool
+{
+    if ($recheckOf !== null) return true;
+    return q('SELECT 1 FROM homework WHERE recheck_of = ? LIMIT 1', [$id])->fetchColumn() !== false;
 }
 
 function r_homework_list(array $b): never
@@ -378,9 +391,10 @@ function r_homework_list(array $b): never
     $open = (int)($b['open'] ?? 0);
     $detail = null;
     if ($open > 0) {
-        $row = q('SELECT id, subject, note, result, created_at FROM homework WHERE id = ?', [$open])->fetch();
+        $row = q('SELECT id, subject, note, result, recheck_of, created_at FROM homework WHERE id = ?', [$open])->fetch();
         if ($row) $detail = ['id' => (int)$row['id'], 'subject' => $row['subject'], 'note' => $row['note'],
-                             'created_at' => (int)$row['created_at'], 'result' => homework_for_kid(json_decode($row['result'], true) ?: [])];
+                             'created_at' => (int)$row['created_at'], 'recheck_of' => $row['recheck_of'] !== null ? (int)$row['recheck_of'] : null,
+                             'result' => homework_for_kid(json_decode($row['result'], true) ?: [], homework_answers_open((int)$row['id'], $row['recheck_of']))];
     }
     out(['list' => $list, 'detail' => $detail]);
 }

@@ -7,7 +7,8 @@ Chạy bằng **PHP 8.1+ và SQLite** trên nginx + PHP-FPM có sẵn, **tách r
 ## Có gì trong bản này
 - Trò chuyện với Mây (nói bằng giọng hoặc gõ), đố vui 5 câu, Mây đọc to câu trả lời.
 - **Chấm bài về nhà** 📸: bé làm xong bài cô giao thì chụp ảnh (tối đa 4 trang) gửi Mây. Mây chấm từng câu, chỉ chỗ sai,
-  cho gợi ý để bé tự sửa; cách làm đúng chỉ hiện khi bé bấm xem sau khi đã sửa. Bé chụp lại bài đã sửa để Mây chấm lại.
+  cho gợi ý để bé tự sửa. Bé sửa vào vở rồi chụp lại để Mây chấm lại; **chỉ sau khi chấm lại** bé mới xem được
+  cách làm đúng (máy chủ giữ đáp án, không gửi xuống iPad trước đó). Ba mẹ thì luôn xem được đáp án trong báo cáo.
   Câu sai được biến thành bài luyện tương tự trong Sổ ôn tập. Ba mẹ xem tóm tắt và đáp án trong báo cáo.
   Ảnh chỉ được gửi tới Claude để chấm, **không lưu trên VPS**; kết quả chấm giữ 60 ngày.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
