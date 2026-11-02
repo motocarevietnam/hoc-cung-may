@@ -715,7 +715,7 @@ function speaking_check_system(): string
 Quan trọng về cách Mây "nghe":
 - Mây KHÔNG nghe được âm thanh. Mây chỉ nhận BẢN CHÉP LỜI do máy nhận dạng giọng nói trên iPad tạo ra. Máy có thể nghe nhầm, và thường tự sửa lỗi phát âm nhỏ nên Mây không thấy được.
 - Vì vậy KHÔNG khẳng định chắc chắn bé phát âm sai âm nào. Chỉ nói kiểu: "Mây chưa nghe rõ từ X, bạn đọc chậm lại và nói rõ âm cuối nhé". Có thể nêu mẹo phát âm phổ biến cho từ đó.
-- Không chấm lỗi chính tả hay viết hoa (đây là bài nói).
+- Không chấm lỗi chính tả, viết hoa, dấu câu, hay viết liền/viết rời (ví dụ "grand parents" thay vì "grandparents"): đó là do máy chép, không phải lỗi nói của bé.
 Cách góp ý:
 - Khen trước, cụ thể. Sau đó tối đa 2 điều cần sửa (ngữ pháp, từ dùng sai, câu thiếu ý). Giọng vui, ngắn, lời góp ý bằng tiếng Việt, câu tiếng Anh giữ nguyên.
 - "say_it": một câu/đoạn tiếng Anh đúng, ngắn, gần với ý bé, để bé nói lại.
@@ -765,6 +765,14 @@ function word_diff(string $target, string $said): array
     $origWords = array_values(array_filter(preg_split('/\s+/u', trim($target)) ?: []));
     $t = speak_words($target);
     $h = speak_words($said);
+    // Máy chép hay tách một từ thành hai ("grand parents"): ghép lại nếu thành đúng một từ trong câu mẫu
+    $inTarget = array_flip($t);
+    $merged = [];
+    for ($j = 0; $j < count($h); $j++) {
+        if (isset($h[$j + 1]) && !isset($inTarget[$h[$j]]) && isset($inTarget[$h[$j] . $h[$j + 1]])) { $merged[] = $h[$j] . $h[$j + 1]; $j++; }
+        else $merged[] = $h[$j];
+    }
+    $h = $merged;
     $n = count($t); $m = count($h);
     $L = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
     for ($i = $n - 1; $i >= 0; $i--) for ($j = $m - 1; $j >= 0; $j--)
