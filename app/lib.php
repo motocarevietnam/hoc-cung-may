@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -109,6 +109,17 @@ const SCHEMA = [
        week CHAR(10) NOT NULL, rule_code VARCHAR(32) NOT NULL, stars INT NOT NULL, ref VARCHAR(120) NOT NULL,
        note VARCHAR(255) NOT NULL DEFAULT '', balance_after INT NOT NULL,
        UNIQUE KEY uq_ledger_ref (ref), KEY idx_ledger_rule_day (rule_code, day), KEY idx_ledger_rule_week (rule_code, week)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Phiên đăng nhập của ba mẹ ở cổng /parents/ (chỉ lưu mã băm của token)
+    "CREATE TABLE IF NOT EXISTS parent_sessions (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, token_hash CHAR(64) NOT NULL, created_at INT UNSIGNED NOT NULL,
+       expires_at INT UNSIGNED NOT NULL, last_seen INT UNSIGNED NOT NULL, device VARCHAR(160) NOT NULL DEFAULT '',
+       UNIQUE KEY uq_session_token (token_hash), KEY idx_session_expires (expires_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Nhập sai mã PIN (để khoá tạm, chống đoán mò)
+    "CREATE TABLE IF NOT EXISTS auth_failures (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, kind VARCHAR(10) NOT NULL, ip VARCHAR(45) NOT NULL, created_at INT UNSIGNED NOT NULL,
+       KEY idx_fail (kind, ip, created_at), KEY idx_fail_created (created_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -218,20 +229,82 @@ function pin_ok(string $given, string $expected): bool
     return $expected !== '' && hash_equals($expected, $given);
 }
 
-function require_app_pin(): void
+/* ---------------- Xác thực: mã PIN, chống đoán mò, phiên đăng nhập ba mẹ ---------------- */
+
+const AUTH_MAX_FAILS = 5;          // nhập sai quá số lần này trong cửa sổ thời gian thì khoá tạm
+const AUTH_WINDOW = 15 * 60;       // 15 phút
+const SESSION_COOKIE = 'may_parent';
+
+function client_ip(): string
 {
-    if (!pin_ok((string)($_SERVER['HTTP_X_APP_PIN'] ?? ''), (string)cfg('app_pin', ''))) {
+    return substr((string)($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0'), 0, 45);
+}
+
+// Đang bị khoá vì nhập sai nhiều lần? (theo từng IP, và giới hạn chung cho mọi IP để chống dò từ nhiều nơi)
+function auth_locked(string $kind): bool
+{
+    $since = time() - AUTH_WINDOW;
+    $mine = (int)q('SELECT COUNT(*) FROM auth_failures WHERE kind = ? AND ip = ? AND created_at > ?', [$kind, client_ip(), $since])->fetchColumn();
+    $all = (int)q('SELECT COUNT(*) FROM auth_failures WHERE kind = ? AND created_at > ?', [$kind, $since])->fetchColumn();
+    return $mine >= AUTH_MAX_FAILS || $all >= AUTH_MAX_FAILS * 6;
+}
+
+function check_pin(string $kind, string $given, string $expected, string $error): void
+{
+    if (auth_locked($kind)) out(['error' => 'locked', 'minutes' => (int)ceil(AUTH_WINDOW / 60)], 429);
+    // Không gửi mã PIN (ví dụ cổng ba mẹ kiểm tra phiên khi chưa đăng nhập): từ chối nhưng không tính là nhập sai
+    if ($given === '') out(['error' => $error], 401);
+    if (!pin_ok($given, $expected)) {
+        q('INSERT INTO auth_failures (kind, ip, created_at) VALUES (?, ?, ?)', [$kind, client_ip(), time()]);
         sleep(1); // làm chậm việc đoán mò mã PIN
-        out(['error' => 'bad_pin'], 401);
+        out(['error' => auth_locked($kind) ? 'locked' : $error, 'minutes' => (int)ceil(AUTH_WINDOW / 60)], auth_locked($kind) ? 429 : 401);
     }
 }
 
-function require_parent_pin(): void
+function require_app_pin(): void
 {
-    if (!pin_ok((string)($_SERVER['HTTP_X_PARENT_PIN'] ?? ''), (string)cfg('parent_pin', ''))) {
-        sleep(1);
-        out(['error' => 'bad_parent_pin'], 401);
-    }
+    check_pin('app', (string)($_SERVER['HTTP_X_APP_PIN'] ?? ''), (string)cfg('app_pin', ''), 'bad_pin');
+}
+
+function https_request(): bool
+{
+    return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
+}
+
+function set_session_cookie(string $token, int $maxAge): void
+{
+    setcookie(SESSION_COOKIE, $token, [
+        'expires' => $maxAge > 0 ? time() + $maxAge : time() - 3600, 'path' => '/api/',
+        'secure' => https_request(), 'httponly' => true, 'samesite' => 'Strict',
+    ]);
+}
+
+// Phiên ba mẹ còn hạn? Trả về id phiên hoặc 0
+function parent_session(): int
+{
+    $token = (string)($_COOKIE[SESSION_COOKIE] ?? '');
+    if (strlen($token) < 32) return 0;
+    $row = q('SELECT id, expires_at FROM parent_sessions WHERE token_hash = ?', [hash('sha256', $token)])->fetch();
+    if (!$row || (int)$row['expires_at'] < time()) return 0;
+    q('UPDATE parent_sessions SET last_seen = ? WHERE id = ?', [time(), $row['id']]);
+    return (int)$row['id'];
+}
+
+// API ba mẹ: cần phiên đăng nhập (cổng /parents/) hoặc mã PIN ba mẹ trong header (máy của bé, mục Cài đặt máy).
+// Yêu cầu dùng cookie phải có header X-Requested-With để trang web khác không gửi thay được (chống CSRF).
+function require_parent(): void
+{
+    if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') === 'may' && parent_session() > 0) return;
+    check_pin('parent', (string)($_SERVER['HTTP_X_PARENT_PIN'] ?? ''), (string)cfg('parent_pin', ''), 'bad_parent_pin');
+}
+
+function create_parent_session(): void
+{
+    $token = bin2hex(random_bytes(32));
+    $days = max(1, (int)cfg('parent_session_days', 7));
+    q('INSERT INTO parent_sessions (token_hash, created_at, expires_at, last_seen, device) VALUES (?, ?, ?, ?, ?)',
+        [hash('sha256', $token), time(), time() + $days * 86400, time(), mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 160)]);
+    set_session_cookie($token, $days * 86400);
 }
 
 // Đếm lượt dùng Claude mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3).

@@ -26,6 +26,9 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   tự bắt đầu +2, hoàn thành nhiệm vụ trong "Hôm nay" +5, tự sửa sai +3, giải thích đúng +3, tiến bộ có bằng chứng +5,
   đạt mục tiêu tuần +10; sai không bao giờ bị trừ. Ba mẹ chỉnh mức sao, số lần tối đa mỗi ngày/tuần, mức sao tối đa mỗi ngày
   và mục tiêu tuần trong Góc ba mẹ → Sao và luật thưởng. Mỗi lần cộng có mã riêng nên không cộng trùng.
+- **Cổng ba mẹ riêng** 👪: `https://TEN-MIEN/parents/` (mở trên điện thoại ba mẹ, thêm vào màn hình chính được). Đăng nhập bằng
+  `parent_pin`, giữ đăng nhập 7 ngày (`parent_session_days`), cookie HttpOnly/SameSite=Strict; nhập sai PIN 5 lần thì khoá 15 phút.
+  App của bé không còn báo cáo: nút ⚙️ chỉ mở **Cài đặt máy** (mã PIN của app, giọng đọc) và cần mã PIN ba mẹ.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.

@@ -30,6 +30,10 @@ $pdo->prepare('DELETE FROM homework WHERE created_at < ?')->execute([strtotime('
 // Luyện nói: chỉ có chữ do iPad nhận dạng (không có âm thanh), giữ 60 ngày
 $pdo->prepare('DELETE FROM speaking WHERE created_at < ?')->execute([strtotime('-60 days')]);
 
+// Dọn phiên đăng nhập hết hạn và các lần nhập sai PIN cũ
+$pdo->prepare('DELETE FROM parent_sessions WHERE expires_at < ?')->execute([time()]);
+$pdo->prepare('DELETE FROM auth_failures WHERE created_at < ?')->execute([time() - 86400]);
+
 // Dọn file giọng đọc lưu tạm (Azure) không dùng tới trong 30 ngày
 foreach (glob(__DIR__ . '/cache/tts/*.mp3') ?: [] as $f) {
     if (filemtime($f) < strtotime('-30 days')) @unlink($f);

@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Học cùng Mây</title>
-<link rel="manifest" href="/manifest.webmanifest">
+<link rel="manifest" href="/manifest.webmanifest" id="manifestLink">
+<script>
+  // Cổng ba mẹ /parents/: dùng chung giao diện, nhưng là "app" riêng khi thêm vào màn hình chính
+  if(location.pathname.startsWith("/parents")){
+    document.getElementById("manifestLink").href = "/parents-manifest.webmanifest";
+    document.title = "Mây – Góc ba mẹ";
+  }
+</script>
 <link rel="apple-touch-icon" href="/icons/icon-180.png">
 <link rel="icon" href="/icons/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -273,7 +280,7 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
   </button>
   <span class="spacer"></span>
   <span class="pill" id="starPill" title="Sao của bạn">⭐ <span id="starCount">0</span></span>
-  <button class="iconbtn" id="parentBtn" title="Góc ba mẹ">👪</button>
+  <button class="iconbtn" id="parentBtn" title="Cài đặt máy (cần mã PIN ba mẹ)" aria-label="Cài đặt máy">⚙️</button>
 </header>
 <main id="app"></main>
 <div id="overlayHost"></div>
@@ -318,12 +325,15 @@ const app = document.getElementById("app");
 const esc = s => String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = s => esc(s).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/\n/g,"<br>");
 const nick = () => (me.nick||"").trim() || "bạn";
+const PARENT_MODE = location.pathname.startsWith("/parents");
 const ready = () => !!pin;
 const fmtDate = t => new Date(t*1000).toLocaleString("vi-VN",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 
 async function api(path, body={}, asParent=false){
   const headers = {"content-type":"application/json"};
-  if(asParent) headers["x-parent-pin"] = parentPin; else headers["x-app-pin"] = pin;
+  // Ba mẹ: cổng /parents/ dùng phiên đăng nhập (cookie); máy của bé dùng mã PIN ba mẹ trong header (mục Cài đặt máy)
+  if(asParent){ headers["x-requested-with"] = "may"; if(parentPin) headers["x-parent-pin"] = parentPin; }
+  else headers["x-app-pin"] = pin;
   let res;
   try{ res = await fetch(path,{method:"POST",headers,body:JSON.stringify(body)}); }
   catch(e){ throw {code:"offline"}; }
@@ -358,8 +368,9 @@ async function refreshState(){
 }
 function copyFor(code){
   const m = {
-    bad_pin: "Mã PIN của app chưa đúng. Nhờ ba mẹ vào Góc ba mẹ 👪 nhập lại nhé.",
+    bad_pin: "Mã PIN của app chưa đúng. Nhờ ba mẹ vào ⚙️ Cài đặt máy nhập lại nhé.",
     bad_parent_pin: "Mã PIN của ba mẹ chưa đúng.",
+    locked: "Nhập sai mã PIN nhiều lần. Đợi 15 phút rồi thử lại nhé.",
     daily_limit: "Hôm nay Mây trò chuyện nhiều quá rồi, mai mình học tiếp nhé! 🌙",
     offline: "Máy đang mất mạng. Kiểm tra Wi-Fi rồi thử lại nhé.",
     server_not_configured: "App chưa cài đặt xong (thiếu file config.php trên VPS).",
@@ -376,7 +387,7 @@ function copyFor(code){
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
 }
 function noSampleNotice(){
-  if(!ready()) return `<div class="notice">Ba mẹ cần nhập <b>mã PIN của app</b> trong Góc ba mẹ 👪 (góc trên bên phải) trước khi bé học với Mây.</div>`;
+  if(!ready()) return `<div class="notice">Ba mẹ cần nhập <b>mã PIN của app</b> trong ⚙️ Cài đặt máy (góc trên bên phải) trước khi bé học với Mây.</div>`;
   return "";
 }
 
@@ -397,7 +408,7 @@ function go(view){
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   stopSpeakCapture(true);
   stopVoice();
-  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; } // rời Góc ba mẹ là khoá báo cáo
+  if(view!=="parent"){ parentPin=""; state.devOk=false; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
 
@@ -645,7 +656,7 @@ async function sendChat(text){
 
 /* ---------- đố vui và sổ ôn tập ---------- */
 async function startQuiz(){
-  if(!ready()){ state.quiz={kind:"quiz", error:"Ba mẹ cần nhập mã PIN của app trong Góc ba mẹ 👪 trước nhé."}; go("quiz"); return; }
+  if(!ready()){ state.quiz={kind:"quiz", error:"Ba mẹ cần nhập mã PIN của app trong ⚙️ Cài đặt máy trước nhé."}; go("quiz"); return; }
   state.quiz={kind:"quiz", loading:true}; go("quiz");
   try{
     const d = await api("/api/quiz",{subject:state.subject, topic:state.topic});
@@ -1116,12 +1127,12 @@ function renderPlan(){
     body = `<h3 style="font-size:24px;margin:6px 0">${MONTHS_VI(P.from)}</h3>
       <div class="card"><h3>Kết quả tháng này</h3>${statsHtml(P.stats)}</div>
       ${P.weeks.length ? P.weeks.map(w=>`<div class="card"><h3>Tuần ${ddmm(w.start)}</h3>${weekTopicsHtml(w)}</div>`).join("")
-        : `<div class="notice">Chưa có kế hoạch học đã duyệt cho tháng này. Ba mẹ vào Góc ba mẹ 👪 → Kế hoạch học để Mây soạn nhé.</div>`}`;
+        : `<div class="notice">Chưa có kế hoạch học đã duyệt cho tháng này. Ba mẹ vào Cổng ba mẹ (/parents/) → Kế hoạch học để Mây soạn nhé.</div>`}`;
   }
   else if(P.view==="quarter"){
     body = `<p class="muted">Từ ${ddmm(P.from)}/${P.from.slice(0,4)} đến ${ddmm(P.to)}/${P.to.slice(0,4)}</p>
       <div class="card"><h3>Kết quả từ đầu quý</h3>${statsHtml(P.stats)}</div>
-      ${!P.has_plan ? `<div class="notice">Chưa có kế hoạch học đã duyệt. Ba mẹ vào Góc ba mẹ 👪 → Kế hoạch học để Mây soạn nhé.</div>` : ""}
+      ${!P.has_plan ? `<div class="notice">Chưa có kế hoạch học đã duyệt. Ba mẹ vào Cổng ba mẹ (/parents/) → Kế hoạch học để Mây soạn nhé.</div>` : ""}
       ${P.months.map(m=>`<div class="card"><h3>${MONTHS_VI(m.month)}</h3>
         ${m.weeks.map(w=>`<p style="margin:8px 0 0"><b>Tuần ${ddmm(w.start)}</b></p>${weekTopicsHtml(w)}`).join("") || `<p class="muted">Chưa có kế hoạch.</p>`}
         ${m.stats ? `<p class="muted" style="margin:8px 0 0">Đã học ${m.stats.active_days} ngày, chấm ${m.stats.count.homework} bài về nhà, ${m.stats.count.quiz} lượt đố vui.</p>` : ""}</div>`).join("")}`;
@@ -1294,7 +1305,7 @@ async function loadDriveCard(){
 // Google chuyển về app sau khi ba mẹ đồng ý (hoặc từ chối) cấp quyền
 (function(){
   const g = new URLSearchParams(location.search).get("google"); if(!g) return;
-  history.replaceState(null, "", "/");
+  history.replaceState(null, "", location.pathname);
   const msg = {ok:"Đã kết nối Google Drive ✅ Từ giờ ảnh bài tập (đã nén) sẽ được lưu vào Drive của gia đình.",
     denied:"Ba mẹ chưa đồng ý cấp quyền Google Drive.", bad_state:"Liên kết kết nối đã hết hạn. Ba mẹ bấm Kết nối lại nhé.",
     no_refresh:"Google chưa cấp quyền lâu dài. Ba mẹ vào myaccount.google.com/permissions gỡ quyền của app rồi kết nối lại nhé.",
@@ -1343,10 +1354,68 @@ function renderParent(){
   if(state.parentPage==="schedule") return renderSchedule();
   if(state.parentPage==="plan") return renderParentPlan();
   if(state.parentPage==="rewards") return renderRewards();
+  return PARENT_MODE ? renderParentPortal() : renderDeviceSettings();
+}
+const NOTE_CARD = `<div class="card"><h3>Lưu ý</h3>
+  <p class="muted" style="margin:0">Mây được dặn gợi ý từng bước thay vì cho đáp án ngay, không hỏi thông tin cá nhân, và khuyên bé kể với ba mẹ khi có chuyện buồn. Dữ liệu học lưu trên VPS của gia đình; lịch sử trò chuyện tự xoá sau một thời gian. AI đôi khi vẫn có thể sai, nên ba mẹ thỉnh thoảng ngồi cùng bé để kiểm tra nhé.</p></div>`;
+
+// Cổng ba mẹ (/parents/): đăng nhập bằng mã PIN ba mẹ, giữ đăng nhập 7 ngày trên máy này
+function renderParentPortal(){
   const R = state.report;
-  app.innerHTML = `
-    <button class="back" id="back">‹ Về trang của bé</button>
-    <h2 style="font-size:32px">Góc ba mẹ</h2>
+  if(R){
+    app.innerHTML = `<div class="sec-title" style="justify-content:space-between"><h2 style="font-size:32px">Góc ba mẹ</h2>
+        <button class="btn" id="logout">Đăng xuất</button></div>
+      ${reportHtml(R)}${NOTE_CARD}`;
+    document.getElementById("logout").onclick=parentLogout;
+    wireReport(R);
+    return;
+  }
+  if(state.pAuth==="checking"){ app.innerHTML = `<h2 style="font-size:32px">Góc ba mẹ</h2><p class="muted">Đang mở…</p>`; return; }
+  app.innerHTML = `<h2 style="font-size:32px">Góc ba mẹ</h2>
+    <div class="card"><h3>Đăng nhập</h3>
+      <label for="ppin">Mã PIN của ba mẹ (parent_pin, khác mã PIN của app trên máy bé)</label>
+      <input class="field" id="ppin" type="password" inputmode="numeric" autocomplete="current-password">
+      <div class="row"><button class="btn primary" id="login">Đăng nhập</button><span class="muted" id="ppMsg" style="align-self:center"></span></div>
+      <p class="muted" style="margin:8px 0 0">Máy này sẽ giữ đăng nhập 7 ngày. Dùng máy chung với bé thì nhớ bấm Đăng xuất. Nhập sai 5 lần sẽ bị khoá 15 phút.</p></div>
+    <div class="card"><h3>Mẹo</h3><p class="muted" style="margin:0">Thêm trang này vào màn hình chính điện thoại của ba mẹ (Chia sẻ → Thêm vào MH chính) để mở nhanh. Máy của bé dùng địa chỉ chính, không có phần ba mẹ.</p></div>`;
+  const login = async()=>{
+    const msg=document.getElementById("ppMsg"); msg.textContent="Đang kiểm tra…";
+    try{ await api("/api/parent/login",{pin:document.getElementById("ppin").value.trim()},true); await loadReport(); }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+  document.getElementById("login").onclick=login;
+  document.getElementById("ppin").addEventListener("keydown",e=>{ if(e.key==="Enter") login(); });
+}
+async function loadReport(){
+  state.report = await api("/api/parent/report",{},true);
+  render(); window.scrollTo(0,0);
+}
+async function parentLogout(){
+  try{ await api("/api/parent/logout",{},true); }catch(e){}
+  state.report=null; state.pAuth=null; state.parentPage=null; render();
+}
+
+// Máy của bé: ⚙️ Cài đặt máy (mã PIN của app, giọng đọc) – cần mã PIN ba mẹ, rời màn hình là khoá lại
+function renderDeviceSettings(){
+  if(!state.devOk){
+    app.innerHTML = `<button class="back" id="back">‹ Về trang của bé</button>
+      <h2 style="font-size:32px">Cài đặt máy</h2>
+      <div class="card"><label for="ppin">Nhập mã PIN của ba mẹ để mở cài đặt máy này</label>
+        <input class="field" id="ppin" type="password" inputmode="numeric" autocomplete="off">
+        <div class="row"><button class="btn primary" id="unlock">Mở</button><span class="muted" id="ppMsg" style="align-self:center"></span></div></div>
+      <div class="card"><h3>Ba mẹ xem báo cáo ở đâu?</h3><p class="muted" style="margin:0">Báo cáo, kế hoạch học, sao và đổi quà nằm ở <b>Cổng ba mẹ</b>: <b>${esc(location.host)}/parents/</b>, mở trên điện thoại của ba mẹ.</p></div>`;
+    const unlock = async()=>{
+      const msg=document.getElementById("ppMsg"); parentPin=document.getElementById("ppin").value.trim(); msg.textContent="Đang kiểm tra…";
+      try{ await api("/api/parent/check",{},true); state.devOk=true; render(); }
+      catch(e){ parentPin=""; msg.textContent=copyFor(e&&e.code); }
+    };
+    document.getElementById("unlock").onclick=unlock;
+    document.getElementById("ppin").addEventListener("keydown",e=>{ if(e.key==="Enter") unlock(); });
+    document.getElementById("back").onclick=()=>go("home");
+    return;
+  }
+  app.innerHTML = `<button class="back" id="back">‹ Về trang của bé</button>
+    <h2 style="font-size:32px">Cài đặt máy</h2>
     <div class="card">
       <h3>Mã PIN của app trên máy này</h3>
       <label for="pinIn">Nhập mã PIN của app (app_pin trong config.php). Mỗi máy chỉ cần nhập một lần.</label>
@@ -1354,17 +1423,8 @@ function renderParent(){
       <div class="row"><button class="btn primary" id="savePin">Lưu mã PIN</button><span class="muted" id="pinMsg" style="align-self:center"></span></div>
     </div>
     ${voiceCardHtml()}
-    ${R ? reportHtml(R) : `
-    <div class="card">
-      <h3>Báo cáo học tập</h3>
-      <label for="ppin">Nhập mã PIN của ba mẹ (parent_pin, khác mã của app) để xem báo cáo, lịch sử trò chuyện và cài đặt cho Mây</label>
-      <input class="field" id="ppin" type="password" inputmode="numeric" autocomplete="off">
-      <div class="row"><button class="btn primary" id="openReport">Mở báo cáo</button><span class="muted" id="ppMsg" style="align-self:center"></span></div>
-    </div>`}
-    <div class="card">
-      <h3>Lưu ý</h3>
-      <p class="muted" style="margin:0">Mây được dặn gợi ý từng bước thay vì cho đáp án ngay, không hỏi thông tin cá nhân, và khuyên bé kể với ba mẹ khi có chuyện buồn. Dữ liệu học lưu trên VPS của gia đình; lịch sử trò chuyện tự xoá sau một thời gian. Báo cáo tự khoá khi rời Góc ba mẹ. AI đôi khi vẫn có thể sai, nên ba mẹ thỉnh thoảng ngồi cùng bé để kiểm tra nhé.</p>
-    </div>`;
+    <div class="card"><h3>Cổng ba mẹ</h3><p class="muted" style="margin:0">Báo cáo, kế hoạch học, sao và đổi quà: mở <a href="/parents/" target="_blank" rel="noopener">${esc(location.host)}/parents/</a> trên điện thoại của ba mẹ.</p></div>
+    ${NOTE_CARD}`;
   document.getElementById("back").onclick=()=>go("home");
   wireVoiceCard();
   document.getElementById("savePin").onclick=async()=>{
@@ -1373,16 +1433,6 @@ function renderParent(){
     try{ await api("/api/state"); LS.set("pin",pin); msg.textContent="Đã lưu, mã PIN đúng ✅"; refreshState(); }
     catch(e){ pin=old; msg.textContent=copyFor(e&&e.code); }
   };
-  if(!R){
-    const open = async()=>{
-      const msg=document.getElementById("ppMsg"); parentPin=document.getElementById("ppin").value.trim();
-      msg.textContent="Đang mở…";
-      try{ state.report = await api("/api/parent/report",{},true); render(); }
-      catch(e){ parentPin=""; msg.textContent=copyFor(e&&e.code); }
-    };
-    document.getElementById("openReport").onclick=open;
-    document.getElementById("ppin").addEventListener("keydown",e=>{ if(e.key==="Enter") open(); });
-  } else wireReport(R);
 }
 function reportHtml(R){
   const max = Math.max(1, ...R.days.map(d=>d.n));
@@ -1449,7 +1499,7 @@ function reportHtml(R){
     <div class="card">
       <h3>Dữ liệu</h3>
       <div class="row">
-        <button class="btn" id="lock">Khoá báo cáo</button>
+        <button class="btn" id="lock">Đăng xuất</button>
         <button class="btn danger" id="clearChats">Xoá lịch sử trò chuyện</button>
         <button class="btn danger" id="clearAll">Xoá toàn bộ dữ liệu học</button>
       </div>
@@ -1486,7 +1536,7 @@ function wireReport(R){
     try{ state.pplan=await api("/api/parent/plan",{},true); }catch(e){ state.pplan={error:copyFor(e&&e.code)}; }
     render();
   };
-  document.getElementById("lock").onclick=()=>{ parentPin=""; state.report=null; render(); };
+  document.getElementById("lock").onclick=parentLogout;
   const clear = async(what, question)=>{
     if(!confirm(question)) return;
     try{ await api("/api/parent/clear",{what},true); state.report = await api("/api/parent/report",{},true); render(); refreshState(); }
@@ -1537,10 +1587,20 @@ setInterval(()=>{
 
 
 if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{})); }
-document.getElementById("homeBtn").onclick=()=>{ go("home"); refreshState(); };
-document.getElementById("parentBtn").onclick=()=>go("parent");
-render();
-refreshState();
+if(PARENT_MODE){
+  // Cổng ba mẹ: không có phần của bé; kiểm tra phiên đăng nhập còn hạn thì vào thẳng báo cáo
+  document.querySelector(".bar .title").textContent = "Góc ba mẹ";
+  document.getElementById("starPill").style.display = "none";
+  document.getElementById("parentBtn").style.display = "none";
+  document.getElementById("homeBtn").onclick=()=>{ state.transcript=null; state.hwDetail=null; state.parentPage=null; render(); window.scrollTo(0,0); };
+  state.view = "parent"; state.pAuth = "checking"; render();
+  loadReport().catch(()=>{ state.pAuth = null; render(); });
+} else {
+  document.getElementById("homeBtn").onclick=()=>{ go("home"); refreshState(); };
+  document.getElementById("parentBtn").onclick=()=>go("parent");
+  render();
+  refreshState();
+}
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && state.view==="home") refreshState(); });
 </script>
 </body>

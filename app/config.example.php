@@ -41,6 +41,9 @@ return [
     // Giữ ảnh trên Drive bao nhiêu ngày rồi tự xoá (365 = 1 năm học)
     'drive_keep_days' => 365,
 
+    // Cổng ba mẹ /parents/: đăng nhập bằng parent_pin, giữ đăng nhập bao nhiêu ngày
+    'parent_session_days' => 7,
+
     // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3, 1 lần chấm bài tập = 5)
     'daily_limit' => 150,
 
