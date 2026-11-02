@@ -187,6 +187,73 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .transcript .t.user{background:var(--me);color:var(--me-ink);align-self:flex-end}
 .transcript .t.assistant{background:var(--surface);border:2px solid var(--line)}
 .btn.danger{border-color:var(--coral);color:var(--coral)}
+
+/* chấm bài tập về nhà */
+.hwbar{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--l2);color:var(--label-ink);border:2.5px solid var(--ink);border-radius:18px;padding:12px 16px;margin:0 0 22px;box-shadow:4px 4px 0 var(--ink)}
+.hwbar:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--ink)}
+.hwbar .ic{font-size:32px;line-height:1}
+.hwbar b{font-family:var(--display);font-size:22px;display:block;line-height:1.15}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin:12px 0}
+.ph{position:relative;aspect-ratio:3/4;border-radius:14px;overflow:hidden;border:2px solid var(--line);background:var(--surface-2)}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph .rm{position:absolute;top:6px;right:6px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(20,10,40,.7);color:#fff;font-size:18px;line-height:1}
+.ph .no{position:absolute;left:6px;bottom:6px;background:rgba(20,10,40,.7);color:#fff;border-radius:8px;padding:0 8px;font-size:13px}
+.addph{aspect-ratio:3/4;border:2.5px dashed var(--ink-soft);border-radius:14px;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:15px;color:var(--ink-soft)}
+.addph span{font-size:36px}
+.hwitem{background:var(--surface);border:2px solid var(--line);border-left-width:8px;border-radius:16px;padding:12px 14px;margin:10px 0}
+.hwitem.right{border-left-color:var(--mint)}.hwitem.wrong{border-left-color:var(--coral)}
+.hwitem.partial{border-left-color:var(--sun)}.hwitem.unclear,.hwitem.feedback{border-left-color:var(--l4)}
+.hwitem .top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.hwitem .top b{font-family:var(--display);font-size:19px}
+.st{font-size:13px;font-weight:600;border-radius:999px;padding:1px 10px;background:var(--surface-2)}
+.st.right{background:var(--mint-bg);color:var(--mint)}.st.wrong{background:var(--coral-bg);color:var(--coral)}
+.st.partial{background:#FFF1C7;color:#8A5A00}
+.hwitem .small{font-size:14px;color:var(--ink-soft);margin:2px 0}
+.hwitem .row{margin-top:8px}
+.hwitem .btn{font-size:15px;padding:6px 12px}
+.reveal{margin-top:8px;padding:10px 12px;border-radius:12px;background:var(--surface-2);font-size:15px}
+.tips{margin:6px 0 0;padding-left:20px}
+
+/* kế hoạch học */
+.today{background:var(--surface);border:2.5px solid var(--ink);border-radius:20px;padding:14px 16px;margin:0 0 18px;box-shadow:4px 4px 0 var(--ink)}
+.today .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.today .head h3{font-size:24px}
+.task{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:var(--surface-2);border:2px solid var(--line);border-radius:14px;padding:10px 12px;margin:8px 0;font-size:16px}
+.task .ck{width:28px;height:28px;border-radius:50%;border:2.5px solid var(--ink-soft);display:grid;place-items:center;flex:none;font-size:16px}
+.task.done{opacity:.7}.task.done .ck{background:var(--mint);border-color:var(--mint);color:#fff}
+.task.done .tt{text-decoration:line-through}
+.task .tt{flex:1}.task .min{font-size:13px;color:var(--ink-soft);white-space:nowrap}
+.pnote{font-size:14px;color:var(--ink-soft);margin:4px 0}
+.quick{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 22px}
+.tabs{display:flex;gap:8px;margin:10px 0 14px;flex-wrap:wrap}
+.daycol{background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:8px 12px;margin:8px 0}
+.daycol.now{border-color:var(--ink);border-width:2.5px}
+.daycol b{font-family:var(--display);font-size:18px}
+.daycol ul{margin:4px 0 0;padding-left:0;list-style:none;font-size:14px}
+.daycol li{margin:2px 0}
+.pweek h3{font-size:19px!important}
+.sp-card{background:var(--surface);border:2.5px solid var(--ink);border-radius:22px;padding:18px;box-shadow:5px 5px 0 var(--ink)}
+.sp-big{font-size:24px;font-weight:600;line-height:1.4;margin:6px 0 10px}
+.sp-mic{display:flex;flex-direction:column;align-items:center;gap:8px;margin:16px 0 6px}
+.sp-mic button{width:96px;height:96px;border-radius:50%;border:0;background:var(--sun);font-size:42px;box-shadow:0 4px 0 rgba(43,27,82,.3)}
+.sp-mic button.on{background:var(--coral);animation:blink 1s infinite}
+.sp-live{min-height:2.4em;background:var(--surface-2);border-radius:12px;padding:8px 12px;font-size:17px}
+.sp-res{margin-top:14px;padding:12px 14px;border-radius:16px;background:var(--surface-2)}
+.sp-res .lv{font-family:var(--display);font-size:24px;font-weight:800}
+.sp-res .lv.great{color:var(--mint)}.sp-res .lv.try_again{color:var(--coral)}
+.wd{display:inline-block;padding:1px 6px;margin:2px;border-radius:8px;font-size:19px}
+.wd.ok{background:var(--mint-bg);color:var(--mint)}.wd.no{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
+.fix{margin:8px 0;padding:8px 10px;border-left:4px solid var(--sun);background:var(--surface);border-radius:8px;font-size:15px}
+.prow{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;margin:6px 0}
+.prow span{font-size:14px;font-weight:500}
+.prow input{width:100%;background:var(--surface-2);border:2px solid var(--line);border-radius:10px;padding:7px 10px;font-size:15px}
+@media (max-width:520px){.prow{grid-template-columns:1fr}}
+.statrow{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+.stat{background:var(--surface-2);border-radius:12px;padding:6px 12px;font-size:14px}
+.stat b{font-family:var(--display);font-size:20px;display:block}
+.clsrow{display:grid;grid-template-columns:110px 90px 80px 1fr 36px;gap:6px;margin:6px 0;align-items:center}
+.clsrow select,.clsrow input{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
+@media (max-width:520px){.clsrow{grid-template-columns:1fr 1fr 1fr}.clsrow input[data-f=name]{grid-column:1/3}}
 </style>
 </head>
 <body>
@@ -232,8 +299,9 @@ const LS = {
 let pin = LS.get("pin","");
 let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
 let autoRead = LS.get("autoRead", true);
-const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0};
-const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null};
+const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null, tts: LS.get("ttsOn", false), ttsVoices: null};
+const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null,
+  plan:null, planTab:"day", parentPage:null, sched:null, pplan:null};
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let micLang = "vi", rec = null;
 
@@ -265,6 +333,8 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
+    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
+    me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
 }
@@ -277,6 +347,12 @@ function copyFor(code){
     server_not_configured: "App chưa cài đặt xong (thiếu file config.php trên VPS).",
     upstream: "Mây chưa kết nối được tới Claude. Thử lại sau ít phút nhé.",
     bad_quiz: "Mây soạn câu hỏi bị lỗi. Bấm thử lại nhé.",
+    bad_photos: "Ảnh chưa gửi được. Bạn chụp lại (tối đa 4 ảnh) rồi thử lần nữa nhé.",
+    bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
+    http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
+    bad_plan: "Mây soạn kế hoạch bị lỗi. Ba mẹ bấm thử lại nhé.",
+    google_not_configured: "VPS chưa có thông tin Google (google_client_id, google_client_secret trong config.php).",
+    bad_speaking: "Mây soạn bài luyện nói bị lỗi. Bấm thử lại nhé.",
     cancelled: ""
   };
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
@@ -293,13 +369,17 @@ function render(){
   else if(state.view==="subject") renderSubject();
   else if(state.view==="chat") renderChat();
   else if(state.view==="quiz") renderQuiz();
+  else if(state.view==="homework") renderHomework();
+  else if(state.view==="plan") renderPlan();
+  else if(state.view==="speak") renderSpeak();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
-  try{ speechSynthesis.cancel(); }catch(e){}
-  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; } // rời Góc ba mẹ là khoá báo cáo
+  stopSpeakCapture(true);
+  stopVoice();
+  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
 
@@ -311,13 +391,18 @@ function renderHome(){
       <div class="say"><b>${hello}, ${esc(nick())}!</b><br>Mình là Mây ☁️ Hôm nay mình học môn gì nào?</div>
     </div>
     ${noSampleNotice()}
-    ${me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
+    ${me.today ? todayCard(me.today) : `<button class="hwbar" id="toHomework"><span class="ic">📸</span><span><b>Chấm bài về nhà</b>Làm xong bài cô giao thì chụp ảnh gửi Mây chấm nhé!</span></button>`}
+    ${me.today ? `<div class="quick">${me.today.items.some(x=>x.key==="homework") ? "" : `<button class="btn" id="toHomework">📸 Chấm bài về nhà</button>`}<button class="btn" id="toPlan">📅 Lịch học</button></div>` : ""}
+    ${!me.today && me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
     <div class="labels">
       ${SUBJECTS.map(s=>`<button class="label" style="background:${s.color}" data-s="${s.id}">
         <div class="ic">${s.ic}</div><h3>${s.name}</h3><small>${s.sub}</small></button>`).join("")}
     </div>`;
   app.querySelectorAll(".label").forEach(b=>b.onclick=()=>{ state.subject=b.dataset.s; state.topic=""; go("subject"); });
   const tr=document.getElementById("toReview"); if(tr) tr.onclick=startReview;
+  const th=document.getElementById("toHomework"); if(th) th.onclick=()=>openHomework();
+  const tp=document.getElementById("toPlan"); if(tp) tp.onclick=()=>openPlan("week");
+  wireTasks(me.today);
 }
 
 function renderSubject(){
@@ -333,6 +418,7 @@ function renderSubject(){
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 5 câu</h3><div class="muted">Trả lời đúng để nhận sao ⭐</div></button>
+      ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
   app.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{
@@ -346,6 +432,7 @@ function renderSubject(){
   };
   document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; go("chat"); };
   document.getElementById("toQuiz").onclick=()=>startQuiz();
+  const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
 }
 
 /* ---------- chat ---------- */
@@ -379,7 +466,7 @@ function renderChat(){
   document.getElementById("sendBtn").onclick=onSend;
   app.querySelectorAll("#sugg .chip").forEach(c=>c.onclick=()=>sendChat(c.textContent));
   const ar=document.getElementById("autoRead");
-  ar.onchange=()=>{ autoRead=ar.checked; LS.set("autoRead",autoRead); if(!autoRead){ try{speechSynthesis.cancel()}catch(e){} } };
+  ar.onchange=()=>{ autoRead=ar.checked; LS.set("autoRead",autoRead); if(!autoRead) stopVoice(); };
   const lb=document.getElementById("langBtn");
   if(lb) lb.onclick=()=>{ micLang = micLang==="vi"?"en":"vi"; lb.textContent = micLang==="vi"?"VI":"EN"; };
   const mb=document.getElementById("micBtn"); if(mb) mb.onclick=toggleMic;
@@ -409,7 +496,7 @@ function toggleMic(){
   const mb=document.getElementById("micBtn"), note=document.getElementById("micNote"), box=document.getElementById("box");
   if(rec){ try{rec.stop()}catch(e){} return; }
   if(state.busy || !ready()) return;
-  try{ speechSynthesis.cancel(); }catch(e){}
+  stopVoice();
   try{
     rec = new SR(); rec.lang = micLang==="vi" ? "vi-VN" : "en-US";
     rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
@@ -426,16 +513,95 @@ function guessLang(text, fallback){
   const words = text.split(/\s+/).length || 1;
   return vi/words > 0.15 ? "vi" : (fallback==="vi" && vi>0 ? "vi" : (vi/words > 0.08 && fallback==="vi" ? "vi" : fallback==="vi" ? "vi" : "en"));
 }
-function speak(text, lang){
+// Giọng của Mây: dùng giọng đọc có sẵn trên máy. Mặc định nâng cao độ (pitch) để nghe như bạn nhỏ 8–10 tuổi.
+// Ba mẹ chỉnh giọng, cao độ, tốc độ trong Góc ba mẹ; lưu riêng trên từng máy (mỗi máy có bộ giọng khác nhau).
+const VOICE_PREF = {vi:["Linh","Google Tiếng Việt","HoaiMy","An"], en:["Samantha","Karen","Kate","Serena","Stephanie","Martha","Moira","Tessa","Google UK English Female","Google US English","Aria","Jenny","Ana"]};
+const voiceCfg = () => ({vi:LS.get("voiceVi",""), en:LS.get("voiceEn",""), pitch:LS.get("pitch",1.4), speed:LS.get("speed",1)});
+function voicesFor(l){ try{ return speechSynthesis.getVoices().filter(v=>v.lang && v.lang.toLowerCase().replace("_","-").startsWith(l)); }catch(e){ return []; } }
+function pickVoice(l){
+  const list = voicesFor(l), want = voiceCfg()[l];
+  return list.find(v=>v.name===want)
+    || VOICE_PREF[l].map(n=>list.find(v=>v.name.includes(n))).find(Boolean)
+    || list.find(v=>/female|nữ/i.test(v.name)) || list[0] || null;
+}
+// Tách đoạn thành các phần theo ngôn ngữ, để phần tiếng Anh đọc bằng giọng Anh, phần tiếng Việt bằng giọng Việt.
+// Ranh giới: câu, phần trong ngoặc (), ngoặc kép, chữ in đậm **…**, xuống dòng.
+const VI_CHARS = /[ăâđêôơưàáạảãầấậẩẫằắặẳẵèéẹẻẽềếệểễìíịỉĩòóọỏõồốộổỗờớợởỡùúụủũừứựửữỳýỵỷỹ]/i;
+function langChunks(text, fallback){
+  const clean = String(text).replace(/[\u{1F300}-\u{1FAFF}☀-➿\u{1F1E6}-\u{1F1FF}️]/gu,"");
+  // Môn tiếng Anh: không cắt ở chữ in đậm (thường nằm giữa câu tiếng Anh).
+  // Môn tiếng Việt: cắt ở chữ in đậm để từ tiếng Anh in đậm được đọc bằng giọng Anh.
+  const re = fallback==="en"
+    ? /(\([^)]*\)|“[^”]*”|"[^"\n]*"|\n+|[^.!?…:\n(“"]+(?:[.!?…]+|:(?=\s)|$))/u
+    : /(\*\*[^*]+\*\*|\([^)]*\)|“[^”]*”|"[^"\n]*"|\n+|[^.!?…:\n(“"*]+(?:[.!?…]+|:(?=\s)|$))/u;
+  const parts = clean.split(re).filter(x=>x && x.trim());
+  const name = (typeof nick==="function" ? nick() : "").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"").trim();
+  const out = [];
+  let prev = fallback==="en" ? "en" : "vi";
+  for(let raw of parts){
+    const t = raw.replace(/\*\*/g,"").trim(); if(!t) continue;
+    const latin = (t.match(/[A-Za-z]{2,}/g)||[]).length;
+    // Tên "Mây" và tên bé có dấu nhưng không làm câu tiếng Anh thành tiếng Việt
+    let probe = t.split("Mây").join("");
+    if(name) probe = probe.split(name).join("");
+    let l;
+    if(VI_CHARS.test(probe)) l = "vi";
+    else if(latin >= 2 || (latin >= 1 && (fallback==="en" || /^["“(]|\*\*/.test(raw)))) l = "en";
+    else l = prev;            // số, ký hiệu, một từ lẻ: theo phần trước
+    if(out.length && out[out.length-1].l===l) out[out.length-1].t += " " + t; else out.push({l, t});
+    prev = l;
+  }
+  return out;
+}
+// Giọng tự nhiên (Azure) khi máy chủ có key và ba mẹ không tắt; lỗi thì tự quay về giọng của máy.
+// Phát bằng Web Audio: iPad chỉ cho phát âm thanh sau một lần chạm, nên "mở khoá" AudioContext ở lần chạm đầu tiên.
+let actx = null, asrc = null, ttsSeq = 0;
+function audioCtx(){ if(!actx){ const C = window.AudioContext || window.webkitAudioContext; if(C) actx = new C(); } return actx; }
+function unlockAudio(){
+  const c = audioCtx(); if(!c) return;
+  if(c.state==="suspended") c.resume().catch(()=>{});
+  try{ const b=c.createBuffer(1,1,22050), s=c.createBufferSource(); s.buffer=b; s.connect(c.destination); s.start(0); }catch(e){}
+}
+["touchend","click"].forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
+function stopVoice(){ ttsSeq++; if(asrc){ try{ asrc.stop(); }catch(e){} asrc=null; } try{ speechSynthesis.cancel(); }catch(e){} }
+const cloudOn = () => me.tts && LS.get("cloudVoice", true);
+async function cloudSpeak(chunks, rate){
+  const seq = ++ttsSeq;
+  const res = await fetch("/api/tts",{method:"POST", headers:{"content-type":"application/json","x-app-pin":pin},
+    body:JSON.stringify({chunks, rate:(rate||.95)/.95, vi:LS.get("cloudVi",""), en:LS.get("cloudEn","")})});
+  if(!res.ok) throw new Error("tts "+res.status);
+  const data = await res.arrayBuffer();
+  if(seq!==ttsSeq) return;               // đã có câu khác chen vào
+  const c = audioCtx(); if(!c) throw new Error("no audio");
+  if(c.state==="suspended") await c.resume();
+  const buf = await new Promise((ok,no)=>c.decodeAudioData(data, ok, no));
+  if(seq!==ttsSeq) return;
+  asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination); asrc.start(0);
+}
+function speak(text, lang, rate){
+  const chunks = lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
+               : lang==="vi-only" ? [{l:"vi", t:String(text).replace(/\*\*/g,"")}]
+               : langChunks(text, lang);
+  stopVoice();
+  if(cloudOn()){ cloudSpeak(chunks.map(c=>({l:c.l, t:c.t.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"")})), rate).catch(()=>deviceSpeak(chunks, rate)); return; }
+  deviceSpeak(chunks, rate);
+}
+function deviceSpeak(chunks, rate){
   try{
     speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(text.replace(/\*\*/g,"").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,""));
-    u.lang = guessLang(text, lang)==="vi" ? "vi-VN" : "en-GB"; u.rate=.95;
-    const v = speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith(u.lang.slice(0,2)));
-    if(v) u.voice=v;
-    speechSynthesis.speak(u);
+    const c = voiceCfg();
+    for(const ch of chunks){
+      const u = new SpeechSynthesisUtterance(ch.t);
+      const v = pickVoice(ch.l);
+      u.lang = v ? v.lang : (ch.l==="vi" ? "vi-VN" : "en-GB");
+      if(v) u.voice = v;
+      u.pitch = Math.min(2, Math.max(0.5, +c.pitch||1.4));
+      u.rate = Math.min(1.6, Math.max(0.5, (rate||.95) * (+c.speed||1)));
+      speechSynthesis.speak(u);
+    }
   }catch(e){}
 }
+try{ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>{}; }catch(e){}
 
 async function sendChat(text){
   text = (text||"").trim();
@@ -554,9 +720,577 @@ function renderQuiz(){
   document.getElementById("back").onclick=()=>{ go(backTo); if(backTo==="home") refreshState(); };
 }
 
+/* ---------- chấm bài tập về nhà ---------- */
+const HW_ST = {right:"Đúng rồi", partial:"Gần đúng", wrong:"Cần sửa", unclear:"Mây chưa đọc rõ", feedback:"Góp ý"};
+function openHomework(subject){
+  const prev = state.hw;
+  state.hw = {subject: subject || prev?.subject || null, note:"", photos:[], recheckOf:null, list:null, revealed:{}, hinted:{}};
+  go("homework");
+  loadHomeworkList();
+}
+async function loadHomeworkList(open){
+  if(!ready()) return;
+  try{
+    const d = await api("/api/homework_list", open ? {open} : {});
+    if(!state.hw) return;
+    state.hw.list = d.list || [];
+    if(d.detail){ Object.assign(state.hw, {result:d.detail.result, id:d.detail.id, subject:d.detail.subject, past:d.detail.created_at, wasRecheck:d.detail.recheck_of!==null, recheckOf:null, revealed:{}, hinted:{}}); }
+    if(state.view==="homework") render();
+  }catch(e){}
+}
+// Thu nhỏ ảnh ngay trên iPad (cạnh dài tối đa 1600px, JPEG) để gửi nhanh và đỡ tốn dung lượng
+async function shrinkPhoto(file){
+  const url = URL.createObjectURL(file);
+  try{
+    const img = new Image();
+    await new Promise((ok,no)=>{ img.onload=ok; img.onerror=no; img.src=url; });
+    const k = Math.min(1, 1600/Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth*k); c.height = Math.round(img.naturalHeight*k);
+    const g = c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(img,0,0,c.width,c.height);
+    let q = .85, data = c.toDataURL("image/jpeg", q);
+    while(data.length > 2_000_000 && q > .5){ q -= .1; data = c.toDataURL("image/jpeg", q); }
+    return data;
+  } finally { URL.revokeObjectURL(url); }
+}
+function renderHomework(){
+  const H = state.hw;
+  const head = `<button class="back" id="back">‹ Trang chính</button>`;
+  if(H.loading){
+    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">Mây đang chấm bài của ${esc(nick())}… <span class="thinking"><i></i><i></i><i></i></span><br><span class="muted">Mây đọc kỹ từng câu nên có thể mất khoảng một phút đó.</span></div></div>`;
+  } else if(H.result){
+    renderHomeworkResult(H, head); return;
+  } else {
+    const s = H.subject ? subjById(H.subject) : null;
+    const hist = (H.list||[]).map(x=>`<button data-id="${x.id}"><b>${esc(subjById(x.subject)?.name||"")}${x.title?": "+esc(x.title):""}</b><small>${fmtDate(x.created_at)}${x.graded?`, đúng ${x.right}/${x.graded} câu`:""}</small></button>`).join("");
+    app.innerHTML = head + `
+      <div class="sec-title"><div class="badge" style="background:var(--l2)">📸</div>
+        <div><h2>${H.recheckOf ? "Chấm lại bài đã sửa" : "Chấm bài về nhà"}</h2><div class="muted">Chụp bài đã làm xong, Mây chấm và góp ý</div></div></div>
+      ${noSampleNotice()}
+      <p style="margin:14px 0 4px"><b>1.</b> Bài tập môn gì?</p>
+      <div class="chips">${SUBJECTS.map(x=>`<button class="chip" aria-pressed="${H.subject===x.id}" data-s="${x.id}" ${H.recheckOf?"disabled":""}>${x.ic} ${esc(x.name)}${x.lang==="en"?" (Cambridge)":""}</button>`).join("")}</div>
+      <p style="margin:14px 0 4px"><b>2.</b> Chụp bài làm (tối đa 4 ảnh, mỗi trang một ảnh)</p>
+      <div class="photos">
+        ${H.photos.map((p,i)=>`<div class="ph"><img src="${p}" alt="Ảnh ${i+1}"><button class="rm" data-i="${i}" aria-label="Bỏ ảnh ${i+1}">×</button><span class="no">${i+1}</span></div>`).join("")}
+        ${H.photos.length<4 ? `<label class="addph"><span>📷</span>${H.photos.length?"Thêm trang":"Chụp ảnh"}<input type="file" id="phIn" accept="image/*" multiple hidden></label>` : ""}
+      </div>
+      <p class="muted" style="margin:0">Mẹo: đặt vở chỗ sáng, chụp thẳng từ trên xuống, thấy rõ cả đề bài và chữ của bạn.${me.drive?" Ảnh (đã nén) sẽ được lưu vào Google Drive của gia đình.":""}</p>
+      <p style="margin:14px 0 4px"><b>3.</b> Ghi chú cho Mây (không bắt buộc)</p>
+      <input class="field" id="hwNote" maxlength="300" placeholder="Ví dụ: Bài 3, 4 trang 25; cô dặn trình bày lời giải" value="${esc(H.note)}">
+      ${H.error ? `<div class="notice">${esc(H.error)}</div>` : ""}
+      <div class="row"><button class="btn primary" id="hwSend" ${(!H.subject||!H.photos.length||!ready()||H.shrinking)?"disabled":""}>${H.shrinking?"Đang xử lý ảnh…":"Gửi Mây chấm ✨"}</button></div>
+      ${hist ? `<div class="card"><h3>Bài đã chấm gần đây</h3><div class="convlist">${hist}</div></div>` : ""}`;
+    app.querySelectorAll(".chips .chip").forEach(c=>c.onclick=()=>{ H.subject=c.dataset.s; H.error=""; render(); });
+    app.querySelectorAll(".ph .rm").forEach(b=>b.onclick=()=>{ H.photos.splice(+b.dataset.i,1); render(); });
+    document.getElementById("hwNote").oninput=e=>{ H.note=e.target.value; };
+    const inp=document.getElementById("phIn");
+    if(inp) inp.onchange=async()=>{
+      const files=[...inp.files].slice(0, 4-H.photos.length); if(!files.length) return;
+      H.shrinking=true; H.error=""; render();
+      for(const f of files){
+        try{ H.photos.push(await shrinkPhoto(f)); }
+        catch(e){ H.error="Có một ảnh Mây không mở được. Bạn chụp lại ảnh đó nhé."; }
+      }
+      H.shrinking=false; if(state.view==="homework") render();
+    };
+    document.getElementById("hwSend").onclick=sendHomework;
+    app.querySelectorAll(".convlist button").forEach(b=>b.onclick=()=>loadHomeworkList(+b.dataset.id));
+  }
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+async function sendHomework(){
+  const H = state.hw;
+  if(!H.subject || !H.photos.length || H.loading || !ready()) return;
+  H.loading=true; H.error=""; render(); window.scrollTo(0,0);
+  try{
+    const d = await api("/api/homework",{subject:H.subject, note:H.note, photos:H.photos, recheck_of:H.recheckOf});
+    if(state.hw!==H) return;
+    setStars(d.stars);
+    if(typeof d.due==="number") me.due=d.due;
+    if(!d.readable){ H.error = d.praise; }
+    else { Object.assign(H, {result:d.result, id:d.id, photos:[], past:null, wasRecheck:!!H.recheckOf, recheckOf:null, revealed:{}, hinted:{}}); }
+  }catch(e){ H.error = copyFor(e&&e.code); }
+  H.loading=false;
+  if(state.view==="homework" && state.hw===H){ render(); window.scrollTo(0,0); }
+}
+function renderHomeworkResult(H, head){
+  const R = H.result, s = subjById(H.subject);
+  const graded = R.items.filter(x=>["right","partial","wrong"].includes(x.status));
+  const ok = graded.filter(x=>x.status==="right").length;
+  const toFix = R.items.filter(x=>x.status==="wrong"||x.status==="partial").length;
+  const practice = R.items.filter(x=>x.practice).length;
+  app.innerHTML = head + `
+    <div class="sec-title"><div class="badge" style="background:${s?.color||"var(--l2)"}">${s?.ic||"📸"}</div>
+      <div><h2>${esc(R.title || "Bài tập về nhà")}</h2><div class="muted">${esc(s?.name||"")}${H.past?", chấm lúc "+fmtDate(H.past):""}</div></div></div>
+    <div class="greet" style="margin-top:14px">${mascot()}<div class="say">${fmt(R.praise||"Mây chấm xong rồi nè!")}
+      ${graded.length ? `<br><b>${ok}/${graded.length}</b> câu đúng${toFix?`, ${toFix} câu cần sửa`:" 🎉"}` : ""}
+      ${"speechSynthesis" in window ? ` <button class="speak" id="hwSpeak" aria-label="Đọc to">🔊</button>` : ""}</div></div>
+    ${R.improved>0 ? `<div class="notice">🎉 Bạn đã tự sửa đúng <b>${R.improved} câu</b>! Giỏi quá.${toFix?" Giờ bạn có thể bấm <b>Xem cách làm đúng</b> ở câu còn sai để hiểu thêm nhé.":""}</div>` : ""}
+    ${toFix && !R.answers_open ? (H.wasRecheck && !R.improved
+      ? `<div class="notice">Mây chưa thấy câu nào được sửa đúng. Bạn đọc lại nhận xét, bấm <b>💡 Gợi ý</b>, sửa tiếp vào vở rồi chụp lại nhé. Khi sửa đúng được ít nhất một câu, bạn sẽ xem được cách làm đúng!</div>`
+      : `<div class="notice">Với câu cần sửa: đọc nhận xét, bấm <b>💡 Gợi ý</b> rồi tự sửa vào vở. Sửa xong thì <b>chụp lại gửi Mây chấm lại</b>. Khi bạn sửa đúng được ít nhất một câu, Mây sẽ mở cách làm đúng cho các câu còn lại nhé!</div>`) : ""}
+    ${R.items.map((x,i)=>`<div class="hwitem ${x.status}">
+      <div class="top"><b>${esc(x.label)}</b><span class="st ${x.status}">${x.fixed?"Đã sửa đúng 🎉":(HW_ST[x.status]||"")}</span></div>
+      ${x.task ? `<div class="small">Đề: ${fmt(x.task)}</div>` : ""}
+      ${x.student ? `<div class="small">Bạn làm: ${fmt(x.student)}</div>` : ""}
+      ${x.comment ? `<div style="margin-top:4px">${fmt(x.comment)}</div>` : ""}
+      ${H.hinted[i]&&x.hint ? `<div class="reveal">💡 ${fmt(x.hint)}</div>` : ""}
+      ${H.revealed[i]&&x.fix ? `<div class="reveal">✅ ${fmt(x.fix)}</div>` : ""}
+      ${(x.hint&&!H.hinted[i]) || (x.fix&&!H.revealed[i]) ? `<div class="row">
+        ${x.hint&&!H.hinted[i] ? `<button class="btn" data-hint="${i}">💡 Gợi ý</button>` : ""}
+        ${x.fix&&!H.revealed[i] ? `<button class="btn" data-fix="${i}">✅ Xem cách làm đúng</button>` : ""}
+      </div>` : ""}
+      ${!R.answers_open&&x.has_fix ? `<div class="small" style="margin-top:6px">🔒 Cách làm đúng sẽ mở khi bạn tự sửa đúng ít nhất một câu và gửi Mây chấm lại.</div>` : ""}
+    </div>`).join("")}
+    ${R.tips?.length ? `<div class="card"><h3>Lần sau nhớ nhé</h3><ul class="tips">${R.tips.map(t=>`<li>${fmt(t)}</li>`).join("")}</ul></div>` : ""}
+    ${practice ? `<p class="muted">Mây đã thêm ${practice} bài luyện tương tự vào Sổ ôn tập 📒, ngày mai Mây sẽ đố lại nhé.</p>` : ""}
+    <div class="row">
+      ${toFix ? `<button class="btn primary" id="hwRecheck">📸 Chụp bài đã sửa để chấm lại</button>` : ""}
+      ${toFix ? `<button class="btn" id="hwAsk">Hỏi Mây câu chưa hiểu</button>` : ""}
+      <button class="btn${toFix?"":" primary"}" id="hwNew">Chấm bài khác</button>
+    </div>
+    <p class="muted" style="margin-top:16px">Mây là AI nên đôi khi cũng chấm nhầm. Nếu thấy lạ, bạn hỏi lại ba mẹ hoặc cô giáo nhé.</p>`;
+  app.querySelectorAll("[data-hint]").forEach(b=>b.onclick=()=>{ H.hinted[b.dataset.hint]=true; render(); });
+  app.querySelectorAll("[data-fix]").forEach(b=>b.onclick=()=>{ H.revealed[b.dataset.fix]=true; render(); });
+  const sp=document.getElementById("hwSpeak"); if(sp) sp.onclick=()=>speak(R.praise||"", "vi");
+  const rc=document.getElementById("hwRecheck");
+  if(rc) rc.onclick=()=>{ Object.assign(H,{recheckOf:H.id, result:null, photos:[], error:"", past:null}); render(); window.scrollTo(0,0); };
+  const ak=document.getElementById("hwAsk");
+  if(ak) ak.onclick=()=>{
+    const x = R.items.find(y=>y.status==="wrong"||y.status==="partial");
+    state.subject=H.subject; state.topic=R.title||""; state.turns=[]; state.convId=null; go("chat");
+    sendChat(`Mình làm bài tập về nhà, Mây chấm câu ${x.label} chưa đúng: ${x.task}${x.student?` (mình làm: ${x.student})`:""}. Mây giảng lại giúp mình nhé.`);
+  };
+  document.getElementById("hwNew").onclick=()=>openHomework(H.subject);
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+
+/* ---------- luyện nói tiếng Anh (Speaking) ---------- */
+// iPad chuyển giọng nói thành chữ (SpeechRecognition); đồng thời ghi âm để bé nghe lại giọng mình (chỉ trên máy, không gửi đi).
+const SP_TYPES = {read:{ic:"📖", name:"Đọc to câu mẫu", sub:"Nghe mẫu rồi đọc lại"}, answer:{ic:"❓", name:"Trả lời câu hỏi", sub:"Như phần thi nói Cambridge"}, tell:{ic:"💭", name:"Kể / miêu tả ngắn", sub:"Nói 3–5 câu về một chủ đề"}};
+const LEVELS = {great:"🌟 Tuyệt vời!", good:"👍 Khá lắm!", try_again:"💪 Thử lại nhé!"};
+let spRec = null, spMedia = null, spStream = null, spChunks = [];
+function openSpeak(type, topic){
+  state.sp = {type:type||null, topic:topic||"", phase: type ? "loading" : "setup"};
+  go("speak");
+  if(type) startSpeakSession(type);
+}
+async function startSpeakSession(type){
+  const S = state.sp; S.type=type; S.phase="loading"; S.err=""; render();
+  try{
+    const d = await api("/api/speak_start",{type, topic:S.topic});
+    if(state.sp!==S) return;
+    Object.assign(S, {sid:d.session_id, items:d.items, i:0, phase:"item", res:{}, tries:{}, live:"", showVi:false, audio:{}});
+    sayPrompt();
+  }catch(e){ S.phase="setup"; S.err=copyFor(e&&e.code); }
+  if(state.view==="speak") render();
+}
+function curItem(){ const S=state.sp; return S.items[S.i]; }
+function sayPrompt(){
+  const S=state.sp, it=curItem(); if(!it) return;
+  if(S.type==="answer") speak(it.q,"en-only",.9);
+  else if(S.type==="tell") speak(it.topic,"en-only",.9);
+}
+function stopSpeakCapture(abort){
+  if(spRec){ try{ abort ? spRec.abort() : spRec.stop(); }catch(e){} if(abort) spRec=null; }
+  if(spMedia && spMedia.state!=="inactive"){ try{ spMedia.stop(); }catch(e){} }
+  if(abort && spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; }
+}
+// Android: micro chỉ cho một bên dùng, ghi âm song song làm phần nhận giọng không nghe được → không ghi âm trên Android
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+const canRecordAlong = () => !IS_ANDROID && LS.get("recAudio", true) && navigator.mediaDevices && window.MediaRecorder;
+function startSpeakCapture(){
+  const S=state.sp; const idx=S.i;
+  stopVoice();
+  S.live=""; S.note=""; S.res[idx]=null; S.listening=true;
+  let finalText="", heard=false;
+  // Bật nhận giọng NGAY trong lần bấm (trước mọi việc khác) để trình duyệt cho dùng micro
+  try{
+    spRec = new SR(); spRec.lang="en-US"; spRec.interimResults=true; spRec.continuous = S.type==="tell"; spRec.maxAlternatives=1;
+  }catch(e){ spRec=null; S.listening=false; S.note="Máy này chưa nghe trực tiếp được. Bạn bấm vào ô bên dưới và dùng micro trên bàn phím nhé."; render(); return; }
+  spRec.onresult = ev=>{ heard=true; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=(finalText?" ":"")+r[0].transcript.trim(); else interim+=r[0].transcript; }
+    S.live=(finalText+" "+interim).trim(); const el=document.getElementById("spLive"); if(el) el.textContent=S.live||"…"; };
+  spRec.onerror = ev=>{
+    if(spMedia && (ev.error==="audio-capture"||ev.error==="not-allowed"||ev.error==="service-not-allowed")){
+      LS.set("recAudio", false); S.note="Mây tắt phần ghi âm để nghe bạn rõ hơn. Bấm 🎤 nói lại nhé.";
+    } else S.note = {"not-allowed":"Cần cho phép dùng micro: bấm biểu tượng ổ khoá cạnh địa chỉ web → Quyền → Micro → Cho phép, rồi thử lại.",
+      "service-not-allowed":"Trình duyệt chưa cho nhận giọng nói ở đây. Bạn dùng micro trên bàn phím để nói nhé.",
+      "no-speech":"Mây chưa nghe thấy gì. Bấm 🎤, nói to và rõ, nói xong dừng lại một chút nhé.",
+      "audio-capture":"Không dùng được micro (có thể app khác đang dùng). Đóng app khác rồi thử lại nhé.",
+      "network":"Mạng chập chờn nên Mây chưa nghe được. Thử lại nhé."}[ev.error] || (ev.error==="aborted"?"":"Mây nghe chưa rõ. Thử lại nhé.");
+  };
+  spRec.onend = ()=>{ spRec=null; S.listening=false; if(spMedia && spMedia.state!=="inactive"){ try{spMedia.stop();}catch(e){} }
+    const t=(finalText||S.live||"").trim();
+    if(t && state.sp===S && S.i===idx) return checkSpeak(t);
+    if(!S.note) S.note = heard ? "Mây nghe chưa rõ. Bấm 🎤 nói lại nhé." : "Mây chưa nghe thấy gì. Bấm 🎤, nói to và rõ, nói xong dừng lại một chút nhé.";
+    if(state.view==="speak") render(); };
+  spRec.onstart = ()=>{ if(canRecordAlong()) startRecordAlong(S, idx); };
+  try{ spRec.start(); }catch(e){ spRec=null; S.listening=false; S.note="Mây chưa bật được micro. Thử lại nhé."; }
+  render();
+}
+// Ghi âm để bé nghe lại giọng mình (chỉ trên máy, không gửi đi); máy không cho thì bỏ qua
+async function startRecordAlong(S, idx){
+  spChunks=[];
+  try{
+    spStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    if(!S.listening){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; return; }
+    spMedia = new MediaRecorder(spStream);
+    spMedia.ondataavailable = e=>{ if(e.data && e.data.size) spChunks.push(e.data); };
+    spMedia.onstop = ()=>{ if(spChunks.length){ const old=S.audio[idx]; if(old) URL.revokeObjectURL(old); S.audio[idx]=URL.createObjectURL(new Blob(spChunks,{type:spMedia.mimeType||"audio/mp4"})); }
+      if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } if(state.view==="speak") render(); };
+    spMedia.start();
+  }catch(e){ spMedia=null; if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } }
+}
+async function checkSpeak(text){
+  const S=state.sp, idx=S.i;
+  S.checking=true; S.live=text; render();
+  try{ const d = await api("/api/speak_check",{session_id:S.sid, index:idx, transcript:text}); S.res[idx]=d.result; S.tries[idx]=(S.tries[idx]||0)+1; setStars(d.stars); }
+  catch(e){ S.note=copyFor(e&&e.code); }
+  S.checking=false; if(state.view==="speak" && state.sp===S) render();
+}
+function renderSpeak(){
+  const S = state.sp;
+  const head = `<button class="back" id="back">‹ English</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">🗣️</div><div><h2>Luyện nói</h2><div class="muted">Speaking${S.topic?" – "+esc(S.topic):""}</div></div></div>`;
+  let body="";
+  if(S.phase==="setup"){
+    body = `${S.err?`<div class="notice">${esc(S.err)}</div>`:""}
+      <p style="margin:14px 0 4px">Hôm nay luyện kiểu nào?</p>
+      <div class="modes">${Object.entries(SP_TYPES).map(([k,t])=>`<button class="mode" data-sp="${k}"><div class="big">${t.ic}</div><h3>${t.name}</h3><div class="muted">${t.sub}</div></button>`).join("")}</div>
+      <p class="muted" style="margin-top:16px">Mây nghe qua phần chữ iPad chép lại, nên có thể nghe nhầm. Bạn nói to, rõ, chậm rãi nhé.</p>`;
+  } else if(S.phase==="loading"){
+    body = `<div class="greet">${mascot()}<div class="say">Mây đang soạn bài luyện nói… <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
+  } else if(S.phase==="done"){
+    const lv = S.items.map((_,i)=>S.res[i]?.level).filter(Boolean);
+    body = lv.length ? `<div class="qcard score">${mascot()}<h2>Xong rồi!</h2>
+      <p>${lv.filter(x=>x==="great").length} câu tuyệt vời, ${lv.filter(x=>x==="good").length} câu khá, ${lv.filter(x=>x==="try_again").length} câu cần luyện thêm.</p>
+      ${lv.length<S.items.length?`<p class="muted">Bạn đã bỏ qua ${S.items.length-lv.length} câu chưa nói.</p>`:""}
+      <div class="row" style="justify-content:center"><button class="btn primary" id="spAgain">Luyện kiểu khác</button><button class="btn" id="spHome">Về trang chính</button></div></div>`
+      : `<div class="qcard score">${mascot()}<h2>Bạn chưa nói câu nào</h2>
+      <p>Mỗi câu, bạn bấm nút 🎤 rồi nói to, rõ. Khi Mây nghe được, chữ sẽ hiện trong ô bên dưới nút 🎤 và Mây sẽ chấm.</p>
+      <p class="muted">Nếu bấm 🎤 mà không thấy chữ hiện ra, hãy cho phép trình duyệt dùng micro, hoặc gõ/đọc chính tả câu đó vào ô.</p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="spRedo">Luyện lại từ đầu</button><button class="btn" id="spHome">Về trang chính</button></div></div>`;
+  } else {
+    const it=curItem(), r=S.res[S.i], t=SP_TYPES[S.type];
+    let prompt="";
+    if(S.type==="read") prompt = `<div class="muted">${t.ic} Đọc to câu này</div><div class="sp-big">${esc(it.text)}</div>`;
+    else if(S.type==="answer") prompt = `<div class="muted">${t.ic} Mây hỏi, bạn trả lời bằng tiếng Anh</div><div class="sp-big">${esc(it.q)}</div>
+      ${it.hints?.length?`<div class="chips">${it.hints.map(h=>`<span class="chip">${esc(h)}</span>`).join("")}</div>`:""}`;
+    else prompt = `<div class="muted">${t.ic} Kể hoặc miêu tả 3–5 câu</div><div class="sp-big">${esc(it.topic)}</div>
+      <ul class="weak">${(it.guide||[]).map(g=>`<li>${esc(g)}</li>`).join("")}</ul>
+      ${it.words?.length?`<div class="chips">${it.words.map(h=>`<span class="chip">${esc(h)}</span>`).join("")}</div>`:""}`;
+    const modelText = S.type==="read" ? it.text : (r ? it.sample : "");
+    body = `<div class="dots">${S.items.map((_,i)=>`<span class="${S.res[i]?(S.res[i].level==="try_again"?"no":"ok"):(i===S.i?"now":"")}"></span>`).join("")}</div>
+      <div class="sp-card">${prompt}
+        ${S.showVi?`<div class="pnote">🇻🇳 ${esc(it.vi)}</div>`:""}
+        <div class="row">
+          ${S.type==="read"?`<button class="btn" id="spModel">🔊 Nghe mẫu</button><button class="btn" id="spSlow">🐢 Nghe chậm</button>`:`<button class="btn" id="spAsk">🔊 Nghe câu hỏi</button>`}
+          ${!S.showVi?`<button class="btn" id="spVi">Nghĩa là gì?</button>`:""}
+        </div>
+        ${SR ? `<div class="sp-mic"><button id="spMic" class="${S.listening?"on":""}" ${S.checking?"disabled":""} aria-label="${S.listening?"Nói xong":"Bấm để nói"}">${S.listening?"⏹️":"🎤"}</button>
+            <span class="muted">${S.checking?"Mây đang nghe lại…":S.listening?(S.type==="tell"?"Nói xong thì bấm ⏹️":"Đang nghe… nói xong dừng lại một chút"):"Bấm 🎤 rồi nói"}</span></div>
+          <div class="sp-live" id="spLive">${esc(S.live||"")||"&nbsp;"}</div>`
+        : `<p class="muted">Bấm vào ô dưới, chọn 🎤 trên bàn phím để nói (đọc chính tả tiếng Anh), rồi bấm Gửi.</p>
+          <textarea class="field" id="spText" rows="2" placeholder="Bạn nói gì sẽ hiện ở đây…">${esc(S.live||"")}</textarea>
+          <div class="row"><button class="btn primary" id="spSend" ${S.checking?"disabled":""}>${S.checking?"Mây đang nghe…":"Gửi Mây"}</button></div>`}
+        ${S.note?`<div class="pnote">${esc(S.note)}</div>`:""}
+        ${r ? `<div class="sp-res"><div class="lv ${r.level}">${LEVELS[r.level]}</div>
+          ${r.diff?`<div style="margin:6px 0">${r.diff.words.map(w=>`<span class="wd ${w.ok?"ok":"no"}">${esc(w.w)}</span>`).join(" ")}</div>
+            <div class="muted">Mây nghe được ${r.diff.matched}/${r.diff.total} từ${r.diff.missed.length?". Từ gạch đỏ: Mây chưa nghe rõ, đọc chậm và rõ hơn nhé":""}.</div>`:""}
+          ${r.praise?`<p style="margin:8px 0 4px">${esc(r.praise)}</p>`:""}
+          ${r.fixes.map(f=>`<div class="fix">${f.said?`<s>${esc(f.said)}</s> → `:""}<b>${esc(f.better)}</b>${f.why?`<br><span class="muted">${esc(f.why)}</span>`:""}</div>`).join("")}
+          ${r.tip?`<p class="muted" style="margin:6px 0">💡 ${esc(r.tip)}</p>`:""}
+          ${r.say_it && S.type!=="read"?`<p style="margin:8px 0 0">Nói lại thử: <b>${esc(r.say_it)}</b> <button class="speak" id="spSayIt">🔊</button></p>`:""}
+          ${modelText && S.type!=="read"?`<p class="muted" style="margin:8px 0 0">Câu mẫu: ${esc(modelText)} <button class="speak" id="spSample">🔊</button></p>`:""}
+          ${S.audio[S.i]?`<div style="margin-top:10px"><div class="muted">🎧 Giọng của bạn:</div><audio controls src="${S.audio[S.i]}" style="width:100%"></audio></div>`:""}
+        </div>` : ""}
+        <div class="row">
+          ${r?`<button class="btn" id="spRetry">🔁 Nói lại</button>`:""}
+          <button class="btn ${r?"primary":""}" id="spNext">${S.i+1<S.items.length?"Câu tiếp ›":"Xem kết quả"}</button>
+        </div>
+      </div>`;
+  }
+  app.innerHTML = head + body;
+  document.getElementById("back").onclick=()=>{ state.subject="ceng"; go("subject"); };
+  app.querySelectorAll("[data-sp]").forEach(b=>b.onclick=()=>startSpeakSession(b.dataset.sp));
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  const it = S.items?.[S.i];
+  on("spModel",()=>speak(it.text,"en-only",.9)); on("spSlow",()=>speak(it.text,"en-only",.6)); on("spAsk",sayPrompt);
+  on("spVi",()=>{ S.showVi=true; render(); });
+  on("spMic",()=>{ if(S.listening) stopSpeakCapture(false); else startSpeakCapture(); });
+  on("spSend",()=>{ const v=document.getElementById("spText").value.trim(); if(v) checkSpeak(v); });
+  on("spSayIt",()=>speak(S.res[S.i].say_it,"en-only",.9)); on("spSample",()=>speak(it.sample,"en-only",.9));
+  on("spRetry",()=>{ S.res[S.i]=null; S.live=""; S.note=""; render(); });
+  on("spNext",()=>{ stopSpeakCapture(true); if(S.i+1<S.items.length){ S.i++; S.live=""; S.note=""; S.showVi=false; render(); sayPrompt(); } else { S.phase="done"; render(); } });
+  on("spAgain",()=>{ S.phase="setup"; render(); });
+  on("spRedo",()=>{ Object.assign(S,{phase:"item", i:0, live:"", note:"", showVi:false}); render(); sayPrompt(); });
+  on("spHome",()=>{ go("home"); refreshState(); });
+}
+
+/* ---------- kế hoạch học: hôm nay, tuần, tháng, quý ---------- */
+const MONTHS_VI = m => "Tháng " + (+m.slice(5,7)) + "/" + m.slice(0,4);
+const ddmm = d => d.slice(8,10)+"/"+d.slice(5,7);
+function taskList(day, clickable){
+  return day.items.map((it,i)=>`<button class="task${it.done?" done":""}" data-i="${i}" ${clickable?"":"disabled"}>
+    <span class="ck">${it.done?"✓":""}</span><span class="tt">${it.icon} ${esc(it.title)}</span><span class="min">${it.minutes} phút</span></button>`).join("");
+}
+function todayCard(day){
+  const done = day.items.filter(x=>x.done).length;
+  return `<div class="today">
+    <div class="head"><h3>Hôm nay của ${esc(nick())}</h3><span class="muted">${esc(day.weekday)} · ${done}/${day.items.length} việc · khoảng ${day.minutes} phút</span></div>
+    ${day.notes.map(n=>`<div class="pnote">📌 ${esc(n)}</div>`).join("")}
+    ${taskList(day, true)}
+    ${done===day.items.length && day.items.length ? `<div class="pnote">🎉 Xong hết việc hôm nay rồi! Giỏi quá.</div>` : ""}
+  </div>`;
+}
+function wireTasks(day){
+  if(!day) return;
+  app.querySelectorAll(".task[data-i]").forEach(b=>b.onclick=()=>runAction(day.items[+b.dataset.i].action));
+}
+function runAction(a){
+  if(!a) return;
+  if(a.view==="homework") return openHomework(a.subject);
+  if(a.view==="review") return startReview();
+  if(a.view==="speak") return openSpeak(a.type, a.topic||"");
+  state.subject = a.subject; state.topic = a.topic || "";
+  if(a.view==="quiz") return startQuiz();
+  if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat"); }
+}
+async function openPlan(tab){
+  state.planTab = tab || state.planTab || "day"; state.plan = {loading:true}; go("plan");
+  try{ state.plan = await api("/api/plan",{view:state.planTab}); }
+  catch(e){ state.plan = {error: copyFor(e&&e.code)}; }
+  if(state.view==="plan") render();
+}
+function statsHtml(st){
+  if(!st) return "";
+  const acc = (st.subjects||[]).map(x=>`<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${Math.round(100*x.correct/x.total)}%"></div></div><span>${Math.round(100*x.correct/x.total)}%</span></div>`).join("");
+  return `<div class="statrow">
+    <div class="stat"><b>${st.active_days}</b>ngày có học</div>
+    <div class="stat"><b>${st.count.homework}</b>bài về nhà đã chấm</div>
+    <div class="stat"><b>${st.count.quiz}</b>lượt đố vui</div>
+    <div class="stat"><b>${st.count.review}</b>câu ôn lại</div>
+    <div class="stat"><b>${st.count.speaking||0}</b>câu luyện nói</div>
+  </div>${acc ? `<div class="muted" style="margin-top:6px">Tỉ lệ đúng (đố vui và bài về nhà):</div>${acc}` : ""}`;
+}
+function weekTopicsHtml(w){
+  if(!w) return "";
+  const rows = SUBJECTS.filter(s=>w[s.id]).map(s=>`<li>${s.ic} <b>${esc(s.name)}:</b> ${esc(w[s.id])}</li>`).join("");
+  return rows || w.note ? `<ul class="weak">${rows}${w.note?`<li>📌 ${esc(w.note)}</li>`:""}</ul>` : "";
+}
+function renderPlan(){
+  const P = state.plan;
+  const tabs = [["day","Hôm nay"],["week","Tuần"],["month","Tháng"],["quarter","Quý"]];
+  let body = "";
+  if(P.loading) body = `<div class="greet">${mascot()}<div class="say">Mây đang mở lịch học… <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
+  else if(P.error) body = `<div class="notice">${esc(P.error)}</div>`;
+  else if(P.view==="day"){ body = todayCard(P.day); }
+  else if(P.view==="week"){
+    const today = new Date().toISOString().slice(0,10);
+    body = `<p class="muted">Tuần ${ddmm(P.from)} – ${ddmm(P.to)}</p>
+      ${P.topics ? `<div class="card"><h3>Tuần này ôn gì</h3>${weekTopicsHtml(P.topics)}</div>` : `<div class="notice">Ba mẹ chưa duyệt kế hoạch học, nên Mây tự chọn bài theo thời khoá biểu.</div>`}
+      ${P.days.map(d=>`<div class="daycol${d.day===me.today?.day?" now":""}"><b>${esc(d.weekday)} ${ddmm(d.day)}</b>
+        <ul>${d.items.map(it=>`<li>${it.done===true?"✅":it.done===false&&d.day<(me.today?.day||today)?"⬜":"▫️"} ${esc(it.title)}</li>`).join("")}</ul>
+        ${d.notes.filter(n=>n.startsWith("Hôm nay có lớp")).map(n=>`<div class="pnote">📌 ${esc(n.replace("Hôm nay có","Có"))}</div>`).join("")}</div>`).join("")}
+      <div class="card"><h3>Tổng kết tuần</h3>${statsHtml(P.stats)}</div>`;
+  }
+  else if(P.view==="month"){
+    body = `<h3 style="font-size:24px;margin:6px 0">${MONTHS_VI(P.from)}</h3>
+      <div class="card"><h3>Kết quả tháng này</h3>${statsHtml(P.stats)}</div>
+      ${P.weeks.length ? P.weeks.map(w=>`<div class="card"><h3>Tuần ${ddmm(w.start)}</h3>${weekTopicsHtml(w)}</div>`).join("")
+        : `<div class="notice">Chưa có kế hoạch học đã duyệt cho tháng này. Ba mẹ vào Góc ba mẹ 👪 → Kế hoạch học để Mây soạn nhé.</div>`}`;
+  }
+  else if(P.view==="quarter"){
+    body = `<p class="muted">Từ ${ddmm(P.from)}/${P.from.slice(0,4)} đến ${ddmm(P.to)}/${P.to.slice(0,4)}</p>
+      <div class="card"><h3>Kết quả từ đầu quý</h3>${statsHtml(P.stats)}</div>
+      ${!P.has_plan ? `<div class="notice">Chưa có kế hoạch học đã duyệt. Ba mẹ vào Góc ba mẹ 👪 → Kế hoạch học để Mây soạn nhé.</div>` : ""}
+      ${P.months.map(m=>`<div class="card"><h3>${MONTHS_VI(m.month)}</h3>
+        ${m.weeks.map(w=>`<p style="margin:8px 0 0"><b>Tuần ${ddmm(w.start)}</b></p>${weekTopicsHtml(w)}`).join("") || `<p class="muted">Chưa có kế hoạch.</p>`}
+        ${m.stats ? `<p class="muted" style="margin:8px 0 0">Đã học ${m.stats.active_days} ngày, chấm ${m.stats.count.homework} bài về nhà, ${m.stats.count.quiz} lượt đố vui.</p>` : ""}</div>`).join("")}`;
+  }
+  app.innerHTML = `<button class="back" id="back">‹ Trang chính</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">📅</div><div><h2>Lịch học</h2><div class="muted">Kế hoạch học và ôn tập của ${esc(nick())}</div></div></div>
+    <div class="tabs">${tabs.map(([k,l])=>`<button class="chip" aria-pressed="${state.planTab===k}" data-t="${k}">${l}</button>`).join("")}</div>
+    ${body}`;
+  app.querySelectorAll(".tabs .chip").forEach(c=>c.onclick=()=>openPlan(c.dataset.t));
+  if(P.view==="day") wireTasks(P.day);
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+
+/* ---------- góc ba mẹ: lịch học và kế hoạch ---------- */
+const DAY_OPTS = [1,2,3,4,5,6,7].map(d=>[d, d===7?"Chủ nhật":"Thứ "+(d+1)]);
+function renderSchedule(){
+  const S = state.sched;
+  if(!S){ app.innerHTML = `<button class="back" id="back">‹ Báo cáo</button><p>Đang mở…</p>`; document.getElementById("back").onclick=()=>{state.parentPage=null;render();}; return; }
+  app.innerHTML = `<button class="back" id="back">‹ Báo cáo</button>
+    <h2 style="font-size:28px">Lịch học của bé</h2>
+    <div class="card">
+      <label for="book">Bộ sách giáo khoa (Toán, Tiếng Việt)</label>
+      <input class="field" id="book" value="${esc(S.book)}" placeholder="Ví dụ: Kết nối tri thức với cuộc sống">
+      <label for="syl">Mục lục sách / tiến độ của lớp (không bắt buộc, nên có)</label>
+      <textarea class="field" id="syl" rows="6" placeholder="Chép mục lục sách Toán, Tiếng Việt (theo chủ đề), hoặc dán lịch dạy cô gửi. Mây sẽ theo đúng thứ tự này khi soạn kế hoạch, không tự đoán.">${esc(S.syllabus||"")}</textarea>
+      <label for="mins">Thời gian học ở nhà mỗi ngày (phút)</label>
+      <input class="field" id="mins" type="number" min="15" max="90" value="${S.minutes}">
+    </div>
+    <div class="card"><h3>Thời khoá biểu ở trường</h3>
+      <p class="muted" style="margin:0">Ghi các môn mỗi ngày, cách nhau bằng dấu phẩy. Mây dùng để chọn môn ôn cho ngày mai.</p>
+      ${DAY_OPTS.map(([d,l])=>`<label for="tt${d}">${l}</label><input class="field" id="tt${d}" value="${esc(S.timetable[d]||"")}" placeholder="${d<=5?"Ví dụ: Toán, Tiếng Việt, Tiếng Anh, Khoa học":"(nghỉ)"}">`).join("")}
+    </div>
+    <div class="card"><h3>Lớp học thêm</h3>
+      <div id="clsList">${S.classes.map(clsRow).join("")}</div>
+      <button class="btn" id="addCls">+ Thêm lớp</button>
+    </div>
+    <div class="row"><button class="btn primary" id="saveSched">Lưu lịch học</button><span class="muted" id="schMsg" style="align-self:center"></span></div>`;
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; render(); };
+  document.getElementById("addCls").onclick=()=>{ document.getElementById("clsList").insertAdjacentHTML("beforeend", clsRow({day:1,time:"",minutes:60,name:""})); wireCls(); };
+  wireCls();
+  document.getElementById("saveSched").onclick=async()=>{
+    const msg=document.getElementById("schMsg");
+    const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
+    DAY_OPTS.forEach(([d])=>save.timetable[d]=document.getElementById("tt"+d).value);
+    app.querySelectorAll(".clsrow").forEach(r=>{ const g=f=>r.querySelector(`[data-f=${f}]`).value; save.classes.push({day:+g("day"), time:g("time"), minutes:+g("minutes")||0, name:g("name")}); });
+    try{ state.sched = (await api("/api/parent/schedule",{save},true)).schedule; msg.textContent="Đã lưu ✅"; }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+}
+function clsRow(c){
+  return `<div class="clsrow"><select data-f="day">${DAY_OPTS.map(([d,l])=>`<option value="${d}" ${d===c.day?"selected":""}>${l}</option>`).join("")}</select>
+    <input data-f="time" type="time" value="${esc(c.time)}"><input data-f="minutes" type="number" min="0" max="300" value="${c.minutes}" title="Số phút">
+    <input data-f="name" value="${esc(c.name)}" placeholder="Tên lớp, ví dụ: Tiếng Anh"><button class="btn danger" data-rm title="Xoá">×</button></div>`;
+}
+function wireCls(){ app.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>b.closest(".clsrow").remove()); }
+
+function renderParentPlan(){
+  const PP = state.pplan || {};
+  const cur = PP.draft || null, ok = PP.approved || null;
+  const editing = PP.edit ? (PP.edit==="draft" ? cur : ok) : null;
+  let body = "";
+  if(PP.loading) body = `<div class="greet">${mascot()}<div class="say">${esc(PP.loading)} <span class="thinking"><i></i><i></i><i></i></span><br><span class="muted">Có thể mất khoảng một phút.</span></div></div>`;
+  else if(editing){
+    body = `<p class="muted">${editing.status==="draft"?"Bản nháp Mây đề xuất":"Kế hoạch đang áp dụng"} · ${ddmm(editing.start_day)} – ${ddmm(editing.end_day)}/${editing.end_day.slice(0,4)}</p>
+      ${editing.content.summary ? `<div class="notice">${esc(editing.content.summary)}</div>` : ""}
+      <div class="notice">Ba mẹ đối chiếu với tiến độ trên lớp và sửa ngay bên dưới. Mây chỉ đề xuất, có thể chưa khớp với lịch của cô giáo.</div>
+      ${editing.content.weeks.map(w=>`<div class="card pweek" data-start="${w.start}"><h3>Tuần ${ddmm(w.start)} – ${ddmm(new Date(new Date(w.start+"T00:00:00Z").getTime()+6*864e5).toISOString().slice(0,10))}</h3>
+          ${SUBJECTS.map(s=>`<div class="prow"><span>${s.ic} ${esc(s.name)}</span><input data-k="${s.id}" value="${esc(w[s.id]||"")}"></div>`).join("")}
+          <div class="prow"><span>📌 Ghi chú</span><input data-k="note" value="${esc(w.note||"")}" placeholder="Ví dụ: tuần thi giữa kỳ"></div></div>`).join("")}
+      <div class="row"><button class="btn" id="planSave">Lưu</button>
+        <button class="btn primary" id="planApprove">${editing.status==="draft"?"Duyệt và áp dụng":"Lưu và áp dụng"}</button>
+        <button class="btn" id="planCancel">Đóng</button><span class="muted" id="planMsg" style="align-self:center"></span></div>`;
+  } else {
+    body = `${PP.error ? `<div class="notice">${esc(PP.error)}</div>` : ""}
+      <div class="card"><h3>Kế hoạch đang áp dụng</h3>
+        ${ok ? `<p style="margin:0">Từ ${ddmm(ok.start_day)} đến ${ddmm(ok.end_day)}/${ok.end_day.slice(0,4)}, ${ok.content.weeks.length} tuần.</p><div class="row"><button class="btn" id="editOk">Xem / sửa</button></div>`
+             : `<p class="muted" style="margin:0">Chưa có. Mây sẽ tự chọn bài ôn theo thời khoá biểu.</p>`}</div>
+      ${cur ? `<div class="card"><h3>Bản nháp chờ duyệt</h3><p style="margin:0">Từ ${ddmm(cur.start_day)} đến ${ddmm(cur.end_day)}/${cur.end_day.slice(0,4)}.</p><div class="row"><button class="btn primary" id="editDraft">Xem, sửa và duyệt</button></div></div>` : ""}
+      <div class="card"><h3>Nhờ Mây soạn kế hoạch quý</h3>
+        <p class="muted" style="margin:0">Mây soạn đề xuất 13 tuần tới cho 5 môn, theo chương trình lớp 4, bộ sách và lịch học ba mẹ đã nhập, cùng những phần bé hay sai. Ba mẹ sửa và duyệt rồi mới áp dụng.</p>
+        <div class="row"><button class="btn primary" id="genPlan">${cur?"Soạn lại bản nháp":"Mây soạn kế hoạch"}</button></div></div>`;
+  }
+  app.innerHTML = `<button class="back" id="back">‹ Báo cáo</button><h2 style="font-size:28px">Kế hoạch học</h2>${body}`;
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; state.pplan=null; render(); };
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("editOk",()=>{ PP.edit="approved"; render(); });
+  on("editDraft",()=>{ PP.edit="draft"; render(); });
+  on("planCancel",()=>{ PP.edit=null; render(); });
+  on("genPlan", async()=>{
+    PP.loading="Mây đang soạn kế hoạch 13 tuần…"; PP.error=""; render();
+    try{ const d = await api("/api/parent/plan_generate",{},true); PP.draft=d.draft; PP.edit="draft"; }
+    catch(e){ PP.error = copyFor(e&&e.code); }
+    PP.loading=null; if(state.parentPage==="plan") render();
+  });
+  const collect = ()=>[...app.querySelectorAll(".pweek[data-start]")].map(tr=>{ const w={start:tr.dataset.start}; tr.querySelectorAll("input").forEach(i=>w[i.dataset.k]=i.value); return w; });
+  const save = async(approve)=>{
+    const msg=document.getElementById("planMsg"); msg.textContent="Đang lưu…";
+    try{ const d = await api("/api/parent/plan_save",{id:editing.id, weeks:collect(), approve},true);
+      Object.assign(PP, {draft:d.draft, approved:d.approved}); if(approve){ PP.edit=null; render(); refreshState(); } else msg.textContent="Đã lưu ✅"; }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+  on("planSave",()=>save(false));
+  on("planApprove",()=>save(true));
+}
+
+/* ---------- giọng của Mây (trên máy này) ---------- */
+function voiceCardHtml(){
+  if(!("speechSynthesis" in window)) return "";
+  const c = voiceCfg();
+  const opts = l => { const cur = pickVoice(l); const list = voicesFor(l);
+    return list.length ? list.map(v=>`<option value="${esc(v.name)}" ${cur&&v.name===cur.name?"selected":""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
+      : `<option value="">(máy chưa có giọng ${l==="vi"?"tiếng Việt":"tiếng Anh"})</option>`; };
+  const tv = me.ttsVoices;
+  const cloud = me.tts ? `<div class="notice" style="margin-top:8px"><label style="display:flex;gap:10px;align-items:center;margin:0"><input type="checkbox" id="vCloud" ${LS.get("cloudVoice",true)?"checked":""} style="width:22px;height:22px"> <b>Dùng giọng tự nhiên (Microsoft)</b></label>
+      ${tv?`<label for="cVi">Giọng tiếng Việt</label><select class="field" id="cVi">${Object.entries(tv.vi).map(([k,n])=>`<option value="${k}" ${LS.get("cloudVi","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <label for="cEn">Giọng tiếng Anh</label><select class="field" id="cEn">${Object.entries(tv.en).map(([k,n])=>`<option value="${k}" ${LS.get("cloudEn","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>`:""}
+      <p class="muted" style="margin:6px 0 0">Khi tắt, hoặc khi mạng lỗi, Mây dùng giọng của máy bên dưới.</p></div>`
+    : `<p class="muted" style="margin:8px 0 0">Muốn giọng tự nhiên như người thật (có giọng bé gái cho tiếng Anh): điền key Microsoft Azure Speech vào config.php trên VPS.</p>`;
+  return `<div class="card"><h3>Giọng của Mây (trên máy này)</h3>${cloud}
+    <p class="muted" style="margin:0">Mây dùng giọng đọc có sẵn của máy. Nâng <b>cao độ</b> để giọng trẻ như bạn nhỏ 8–10 tuổi. Nghe thử rồi chỉnh, máy tự lưu.</p>
+    <label for="vVi">Giọng tiếng Việt</label><select class="field" id="vVi">${opts("vi")}</select>
+    <label for="vEn">Giọng tiếng Anh</label><select class="field" id="vEn">${opts("en")}</select>
+    <label for="vPitch">Cao độ: <b id="vPitchV">${(+c.pitch).toFixed(1)}</b> (1.0 = giọng gốc, cao hơn = trẻ hơn)</label>
+    <input type="range" id="vPitch" min="0.8" max="2" step="0.1" value="${c.pitch}" style="width:100%">
+    <label for="vSpeed">Tốc độ: <b id="vSpeedV">${(+c.speed).toFixed(1)}</b></label>
+    <input type="range" id="vSpeed" min="0.7" max="1.3" step="0.1" value="${c.speed}" style="width:100%">
+    <div class="row"><button class="btn" id="vTestVi">🔊 Nghe thử tiếng Việt</button><button class="btn" id="vTestEn">🔊 Nghe thử tiếng Anh</button><button class="btn" id="vReset">Mặc định</button></div>
+    <p class="muted" style="margin:8px 0 0">Mẹo iPad: Cài đặt → Trợ năng → Nội dung được đọc → Giọng nói → tải thêm giọng (bản "Nâng cao") cho Tiếng Việt và English, rồi chọn lại ở đây.</p>
+  </div>`;
+}
+function wireVoiceCard(){
+  const g=id=>document.getElementById(id); if(!g("vPitch")) return;
+  g("vVi").onchange=e=>LS.set("voiceVi", e.target.value);
+  if(g("vCloud")) g("vCloud").onchange=e=>LS.set("cloudVoice", e.target.checked);
+  if(g("cVi")) g("cVi").onchange=e=>LS.set("cloudVi", e.target.value);
+  if(g("cEn")) g("cEn").onchange=e=>LS.set("cloudEn", e.target.value);
+  g("vEn").onchange=e=>LS.set("voiceEn", e.target.value);
+  g("vPitch").oninput=e=>{ LS.set("pitch", +e.target.value); g("vPitchV").textContent=(+e.target.value).toFixed(1); };
+  g("vSpeed").oninput=e=>{ LS.set("speed", +e.target.value); g("vSpeedV").textContent=(+e.target.value).toFixed(1); };
+  g("vTestVi").onclick=()=>speak(`Chào ${nick()}! Mình là Mây nè. Hôm nay mình cùng học vui nhé!`, "vi-only");
+  g("vTestEn").onclick=()=>speak("Hi! I'm Mây. Let's practise English together!", "en-only");
+  g("vReset").onclick=()=>{ ["voiceVi","voiceEn","pitch","speed","cloudVoice","cloudVi","cloudEn"].forEach(k=>{ try{ localStorage.removeItem("may_"+k); }catch(e){} }); render(); };
+}
+// Danh sách giọng trên iPad có khi nạp chậm: vẽ lại Góc ba mẹ khi có
+try{ speechSynthesis.addEventListener("voiceschanged", ()=>{
+  const card = document.getElementById("vVi")?.closest(".card"); if(!card) return;
+  const fresh = document.createElement("div"); fresh.innerHTML = voiceCardHtml();
+  ["vVi","vEn"].forEach(id=>{ const n=fresh.querySelector("#"+id); if(n) document.getElementById(id).innerHTML = n.innerHTML; });
+}); }catch(e){}
+
+/* ---------- Google Drive (Góc ba mẹ) ---------- */
+async function loadDriveCard(){
+  const card = document.getElementById("driveCard"); if(!card) return;
+  let G;
+  try{ G = await api("/api/parent/google",{},true); }catch(e){ card.querySelector("p").textContent = copyFor(e&&e.code); return; }
+  if(!document.body.contains(card)) return;
+  const mb = b => (b/1048576).toFixed(1).replace(".",",") + " MB";
+  card.innerHTML = `<h3>Lưu ảnh bài tập lên Google Drive</h3>
+    ${!G.configured ? `<p class="muted" style="margin:0">Chưa bật. Cần điền <b>google_client_id</b> và <b>google_client_secret</b> vào config.php trên VPS. Khi chưa bật, ảnh chỉ dùng để chấm rồi bỏ, không lưu ở đâu.</p>`
+    : G.connected ? `<p style="margin:0">✅ Đã kết nối${G.email?` với <b>${esc(G.email)}</b>`:""}. Ảnh đã nén được lưu vào thư mục <b>Học cùng Mây – Bài tập</b> (riêng tư, chia theo tháng).</p>
+        <p class="muted" style="margin:6px 0 0">Đang lưu ${G.files} ảnh, ${mb(G.bytes)}. Ảnh tự xoá khỏi Drive sau ${G.keep_days} ngày (1 năm học).</p>
+        <div class="row"><button class="btn danger" id="gOff">Ngắt kết nối</button></div>`
+    : `<p style="margin:0">Ảnh bài tập (đã nén trên iPad, khoảng 300 KB/trang) sẽ được lưu vào Google Drive của gia đình. Mây chỉ được quyền với các file do chính nó tạo, không xem được file khác trong Drive.</p>
+        <div class="row"><button class="btn primary" id="gOn">Kết nối Google Drive</button></div>`}`;
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("gOn", async()=>{ try{ const d = await api("/api/parent/google_connect",{},true); window.location.href = d.url; }catch(e){ alert(copyFor(e&&e.code)); } });
+  on("gOff", async()=>{ if(!confirm("Ngắt kết nối Google Drive? Ảnh đã lưu vẫn nằm trong Drive, nhưng Mây sẽ không tự xoá chúng sau hạn nữa.")) return;
+    try{ await api("/api/parent/google_disconnect",{},true); loadDriveCard(); }catch(e){ alert(copyFor(e&&e.code)); } });
+}
+// Google chuyển về app sau khi ba mẹ đồng ý (hoặc từ chối) cấp quyền
+(function(){
+  const g = new URLSearchParams(location.search).get("google"); if(!g) return;
+  history.replaceState(null, "", "/");
+  const msg = {ok:"Đã kết nối Google Drive ✅ Từ giờ ảnh bài tập (đã nén) sẽ được lưu vào Drive của gia đình.",
+    denied:"Ba mẹ chưa đồng ý cấp quyền Google Drive.", bad_state:"Liên kết kết nối đã hết hạn. Ba mẹ bấm Kết nối lại nhé.",
+    no_refresh:"Google chưa cấp quyền lâu dài. Ba mẹ vào myaccount.google.com/permissions gỡ quyền của app rồi kết nối lại nhé.",
+    error:"Kết nối Google Drive bị lỗi. Ba mẹ thử lại sau nhé."}[g] || "";
+  if(msg) setTimeout(()=>alert(msg), 300);
+  state.view = "parent";
+})();
+
 /* ---------- góc ba mẹ ---------- */
 function renderParent(){
   if(state.transcript) return renderTranscript();
+  if(state.hwDetail) return renderParentHomework();
+  if(state.parentPage==="schedule") return renderSchedule();
+  if(state.parentPage==="plan") return renderParentPlan();
   const R = state.report;
   app.innerHTML = `
     <button class="back" id="back">‹ Về trang của bé</button>
@@ -567,6 +1301,7 @@ function renderParent(){
       <input class="field" id="pinIn" type="password" inputmode="numeric" autocomplete="off" value="${esc(pin)}">
       <div class="row"><button class="btn primary" id="savePin">Lưu mã PIN</button><span class="muted" id="pinMsg" style="align-self:center"></span></div>
     </div>
+    ${voiceCardHtml()}
     ${R ? reportHtml(R) : `
     <div class="card">
       <h3>Báo cáo học tập</h3>
@@ -579,6 +1314,7 @@ function renderParent(){
       <p class="muted" style="margin:0">Mây được dặn gợi ý từng bước thay vì cho đáp án ngay, không hỏi thông tin cá nhân, và khuyên bé kể với ba mẹ khi có chuyện buồn. Dữ liệu học lưu trên VPS của gia đình; lịch sử trò chuyện tự xoá sau một thời gian. Báo cáo tự khoá khi rời Góc ba mẹ. AI đôi khi vẫn có thể sai, nên ba mẹ thỉnh thoảng ngồi cùng bé để kiểm tra nhé.</p>
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
+  wireVoiceCard();
   document.getElementById("savePin").onclick=async()=>{
     const msg=document.getElementById("pinMsg"); const v=document.getElementById("pinIn").value.trim();
     msg.textContent="Đang kiểm tra…"; const old=pin; pin=v;
@@ -605,6 +1341,10 @@ function reportHtml(R){
     return `<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`;
   }).join("");
   const weak = (R.weak||[]).map(w=>`<li>${esc(subjById(w.subject)?.name||w.subject)}: ${esc(w.topic||"chưa rõ chủ đề")} (${w.n} câu)</li>`).join("");
+  const LV = {great:"🌟", good:"👍", try_again:"💪"};
+  const sps = (R.speaking||[]).map(t=>`<div class="fix"><small class="muted">${fmtDate(t.created_at)} · ${esc(SP_TYPES[t.type]?.name||"")}</small><br>
+    <b>${esc(t.prompt)}</b><br>${LV[t.level]||""} Bé nói: “${esc(t.transcript||"(không nghe được)")}”</div>`).join("");
+  const hws = (R.homework||[]).map(h=>`<button data-hw="${h.id}"><b>${esc(subjById(h.subject)?.name||"")}${h.title?": "+esc(h.title):""}${h.recheck?" (bài sửa lại)":""}</b><small>${fmtDate(h.created_at)}${h.graded?`, đúng ${h.right}/${h.graded} câu`:""}</small>${esc(h.summary||"")}</button>`).join("");
   const convs = (R.conversations||[]).map(c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`).join("");
   return `
     <div class="card">
@@ -630,6 +1370,25 @@ function reportHtml(R){
       <p style="margin:0">Đang ôn ${R.review.pending} câu (${R.review.due} câu đến hạn hôm nay). Đã thuộc hẳn ${R.review.mastered} câu.</p>
       ${weak ? `<p class="muted" style="margin:10px 0 0">Phần bé hay sai:</p><ul class="weak">${weak}</ul>` : ""}
     </div>
+    <div class="card" id="driveCard">
+      <h3>Lưu ảnh bài tập lên Google Drive</h3>
+      <p class="muted" style="margin:0">Đang tải…</p>
+    </div>
+    <div class="card">
+      <h3>Lịch học và kế hoạch</h3>
+      <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
+      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button></div>
+    </div>
+    <div class="card">
+      <h3>Bài tập về nhà đã chấm</h3>
+      <p class="muted" style="margin:0">Kết quả chấm giữ 60 ngày. Ảnh chỉ được lưu khi đã kết nối Google Drive (ở thẻ trên, giữ 1 năm học). Bấm vào để xem chi tiết, đáp án và ảnh.</p>
+      <div class="convlist">${hws || `<p class="muted">Bé chưa gửi bài nào.</p>`}</div>
+    </div>
+    <div class="card">
+      <h3>Luyện nói tiếng Anh</h3>
+      <p class="muted" style="margin:0">Chữ do iPad chép lại từ giọng bé (không lưu âm thanh), giữ 60 ngày.</p>
+      ${sps || `<p class="muted">Bé chưa luyện nói lần nào.</p>`}
+    </div>
     <div class="card">
       <h3>Lịch sử trò chuyện</h3>
       <p class="muted" style="margin:0">Tự xoá sau ${R.retention_days} ngày. Bấm vào để đọc lại.</p>
@@ -651,10 +1410,25 @@ function wireReport(R){
     try{ await api("/api/parent/settings",{nick:nickV, focus:focusV},true); me.nick=nickV; LS.set("nick",nickV); R.settings={nick:nickV,focus:focusV}; msg.textContent="Đã lưu"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
-  app.querySelectorAll(".convlist button").forEach(b=>b.onclick=async()=>{
+  app.querySelectorAll(".convlist button[data-hw]").forEach(b=>b.onclick=async()=>{
+    try{ state.hwDetail = (await api("/api/parent/homework",{id:+b.dataset.hw},true)).homework; render(); window.scrollTo(0,0); }
+    catch(e){ alert(copyFor(e&&e.code)); }
+  });
+  app.querySelectorAll(".convlist button[data-id]").forEach(b=>b.onclick=async()=>{
     try{ state.transcript = await api("/api/parent/conversation",{id:+b.dataset.id},true); render(); window.scrollTo(0,0); }
     catch(e){ alert(copyFor(e&&e.code)); }
   });
+  loadDriveCard();
+  document.getElementById("toSched").onclick=async()=>{
+    state.parentPage="schedule"; state.sched=null; render();
+    try{ state.sched=(await api("/api/parent/schedule",{},true)).schedule; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }
+    render();
+  };
+  document.getElementById("toPPlan").onclick=async()=>{
+    state.parentPage="plan"; state.pplan={loading:"Đang mở…"}; render();
+    try{ state.pplan=await api("/api/parent/plan",{},true); }catch(e){ state.pplan={error:copyFor(e&&e.code)}; }
+    render();
+  };
   document.getElementById("lock").onclick=()=>{ parentPin=""; state.report=null; render(); };
   const clear = async(what, question)=>{
     if(!confirm(question)) return;
@@ -672,6 +1446,25 @@ function renderTranscript(){
     <p class="muted" style="margin:4px 0 0">${fmtDate(c.started_at)}</p>
     <div class="transcript">${T.messages.map(m=>`<div class="t ${m.role==="assistant"?"assistant":"user"}">${fmt(m.content)}</div>`).join("")}</div>`;
   document.getElementById("back").onclick=()=>{ state.transcript=null; render(); window.scrollTo(0,0); };
+}
+
+function renderParentHomework(){
+  const h = state.hwDetail, R = h.result || {items:[]};
+  app.innerHTML = `
+    <button class="back" id="back">‹ Báo cáo</button>
+    <h2 style="font-size:28px">${esc(subjById(h.subject)?.name||"")}${R.title?": "+esc(R.title):""}</h2>
+    <p class="muted" style="margin:4px 0 0">${fmtDate(h.created_at)}, ${h.photos} ảnh${h.recheck_of?", bài bé đã sửa lại":""}${h.note?`. Ghi chú: ${esc(h.note)}`:""}</p>
+    ${(h.drive||[]).length ? `<div class="card"><h3>Ảnh bài làm trên Google Drive</h3><div class="row">${h.drive.map((f,i)=>`<a class="btn" target="_blank" rel="noopener" href="https://drive.google.com/file/d/${encodeURIComponent(f.file_id)}/view">📄 Trang ${i+1}</a>`).join("")}</div>
+      <p class="muted" style="margin:6px 0 0">Mở bằng tài khoản Google của gia đình.</p></div>` : ""}
+    ${R.summary_for_parent ? `<div class="card"><h3>Tóm tắt cho ba mẹ</h3><p style="margin:0">${fmt(R.summary_for_parent)}</p></div>` : ""}
+    ${(R.items||[]).map(x=>`<div class="hwitem ${esc(x.status)}">
+      <div class="top"><b>${esc(x.label)}</b><span class="st ${esc(x.status)}">${HW_ST[x.status]||""}</span></div>
+      ${x.task?`<div class="small">Đề: ${fmt(x.task)}</div>`:""}${x.student?`<div class="small">Bé làm: ${fmt(x.student)}</div>`:""}
+      ${x.comment?`<div style="margin-top:4px">${fmt(x.comment)}</div>`:""}
+      ${x.fix?`<div class="reveal">✅ ${fmt(x.fix)}</div>`:""}
+    </div>`).join("")}
+    ${R.tips?.length ? `<div class="card"><h3>Lời khuyên Mây đưa cho bé</h3><ul class="tips">${R.tips.map(t=>`<li>${fmt(t)}</li>`).join("")}</ul></div>` : ""}`;
+  document.getElementById("back").onclick=()=>{ state.hwDetail=null; render(); window.scrollTo(0,0); };
 }
 
 /* ---------- break reminder ---------- */

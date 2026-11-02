@@ -8,11 +8,16 @@ header('X-Content-Type-Options: nosniff');
 
 require __DIR__ . '/../app/lib.php';
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
-
 $path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
 $route = preg_replace('#^/api/#', '', $path) ?? '';
-$raw = file_get_contents('php://input', false, null, 0, 65536);
+
+// Google chuyển ba mẹ về đây sau khi đồng ý cấp quyền (GET, kiểm tra bằng mã state một lần)
+if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') google_callback();
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
+// Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
+$maxBody = $route === 'homework' ? 9 * 1024 * 1024 : 65536;
+$raw = file_get_contents('php://input', false, null, 0, $maxBody);
 $body = json_decode($raw !== false && $raw !== '' ? $raw : '{}', true);
 if (!is_array($body)) $body = [];
 
@@ -23,11 +28,25 @@ $routes = [
     'answer'              => 'r_answer',
     'review_list'         => 'r_review_list',
     'review_answer'       => 'r_review_answer',
+    'homework'            => 'r_homework',
+    'homework_list'       => 'r_homework_list',
+    'plan'                => 'r_plan',
+    'speak_start'         => 'r_speak_start',
+    'speak_check'         => 'r_speak_check',
+    'tts'                 => 'r_tts',
     'parent/check'        => 'r_parent_check',
     'parent/report'       => 'r_parent_report',
     'parent/conversation' => 'r_parent_conversation',
+    'parent/homework'     => 'r_parent_homework',
     'parent/settings'     => 'r_parent_settings',
     'parent/clear'        => 'r_parent_clear',
+    'parent/schedule'     => 'r_parent_schedule',
+    'parent/plan'         => 'r_parent_plan',
+    'parent/plan_generate'=> 'r_parent_plan_generate',
+    'parent/plan_save'    => 'r_parent_plan_save',
+    'parent/google'       => 'r_parent_google',
+    'parent/google_connect' => 'r_parent_google_connect',
+    'parent/google_disconnect' => 'r_parent_google_disconnect',
 ];
 if (!isset($routes[$route])) out(['error' => 'not_found'], 404);
 
@@ -47,7 +66,8 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count()]);
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => TTS_VOICES,
+         'drive' => drive_connected()]);
 }
 
 function subject_or_fail(array $b): string
@@ -89,8 +109,8 @@ function r_chat(array $b): never
     }
     while ($messages && $messages[0]['role'] !== 'user') array_shift($messages);
 
-    $system = chat_system($subject, $topic, setting('nick'), setting('focus'), memory_note($subject));
-    $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), $system, $messages, 600));
+    $system = chat_system($subject, $topic, setting('nick'), setting('focus'), memory_note($subject), schedule_note());
+    $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), $system, $messages, 4000, 60, (string)cfg('chat_effort', 'low')));
     if ($reply === '') $reply = '…';
 
     q('INSERT INTO messages (conv_id, role, content, created_at) VALUES (?, \'assistant\', ?, ?)', [$conv, $reply, time()]);
@@ -109,9 +129,11 @@ function r_quiz(array $b): never
 
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
-        'Bạn soạn câu hỏi ôn tập cho học sinh lớp 4. Nội dung luôn phù hợp trẻ em và chính xác. Chỉ trả lời bằng JSON.',
+        quiz_system(),
         [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'))]],
-        2000
+        16000,
+        100,
+        (string)cfg('quiz_effort', 'medium')
     );
     $start = strpos($text, '{');
     $end = strrpos($text, '}');
@@ -135,7 +157,7 @@ function r_quiz(array $b): never
     }
     if (count($questions) < 3) out(['error' => 'bad_quiz'], 502);
 
-    q('INSERT INTO quizzes (subject, topic, questions, total, created_at) VALUES (?, ?, ?, ?, ?)',
+    q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
         [$subject, $topic, json_encode($questions, JSON_UNESCAPED_UNICODE), count($questions), time()]);
     $id = (int)db()->lastInsertId();
 
@@ -150,7 +172,7 @@ function remember_mistake(string $subject, string $topic, array $x): void
     if ($existing !== false) {
         q('UPDATE mistakes SET box = 0, due_at = ?, times_wrong = times_wrong + 1, mastered_at = NULL WHERE id = ?', [$tomorrow, $existing]);
     } else {
-        q('INSERT INTO mistakes (subject, topic, q, options, answer, explain, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        q('INSERT INTO mistakes (subject, topic, q, options, answer, `explain`, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [$subject, $topic, $x['q'], json_encode($x['options'], JSON_UNESCAPED_UNICODE), $x['answer'], $x['explain'], $x['hint'], $tomorrow, time()]);
     }
 }
@@ -234,7 +256,504 @@ function r_review_answer(array $b): never
          'mastered' => $mastered, 'due' => due_count()]);
 }
 
+/* ---------------- chấm bài tập về nhà ---------------- */
+
+// Nhận ảnh dạng data URL (đã thu nhỏ trên máy), kiểm tra đúng là ảnh rồi mới gửi cho Claude.
+// Ảnh KHÔNG được lưu trên máy chủ, chỉ lưu kết quả chấm.
+function homework_images(mixed $list): array
+{
+    if (!is_array($list) || count($list) < 1 || count($list) > 4) out(['error' => 'bad_photos'], 400);
+    $blocks = [];
+    $bins = [];
+    foreach ($list as $item) {
+        if (!is_string($item) || !preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#', $item, $m)) {
+            out(['error' => 'bad_photos'], 400);
+        }
+        $bin = base64_decode($m[2], true);
+        if ($bin === false || strlen($bin) > 3_500_000) out(['error' => 'bad_photos'], 400);
+        $info = @getimagesizefromstring($bin);
+        $types = ['image/jpeg' => IMAGETYPE_JPEG, 'image/png' => IMAGETYPE_PNG, 'image/webp' => IMAGETYPE_WEBP];
+        if (!$info || $info[2] !== $types[$m[1]] || $info[0] < 200 || $info[1] < 200) out(['error' => 'bad_photos'], 400);
+        $blocks[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $m[1], 'data' => $m[2]]];
+        $bins[] = ['type' => $m[1], 'bin' => $bin];
+    }
+    return [$blocks, $bins];
+}
+
+function clean_practice(mixed $p): ?array
+{
+    if (!is_array($p) || !is_string($p['q'] ?? null) || !is_array($p['options'] ?? null)) return null;
+    $opts = array_values(array_filter($p['options'], 'is_string'));
+    $ans = $p['answer'] ?? null;
+    if (count($opts) < 2 || count($opts) > 4 || count($opts) !== count($p['options'])) return null;
+    if (!is_int($ans) || $ans < 0 || $ans >= count($opts)) return null;
+    return [
+        'q' => clean($p['q'], 500),
+        'options' => array_map(fn($o) => clean($o, 200), $opts),
+        'answer' => $ans,
+        'explain' => clean($p['explain'] ?? '', 400),
+        'hint' => clean($p['hint'] ?? '', 300),
+    ];
+}
+
+function r_homework(array $b): never
+{
+    $subject = subject_or_fail($b);
+    $note = clean($b['note'] ?? '', 300);
+    [$images, $imageBins] = homework_images($b['photos'] ?? null);
+
+    $previous = null;
+    $recheckOf = (int)($b['recheck_of'] ?? 0);
+    if ($recheckOf > 0) {
+        $row = q('SELECT result FROM homework WHERE id = ? AND subject = ?', [$recheckOf, $subject])->fetchColumn();
+        $previous = $row !== false ? json_decode((string)$row, true) : null;
+        if (!is_array($previous)) { $previous = null; $recheckOf = 0; }
+    } else {
+        $recheckOf = 0;
+    }
+    spend(5);
+
+    $content = $images;
+    $content[] = ['type' => 'text', 'text' => homework_prompt($note, count($images), $previous)];
+    $text = ask_claude(
+        (string)cfg('homework_model', cfg('quiz_model', 'claude-sonnet-5-5')),
+        homework_system($subject, setting('nick')),
+        [['role' => 'user', 'content' => $content]],
+        16000,
+        140,
+        (string)cfg('homework_effort', 'medium')
+    );
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    $data = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
+    if (!is_array($data)) out(['error' => 'bad_homework'], 502);
+
+    $items = [];
+    foreach ((is_array($data['items'] ?? null) ? $data['items'] : []) as $it) {
+        if (!is_array($it)) continue;
+        $status = in_array($it['status'] ?? '', HW_STATUS, true) ? $it['status'] : 'unclear';
+        $practice = in_array($status, ['wrong', 'partial'], true) ? clean_practice($it['practice'] ?? null) : null;
+        $items[] = [
+            'label' => clean($it['label'] ?? '', 40) ?: ('Câu ' . (count($items) + 1)),
+            'task' => clean($it['task'] ?? '', 300),
+            'student' => clean($it['student'] ?? '', 300),
+            'status' => $status,
+            'comment' => clean($it['comment'] ?? '', 500),
+            'hint' => clean($it['hint'] ?? '', 400),
+            'fix' => clean($it['fix'] ?? '', 600),
+            'practice' => $practice,
+        ];
+        if (count($items) === 20) break;
+    }
+    $readable = ($data['readable'] ?? true) !== false && $items;
+    $result = [
+        'readable' => $readable,
+        'title' => clean($data['title'] ?? '', 100),
+        'praise' => clean($data['praise'] ?? '', 400),
+        'items' => $readable ? $items : [],
+        'tips' => array_slice(array_values(array_filter(array_map(fn($t) => clean($t, 200), is_array($data['tips'] ?? null) ? $data['tips'] : []))), 0, 3),
+        'summary_for_parent' => clean($data['summary_for_parent'] ?? '', 600),
+    ];
+    if (!$readable) {
+        out(['readable' => false, 'praise' => $result['praise'] ?: 'Mây chưa đọc được ảnh này. Bạn chụp lại thật rõ, đủ sáng và thẳng trang giúp Mây nhé!', 'stars' => stars()]);
+    }
+
+    // Bài chấm lại: đếm số câu lần trước sai/gần đúng mà nay đã đúng (so theo tên câu)
+    $improved = 0;
+    if ($previous) {
+        $wasBad = [];
+        foreach ($previous['items'] ?? [] as $p) {
+            if (in_array($p['status'] ?? '', ['wrong', 'partial'], true)) $wasBad[hw_label_key((string)($p['label'] ?? ''))] = true;
+        }
+        foreach ($result['items'] as &$x) {
+            $x['fixed'] = $x['status'] === 'right' && isset($wasBad[hw_label_key($x['label'])]);
+            if ($x['fixed']) $improved++;
+        }
+        unset($x);
+        $items = $result['items'];
+    }
+    $result['improved'] = $improved;
+
+    $right = count(array_filter($items, fn($x) => $x['status'] === 'right'));
+    $graded = count(array_filter($items, fn($x) => in_array($x['status'], ['right', 'partial', 'wrong'], true)));
+    q('INSERT INTO homework (subject, note, photos, result, right_n, graded_n, recheck_of, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [$subject, $note, count($images), json_encode($result, JSON_UNESCAPED_UNICODE), $right, $graded, $recheckOf ?: null, time()]);
+    $id = (int)db()->lastInsertId();
+    $topic = mb_substr($result['title'], 0, 80);
+    log_activity($subject, $topic, 'homework', $right, $graded);
+
+    // Câu sai có bài luyện tương tự: đưa vào Sổ ôn tập để Mây đố lại sau 1, 3, 7 ngày
+    foreach ($items as $x) {
+        if ($x['practice']) remember_mistake($subject, $topic, $x['practice']);
+    }
+
+    // Thưởng sao: lần đầu 2 sao vì tự giác gửi bài; bài chấm lại chỉ được sao khi có câu sửa đúng
+    // (1 sao mỗi câu, tối đa 3). Đúng hết thêm 1 sao.
+    $base = $recheckOf ? min(3, $improved) : 2;
+    $stars = add_stars($base + ($graded > 0 && $right === $graded && ($recheckOf === 0 || $improved > 0) ? 1 : 0));
+
+    $response = ['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $improved > 0), 'stars' => $stars, 'due' => due_count()];
+    if (!drive_connected()) out($response);
+
+    // Trả kết quả cho bé trước, rồi mới lưu ảnh (đã nén trên iPad) lên Google Drive; lỗi Drive không ảnh hưởng bài chấm
+    respond_now($response);
+    try {
+        drive_upload_homework($id, $subject, $result['title'], $imageBins);
+    } catch (Throwable $e) {
+        error_log('[hoc-cung-may] Drive: ' . $e->getMessage());
+    }
+    exit;
+}
+
+function respond_now(array $data): void
+{
+    http_response_code(200);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+    ignore_user_abort(true);
+}
+
+// Gửi xuống máy của bé: bỏ phần tóm tắt cho ba mẹ và đáp án của bài luyện.
+// Cách làm đúng ("fix") chỉ gửi khi bé đã tự sửa đúng ít nhất một câu và gửi chấm lại.
+function homework_for_kid(array $r, bool $answersOpen): array
+{
+    unset($r['summary_for_parent']);
+    $r['answers_open'] = $answersOpen;
+    $r['items'] = is_array($r['items'] ?? null) ? $r['items'] : [];
+    foreach ($r['items'] as &$x) {
+        $x['practice'] = ($x['practice'] ?? null) !== null;
+        $x['has_fix'] = ($x['fix'] ?? '') !== '';
+        $x['fixed'] = (bool)($x['fixed'] ?? false);
+        if (!$answersOpen) $x['fix'] = '';
+    }
+    unset($x);
+    return $r;
+}
+
+function hw_label_key(string $label): string
+{
+    return preg_replace('/[^\p{L}\p{N}]+/u', '', mb_strtolower($label)) ?? '';
+}
+
+// Đáp án của một bài được mở khi bài đó, hoặc một lần chấm lại sau nó, có ít nhất một câu bé đã sửa đúng
+function homework_answers_open(int $id): bool
+{
+    $rows = q('WITH RECURSIVE chain(id) AS (SELECT ? UNION SELECT h.id FROM homework h JOIN chain c ON h.recheck_of = c.id)
+               SELECT result FROM homework WHERE id IN (SELECT id FROM chain)', [$id])->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($rows as $r) {
+        if (((json_decode((string)$r, true) ?: [])['improved'] ?? 0) > 0) return true;
+    }
+    return false;
+}
+
+function r_homework_list(array $b): never
+{
+    $rows = q('SELECT id, subject, result, right_n, graded_n, created_at FROM homework ORDER BY id DESC LIMIT 10')->fetchAll();
+    $list = array_map(function ($r) {
+        $res = json_decode($r['result'], true) ?: [];
+        return ['id' => (int)$r['id'], 'subject' => $r['subject'], 'title' => $res['title'] ?? '', 'right' => (int)$r['right_n'],
+                'graded' => (int)$r['graded_n'], 'created_at' => (int)$r['created_at']];
+    }, $rows);
+    $open = (int)($b['open'] ?? 0);
+    $detail = null;
+    if ($open > 0) {
+        $row = q('SELECT id, subject, note, result, recheck_of, created_at FROM homework WHERE id = ?', [$open])->fetch();
+        if ($row) $detail = ['id' => (int)$row['id'], 'subject' => $row['subject'], 'note' => $row['note'],
+                             'created_at' => (int)$row['created_at'], 'recheck_of' => $row['recheck_of'] !== null ? (int)$row['recheck_of'] : null,
+                             'result' => homework_for_kid(json_decode($row['result'], true) ?: [], homework_answers_open((int)$row['id']))];
+    }
+    out(['list' => $list, 'detail' => $detail]);
+}
+
+/* ---------------- giọng đọc tự nhiên (Azure) ---------------- */
+
+// Đọc một đoạn đã tách theo ngôn ngữ thành một file mp3 (mỗi phần một giọng). Trả về âm thanh, không phải JSON.
+function r_tts(array $b): never
+{
+    if (!tts_enabled()) out(['error' => 'tts_off'], 404);
+    $chunks = [];
+    $total = 0;
+    foreach (is_array($b['chunks'] ?? null) ? array_slice($b['chunks'], 0, 30) : [] as $c) {
+        if (!is_array($c)) continue;
+        $t = clean($c['t'] ?? '', 1500);
+        $l = ($c['l'] ?? '') === 'en' ? 'en' : 'vi';
+        if ($t === '') continue;
+        $total += mb_strlen($t);
+        $chunks[] = ['l' => $l, 't' => $t];
+    }
+    if (!$chunks || $total > 2500) out(['error' => 'bad_request'], 400);
+    $voices = ['vi' => tts_voice('vi', (string)($b['vi'] ?? '')), 'en' => tts_voice('en', (string)($b['en'] ?? ''))];
+    $rate = max(0.5, min(1.5, (float)($b['rate'] ?? 1)));
+    $mp3 = tts_mp3($chunks, $voices, $rate);
+    header('Content-Type: audio/mpeg');
+    header('Cache-Control: private, max-age=86400');
+    header('Content-Length: ' . strlen($mp3));
+    echo $mp3;
+    exit;
+}
+
+/* ---------------- luyện nói tiếng Anh ---------------- */
+
+function claude_json(string $text): ?array
+{
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    $d = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
+    return is_array($d) ? $d : null;
+}
+
+function strs(mixed $v, int $n, int $max): array
+{
+    return array_slice(array_values(array_filter(array_map(fn($x) => clean($x, $max), is_array($v) ? $v : []))), 0, $n);
+}
+
+function r_speak_start(array $b): never
+{
+    $type = (string)($b['type'] ?? '');
+    if (!isset(SPEAK_TYPES[$type])) out(['error' => 'bad_request'], 400);
+    $topic = clean($b['topic'] ?? '', 80);
+    spend(2);
+    $data = claude_json(ask_claude(
+        (string)cfg('quiz_model', 'claude-sonnet-5-5'),
+        "Bạn soạn bài luyện nói tiếng Anh cho học sinh lớp 4.\n\n" . no_fabrication_rules() . "\nChỉ trả lời bằng JSON.",
+        [['role' => 'user', 'content' => speaking_gen_prompt($type, $topic, setting('focus'))]],
+        16000, 100, 'low'
+    ));
+    $items = [];
+    foreach (is_array($data['items'] ?? null) ? $data['items'] : [] as $it) {
+        if (!is_array($it)) continue;
+        $x = match ($type) {
+            'read' => ['text' => clean($it['text'] ?? '', 200), 'vi' => clean($it['vi'] ?? '', 200)],
+            'answer' => ['q' => clean($it['q'] ?? '', 200), 'vi' => clean($it['vi'] ?? '', 200), 'hints' => strs($it['hints'] ?? [], 4, 40),
+                         'sample' => clean($it['sample'] ?? '', 300)],
+            default => ['topic' => clean($it['topic'] ?? '', 200), 'vi' => clean($it['vi'] ?? '', 200), 'guide' => strs($it['guide'] ?? [], 3, 120),
+                        'words' => strs($it['words'] ?? [], 6, 30), 'sample' => clean($it['sample'] ?? '', 600)],
+        };
+        if (($x['text'] ?? $x['q'] ?? $x['topic']) === '') continue;
+        $items[] = $x;
+        if (count($items) === ($type === 'tell' ? 2 : 5)) break;
+    }
+    if (!$items) out(['error' => 'bad_speaking'], 502);
+    q('INSERT INTO speaking (type, topic, items, created_at) VALUES (?, ?, ?, ?)',
+        [$type, $topic, json_encode($items, JSON_UNESCAPED_UNICODE), time()]);
+    out(['session_id' => (int)db()->lastInsertId(), 'type' => $type, 'items' => $items]);
+}
+
+function r_speak_check(array $b): never
+{
+    $sess = q('SELECT * FROM speaking WHERE id = ?', [(int)($b['session_id'] ?? 0)])->fetch();
+    $idx = (int)($b['index'] ?? -1);
+    $items = $sess ? json_decode($sess['items'], true) : [];
+    if (!$sess || !isset($items[$idx])) out(['error' => 'bad_request'], 400);
+    $item = $items[$idx];
+    $transcript = clean($b['transcript'] ?? '', 1500);
+    spend(1);
+
+    $diff = $sess['type'] === 'read' ? word_diff($item['text'], $transcript) : null;
+    $data = claude_json(ask_claude(
+        (string)cfg('chat_model', 'claude-haiku-5-5'),
+        speaking_check_system(),
+        [['role' => 'user', 'content' => speaking_check_prompt($sess['type'], $item, $transcript, $diff)]],
+        4000, 60, 'low'
+    )) ?? [];
+    $level = in_array($data['level'] ?? '', ['great', 'good', 'try_again'], true) ? $data['level'] : 'good';
+    if ($diff) $level = $diff['score'] >= 90 ? 'great' : ($diff['score'] >= 60 ? 'good' : 'try_again'); // bài đọc: chấm theo số từ khớp
+    if (trim($transcript) === '') $level = 'try_again';
+    $fixes = [];
+    foreach (is_array($data['fixes'] ?? null) ? array_slice($data['fixes'], 0, 2) : [] as $f) {
+        if (is_array($f)) $fixes[] = ['said' => clean($f['said'] ?? '', 200), 'better' => clean($f['better'] ?? '', 200), 'why' => clean($f['why'] ?? '', 300)];
+    }
+    $result = ['level' => $level, 'praise' => clean($data['praise'] ?? '', 300), 'fixes' => $fixes, 'tip' => clean($data['tip'] ?? '', 300),
+               'say_it' => clean($data['say_it'] ?? '', 400), 'diff' => $diff];
+
+    $first = q('SELECT COUNT(*) FROM speaking_tries WHERE session_id = ? AND idx = ?', [$sess['id'], $idx])->fetchColumn() == 0;
+    q('INSERT INTO speaking_tries (session_id, idx, transcript, result, level, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [$sess['id'], $idx, $transcript, json_encode($result, JSON_UNESCAPED_UNICODE), $level, time()]);
+    $gotGreat = q("SELECT COUNT(*) FROM speaking_tries WHERE session_id = ? AND idx = ? AND level = 'great'", [$sess['id'], $idx])->fetchColumn();
+    if ($first) log_activity('ceng', $sess['topic'], 'speaking', $level === 'try_again' ? 0 : 1, 1);
+    // 1 sao cho lần đầu đạt "great" ở mỗi câu
+    $stars = ($level === 'great' && (int)$gotGreat === 1) ? add_stars(1) : stars();
+    out(['result' => $result, 'stars' => $stars]);
+}
+
+/* ---------------- kế hoạch học: ngày, tuần, tháng, quý ---------------- */
+
+function r_plan(array $b): never
+{
+    $view = (string)($b['view'] ?? 'day');
+    $today = today();
+    if ($view === 'day') out(['view' => 'day', 'day' => day_plan($today)]);
+
+    if ($view === 'week') {
+        $mon = date('Y-m-d', strtotime('monday this week', strtotime($today)));
+        $days = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = date('Y-m-d', strtotime("{$mon} +{$i} days"));
+            $p = day_plan($d);
+            if ($d > $today) foreach ($p['items'] as &$it) $it['done'] = null; // ngày chưa tới
+            unset($it);
+            $days[] = $p;
+        }
+        $sun = date('Y-m-d', strtotime("{$mon} +6 days"));
+        $plan = approved_plan($today);
+        out(['view' => 'week', 'from' => $mon, 'to' => $sun, 'days' => $days, 'topics' => plan_week($plan, $today),
+             'stats' => period_stats($mon, $sun)]);
+    }
+
+    if ($view === 'month') {
+        $from = date('Y-m-01', strtotime($today));
+        $to = date('Y-m-t', strtotime($today));
+        out(['view' => 'month', 'from' => $from, 'to' => $to, 'weeks' => plan_weeks_between($from, $to),
+             'stats' => period_stats($from, $to)]);
+    }
+
+    if ($view === 'quarter') {
+        $plan = approved_plan($today);
+        if ($plan) {
+            $from = $plan['start_day'];
+            $to = $plan['end_day'];
+        } else {
+            $qStartMonth = intdiv((int)date('n', strtotime($today)) - 1, 3) * 3 + 1;
+            $from = date('Y-m-d', mktime(0, 0, 0, $qStartMonth, 1, (int)date('Y', strtotime($today))));
+            $to = date('Y-m-t', strtotime("{$from} +2 months"));
+        }
+        $months = [];
+        for ($m = strtotime(date('Y-m-01', strtotime($from))); $m <= strtotime($to); $m = strtotime('+1 month', $m)) {
+            $mFrom = max($from, date('Y-m-01', $m));
+            $mTo = min($to, date('Y-m-t', $m));
+            $months[] = ['month' => date('Y-m', $m), 'weeks' => plan_weeks_between($mFrom, $mTo),
+                         'stats' => $mFrom <= $today ? period_stats($mFrom, min($mTo, $today)) : null];
+        }
+        out(['view' => 'quarter', 'from' => $from, 'to' => $to, 'has_plan' => (bool)$plan, 'months' => $months,
+             'stats' => period_stats($from, min($to, $today))]);
+    }
+    out(['error' => 'bad_request'], 400);
+}
+
+// Các tuần trong kế hoạch đã duyệt có ngày bắt đầu (thứ 2) nằm trong khoảng [from, to].
+// Tuần vắt qua hai tháng thuộc về tháng chứa ngày thứ 2 đầu tuần, để không bị lặp.
+function plan_weeks_between(string $from, string $to): array
+{
+    $plan = approved_plan($from) ?? approved_plan($to) ?? approved_plan(today());
+    $weeks = [];
+    foreach ($plan['content']['weeks'] ?? [] as $w) {
+        $start = (string)($w['start'] ?? '');
+        if ($start >= $from && $start <= $to) $weeks[] = $w;
+    }
+    return $weeks;
+}
+
 /* ---------------- cho ba mẹ ---------------- */
+
+function r_parent_schedule(array $b): never
+{
+    if (isset($b['save']) && is_array($b['save'])) {
+        $in = $b['save'];
+        $tt = [];
+        for ($d = 1; $d <= 7; $d++) $tt[(string)$d] = clean($in['timetable'][(string)$d] ?? '', 200);
+        $classes = [];
+        foreach (is_array($in['classes'] ?? null) ? array_slice($in['classes'], 0, 10) : [] as $c) {
+            if (!is_array($c) || clean($c['name'] ?? '', 60) === '') continue;
+            $time = clean($c['time'] ?? '', 5);
+            if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time)) $time = '';
+            $classes[] = ['day' => max(1, min(7, (int)($c['day'] ?? 1))), 'time' => $time,
+                          'minutes' => max(0, min(300, (int)($c['minutes'] ?? 0))), 'name' => clean($c['name'], 60)];
+        }
+        set_setting('schedule', json_encode([
+            'book' => clean($in['book'] ?? '', 60),
+            'syllabus' => clean_multiline($in['syllabus'] ?? '', 4000),
+            'minutes' => max(15, min(90, (int)($in['minutes'] ?? 40))),
+            'timetable' => $tt,
+            'classes' => $classes,
+        ], JSON_UNESCAPED_UNICODE));
+    }
+    out(['schedule' => schedule()]);
+}
+
+// Giữ xuống dòng (cho mục lục sách), bỏ ký tự điều khiển khác
+function clean_multiline(mixed $v, int $max): string
+{
+    $s = is_string($v) ? $v : '';
+    if (!mb_check_encoding($s, 'UTF-8')) $s = mb_convert_encoding($s, 'UTF-8', 'UTF-8');
+    $s = preg_replace('/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/u', '', str_replace("\r", '', $s)) ?? '';
+    return trim(mb_substr($s, 0, $max));
+}
+
+function plan_row(?array $row): ?array
+{
+    if (!$row) return null;
+    $row['content'] = json_decode((string)$row['content'], true) ?: ['weeks' => []];
+    return $row;
+}
+
+function r_parent_plan(array $b): never
+{
+    $draft = q("SELECT * FROM plans WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetch() ?: null;
+    $approved = q("SELECT * FROM plans WHERE status = 'approved' ORDER BY id DESC LIMIT 1")->fetch() ?: null;
+    out(['draft' => plan_row($draft), 'approved' => plan_row($approved)]);
+}
+
+function r_parent_plan_generate(array $b): never
+{
+    $mon = date('Y-m-d', strtotime('monday this week', strtotime(today())));
+    $weeks = [];
+    for ($i = 0; $i < 13; $i++) $weeks[] = date('Y-m-d', strtotime("{$mon} +{$i} weeks"));
+    $weak = implode(', ', array_map(fn($r) => SUBJECTS[$r['subject']]['name'] . ': ' . $r['topic'],
+        q("SELECT subject, topic FROM mistakes WHERE mastered_at IS NULL AND topic <> '' GROUP BY subject, topic
+           ORDER BY COUNT(*) DESC LIMIT 6")->fetchAll()));
+    spend(5);
+    $text = ask_claude(
+        (string)cfg('quiz_model', 'claude-sonnet-5-5'),
+        "Bạn giúp ba mẹ lập kế hoạch ôn tập ở nhà cho học sinh lớp 4.\n\n" . no_fabrication_rules() . "\nChỉ trả lời bằng JSON.",
+        [['role' => 'user', 'content' => plan_prompt($weeks, schedule(), setting('focus'), $weak)]],
+        16000, 110, (string)cfg('quiz_effort', 'medium')
+    );
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    $data = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
+    $byStart = [];
+    foreach (is_array($data['weeks'] ?? null) ? $data['weeks'] : [] as $w) {
+        if (is_array($w) && in_array($w['start'] ?? '', $weeks, true)) $byStart[$w['start']] = $w;
+    }
+    if (count($byStart) < 4) out(['error' => 'bad_plan'], 502);
+    $content = ['weeks' => array_map(fn($d) => clean_plan_week($byStart[$d] ?? ['start' => $d]), $weeks),
+                'summary' => clean($data['summary'] ?? '', 600)];
+    q("DELETE FROM plans WHERE status = 'draft'");
+    q("INSERT INTO plans (status, start_day, end_day, content, created_at) VALUES ('draft', ?, ?, ?, ?)",
+        [$weeks[0], date('Y-m-d', strtotime(end($weeks) . ' +6 days')), json_encode($content, JSON_UNESCAPED_UNICODE), time()]);
+    $id = (int)db()->lastInsertId();
+    out(['draft' => plan_row(q('SELECT * FROM plans WHERE id = ?', [$id])->fetch())]);
+}
+
+function clean_plan_week(array $w): array
+{
+    $out = ['start' => (string)$w['start']];
+    foreach (array_keys(SUBJECTS) as $sub) $out[$sub] = clean($w[$sub] ?? '', 120);
+    $out['note'] = clean($w['note'] ?? '', 200);
+    return $out;
+}
+
+function r_parent_plan_save(array $b): never
+{
+    $row = plan_row(q("SELECT * FROM plans WHERE id = ? AND status IN ('draft', 'approved')", [(int)($b['id'] ?? 0)])->fetch() ?: null);
+    if (!$row) out(['error' => 'bad_request'], 400);
+    $edited = [];
+    foreach (is_array($b['weeks'] ?? null) ? $b['weeks'] : [] as $w) {
+        if (is_array($w) && isset($w['start'])) $edited[(string)$w['start']] = $w;
+    }
+    $weeks = [];
+    foreach ($row['content']['weeks'] as $w) $weeks[] = clean_plan_week(array_merge($w, $edited[$w['start']] ?? [], ['start' => $w['start']]));
+    $content = json_encode(['weeks' => $weeks, 'summary' => $row['content']['summary'] ?? ''], JSON_UNESCAPED_UNICODE);
+    if (!empty($b['approve'])) {
+        db()->beginTransaction();
+        q("UPDATE plans SET status = 'old' WHERE status = 'approved' AND id <> ?", [$row['id']]);
+        q("UPDATE plans SET content = ?, status = 'approved', approved_at = ? WHERE id = ?", [$content, time(), $row['id']]);
+        db()->commit();
+    } else {
+        q('UPDATE plans SET content = ? WHERE id = ?', [$content, $row['id']]);
+    }
+    r_parent_plan([]);
+}
 
 function r_parent_check(array $b): never
 {
@@ -256,6 +775,8 @@ function r_parent_report(array $b): never
 
     $subjects = q('SELECT subject, COUNT(*) AS quizzes, SUM(score) AS correct, SUM(total) AS total
                    FROM activity WHERE type = \'quiz\' GROUP BY subject')->fetchAll();
+    $subjects = array_map(fn($r) => ['subject' => $r['subject'], 'quizzes' => (int)$r['quizzes'],
+                                     'correct' => (int)$r['correct'], 'total' => (int)$r['total']], $subjects);
     $weak = q('SELECT subject, topic, COUNT(*) AS n FROM mistakes WHERE mastered_at IS NULL
                GROUP BY subject, topic ORDER BY n DESC LIMIT 8')->fetchAll();
     $review = [
@@ -267,6 +788,20 @@ function r_parent_report(array $b): never
                   (SELECT COUNT(*) FROM messages m WHERE m.conv_id = c.id AND m.role = \'user\') AS n,
                   (SELECT content FROM messages m WHERE m.conv_id = c.id AND m.role = \'user\' ORDER BY m.id LIMIT 1) AS preview
                 FROM conversations c ORDER BY c.updated_at DESC LIMIT 40')->fetchAll();
+    $speaking = [];
+    foreach (q('SELECT t.transcript, t.level, t.created_at, t.idx, s.type, s.items FROM speaking_tries t JOIN speaking s ON s.id = t.session_id
+                ORDER BY t.id DESC LIMIT 30')->fetchAll() as $t) {
+        $it = (json_decode($t['items'], true) ?: [])[$t['idx']] ?? [];
+        $speaking[] = ['type' => $t['type'], 'prompt' => $it['text'] ?? $it['q'] ?? $it['topic'] ?? '', 'transcript' => $t['transcript'],
+                       'level' => $t['level'], 'created_at' => (int)$t['created_at']];
+    }
+    $homework = [];
+    foreach (q('SELECT id, subject, result, right_n, graded_n, recheck_of, created_at FROM homework ORDER BY id DESC LIMIT 30')->fetchAll() as $h) {
+        $res = json_decode($h['result'], true) ?: [];
+        $homework[] = ['id' => (int)$h['id'], 'subject' => $h['subject'], 'title' => $res['title'] ?? '',
+                       'right' => (int)$h['right_n'], 'graded' => (int)$h['graded_n'], 'recheck' => $h['recheck_of'] !== null,
+                       'summary' => $res['summary_for_parent'] ?? '', 'created_at' => (int)$h['created_at']];
+    }
     foreach ($convs as &$c) $c['preview'] = mb_substr((string)$c['preview'], 0, 90);
     unset($c);
 
@@ -278,6 +813,8 @@ function r_parent_report(array $b): never
         'weak' => $weak,
         'review' => $review,
         'conversations' => $convs,
+        'homework' => $homework,
+        'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
 }
@@ -291,6 +828,71 @@ function r_parent_conversation(array $b): never
     out(['conversation' => $c, 'messages' => $msgs]);
 }
 
+function r_parent_homework(array $b): never
+{
+    $row = q('SELECT id, subject, note, photos, result, recheck_of, created_at FROM homework WHERE id = ?', [(int)($b['id'] ?? 0)])->fetch();
+    if (!$row) out(['error' => 'bad_request'], 400);
+    $row['result'] = json_decode($row['result'], true);
+    $row['drive'] = q('SELECT file_id, name FROM drive_files WHERE homework_id = ? AND deleted_at IS NULL ORDER BY id', [$row['id']])->fetchAll();
+    out(['homework' => $row]);
+}
+
+/* ---------------- Google Drive (Góc ba mẹ) ---------------- */
+
+function r_parent_google(array $b): never
+{
+    $stat = q('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM drive_files WHERE deleted_at IS NULL')->fetch();
+    out(['configured' => google_configured(), 'connected' => drive_connected(), 'email' => setting('google_email'),
+         'files' => (int)$stat['n'], 'bytes' => (int)$stat['bytes'], 'keep_days' => max(30, (int)cfg('drive_keep_days', 365)),
+         'redirect_uri' => google_configured() ? google_redirect_uri() : '']);
+}
+
+function r_parent_google_connect(array $b): never
+{
+    if (!google_configured()) out(['error' => 'google_not_configured'], 400);
+    $state = bin2hex(random_bytes(16));
+    set_setting('google_state', json_encode(['s' => hash('sha256', $state), 'exp' => time() + 600]));
+    out(['url' => google_auth_url($state)]);
+}
+
+function google_callback(): never
+{
+    $go = function (string $result): never {
+        header('Content-Type: text/html; charset=utf-8');
+        header('Location: /?google=' . $result, true, 302);
+        exit;
+    };
+    $saved = json_decode(setting('google_state', '{}'), true) ?: [];
+    set_setting('google_state', '');
+    $state = (string)($_GET['state'] ?? '');
+    if (!google_configured() || ($saved['exp'] ?? 0) < time() || !hash_equals((string)($saved['s'] ?? ''), hash('sha256', $state))) $go('bad_state');
+    if (isset($_GET['error']) || empty($_GET['code'])) $go('denied');
+    try {
+        $d = google_token_request(['grant_type' => 'authorization_code', 'code' => (string)$_GET['code'], 'redirect_uri' => google_redirect_uri()]);
+        if (empty($d['refresh_token'])) $go('no_refresh');
+        set_setting('google_refresh', seal((string)$d['refresh_token']));
+        set_setting('google_access', json_encode(['t' => seal((string)$d['access_token']), 'exp' => time() + (int)($d['expires_in'] ?? 3600)]));
+        [$code, $about] = drive_api('GET', '/about?fields=user(emailAddress)');
+        set_setting('google_email', $code === 200 ? clean($about['user']['emailAddress'] ?? '', 120) : '');
+        drive_folder(DRIVE_ROOT, null);
+    } catch (Throwable $e) {
+        error_log('[hoc-cung-may] Google connect: ' . $e->getMessage());
+        $go('error');
+    }
+    $go('ok');
+}
+
+function r_parent_google_disconnect(array $b): never
+{
+    $refresh = unseal(setting('google_refresh'));
+    if ($refresh !== '') {
+        google_http('POST', (string)cfg('google_oauth_base', 'https://oauth2.googleapis.com') . '/revoke',
+            ['Content-Type: application/x-www-form-urlencoded'], http_build_query(['token' => $refresh]));
+    }
+    foreach (['google_refresh', 'google_access', 'google_email', 'drive_folders'] as $k) set_setting($k, '');
+    r_parent_google([]);
+}
+
 function r_parent_settings(array $b): never
 {
     set_setting('nick', clean($b['nick'] ?? '', 30));
@@ -302,14 +904,14 @@ function r_parent_clear(array $b): never
 {
     $what = (string)($b['what'] ?? '');
     $pdo = db();
-    if ($what === 'chats') {
-        $pdo->exec('DELETE FROM messages; DELETE FROM conversations;');
-    } elseif ($what === 'all') {
-        $pdo->exec('DELETE FROM messages; DELETE FROM conversations; DELETE FROM quizzes; DELETE FROM mistakes; DELETE FROM activity;');
-        set_setting('stars', '0');
-    } else {
-        out(['error' => 'bad_request'], 400);
-    }
-    $pdo->exec('VACUUM');
+    $tables = match ($what) {
+        'chats' => ['messages', 'conversations'],
+        'all' => ['messages', 'conversations', 'quizzes', 'mistakes', 'activity', 'homework', 'speaking_tries', 'speaking'],
+        default => out(['error' => 'bad_request'], 400),
+    };
+    $pdo->beginTransaction();
+    foreach ($tables as $t) $pdo->exec("DELETE FROM {$t}");
+    if ($what === 'all') set_setting('stars', '0');
+    $pdo->commit();
     out(['ok' => true]);
 }
