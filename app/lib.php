@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -129,6 +129,20 @@ const SCHEMA = [
        status VARCHAR(12) NOT NULL DEFAULT 'planned', help_note VARCHAR(255) NOT NULL DEFAULT '',
        started_at INT UNSIGNED NULL, completed_at INT UNSIGNED NULL, updated_at INT UNSIGNED NOT NULL,
        UNIQUE KEY uq_task_day_key (day, task_key), KEY idx_task_day (day)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Quà do ba mẹ tạo (giá sao, bật/tắt, giới hạn mỗi tuần, số lượng còn lại)
+    "CREATE TABLE IF NOT EXISTS rewards (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(120) NOT NULL, description VARCHAR(255) NOT NULL DEFAULT '',
+       cost INT NOT NULL, enabled TINYINT(1) NOT NULL DEFAULT 1, weekly_limit INT NULL, stock INT NULL,
+       created_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Yêu cầu đổi quà: sao bị giữ (trừ) khi gửi; ba mẹ duyệt hoặc từ chối (hoàn sao); bé huỷ được khi đang chờ
+    "CREATE TABLE IF NOT EXISTS redemptions (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, reward_id INT UNSIGNED NOT NULL, reward_name VARCHAR(120) NOT NULL,
+       cost INT NOT NULL, status VARCHAR(12) NOT NULL DEFAULT 'pending', nonce VARCHAR(40) NOT NULL,
+       kid_note VARCHAR(255) NOT NULL DEFAULT '', parent_note VARCHAR(255) NOT NULL DEFAULT '',
+       requested_at INT UNSIGNED NOT NULL, decided_at INT UNSIGNED NULL, week CHAR(10) NOT NULL,
+       UNIQUE KEY uq_redeem_nonce (nonce), KEY idx_redeem_status (status), KEY idx_redeem_reward_week (reward_id, week)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -1244,4 +1258,75 @@ function task_update(string $key, string $op, string $note = ''): array
         [$map[$op], $op === 'start' ? time() : null, $op === 'help' ? mb_substr($note, 0, 255) : $row['help_note'], time(), $row['id']]);
     if ($op === 'start') award('self_start', 'start:' . today(), 'Tự bắt đầu: ' . $row['title']);
     return ['ok' => true];
+}
+
+/* ---------------- Cửa hàng đổi quà ---------------- */
+// Bé gửi yêu cầu → sao bị giữ ngay (dòng 'redeem' âm trong sổ) để không tiêu trùng; ba mẹ duyệt (giữ nguyên) hoặc
+// từ chối (dòng 'refund' hoàn sao); bé huỷ khi đang chờ cũng được hoàn. Mọi bước chạy trong khoá sao.
+
+function with_star_lock(callable $fn): mixed
+{
+    $got = (int)q("SELECT GET_LOCK('hoc_cung_may_stars', 10)")->fetchColumn();
+    try { return $fn(); } finally { if ($got) q("SELECT RELEASE_LOCK('hoc_cung_may_stars')"); }
+}
+
+function redeem_request(int $rewardId, string $nonce, string $note): array
+{
+    return with_star_lock(function () use ($rewardId, $nonce, $note) {
+        $dup = q('SELECT id, status FROM redemptions WHERE nonce = ?', [$nonce])->fetch();
+        if ($dup) return ['ok' => true, 'id' => (int)$dup['id'], 'status' => $dup['status']];   // bấm hai lần
+        $r = q('SELECT * FROM rewards WHERE id = ? AND enabled = 1', [$rewardId])->fetch();
+        if (!$r) return ['error' => 'reward_unavailable'];
+        // Số lượng còn lại tính cả các yêu cầu đang chờ duyệt (đã giữ chỗ)
+        $pending = (int)q("SELECT COUNT(*) FROM redemptions WHERE reward_id = ? AND status = 'pending'", [$rewardId])->fetchColumn();
+        if ($r['stock'] !== null && (int)$r['stock'] - $pending <= 0) return ['error' => 'reward_out'];
+        if ($r['weekly_limit'] !== null) {
+            $used = (int)q("SELECT COUNT(*) FROM redemptions WHERE reward_id = ? AND week = ? AND status IN ('pending', 'approved')",
+                [$rewardId, week_start()])->fetchColumn();
+            if ($used >= (int)$r['weekly_limit']) return ['error' => 'reward_week_limit'];
+        }
+        if (stars() < (int)$r['cost']) return ['error' => 'not_enough_stars'];
+        q('INSERT INTO redemptions (reward_id, reward_name, cost, status, nonce, kid_note, requested_at, week) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [$rewardId, $r['name'], (int)$r['cost'], 'pending', $nonce, mb_substr($note, 0, 255), time(), week_start()]);
+        $id = (int)db()->lastInsertId();
+        ledger_add('redeem', -(int)$r['cost'], "redeem:{$id}", 'Đổi quà (chờ ba mẹ duyệt): ' . $r['name']);
+        return ['ok' => true, 'id' => $id, 'status' => 'pending'];
+    });
+}
+
+// Ba mẹ duyệt / từ chối, hoặc bé huỷ khi đang chờ. Chỉ đổi được khi đang 'pending' (không xử lý hai lần).
+function redeem_decide(int $id, string $decision, string $note, bool $byKid = false): array
+{
+    return with_star_lock(function () use ($id, $decision, $note, $byKid) {
+        $x = q("SELECT * FROM redemptions WHERE id = ?", [$id])->fetch();
+        if (!$x) return ['error' => 'bad_request'];
+        if ($x['status'] !== 'pending') return ['error' => 'already_decided', 'status' => $x['status']];
+        $allowed = $byKid ? ['cancel'] : ['approve', 'reject'];
+        if (!in_array($decision, $allowed, true)) return ['error' => 'bad_request'];
+        $status = ['approve' => 'approved', 'reject' => 'rejected', 'cancel' => 'cancelled'][$decision];
+        q('UPDATE redemptions SET status = ?, parent_note = ?, decided_at = ? WHERE id = ? AND status = ?',
+            [$status, $byKid ? '' : mb_substr($note, 0, 255), time(), $id, 'pending']);
+        if ($status === 'approved') {
+            q('UPDATE rewards SET stock = stock - 1 WHERE id = ? AND stock IS NOT NULL AND stock > 0', [$x['reward_id']]);
+        } else {
+            ledger_add('refund', (int)$x['cost'], "refund:{$id}",
+                ($status === 'rejected' ? 'Hoàn sao (ba mẹ chưa duyệt): ' : 'Hoàn sao (bé huỷ đổi quà): ') . $x['reward_name']);
+        }
+        return ['ok' => true, 'status' => $status];
+    });
+}
+
+function rewards_for_kid(): array
+{
+    $list = q('SELECT id, name, description, cost, weekly_limit, stock FROM rewards WHERE enabled = 1 ORDER BY cost, id')->fetchAll();
+    foreach ($list as &$r) {
+        $r['used_this_week'] = (int)q("SELECT COUNT(*) FROM redemptions WHERE reward_id = ? AND week = ? AND status IN ('pending', 'approved')",
+            [$r['id'], week_start()])->fetchColumn();
+        if ($r['stock'] !== null) {
+            $r['stock'] = max(0, (int)$r['stock'] - (int)q("SELECT COUNT(*) FROM redemptions WHERE reward_id = ? AND status = 'pending'", [$r['id']])->fetchColumn());
+        }
+    }
+    unset($r);
+    $mine = q('SELECT id, reward_name, cost, status, parent_note, requested_at, decided_at FROM redemptions ORDER BY id DESC LIMIT 20')->fetchAll();
+    return ['balance' => stars(), 'rewards' => $list, 'requests' => $mine];
 }

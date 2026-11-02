@@ -32,6 +32,9 @@ $routes = [
     'homework_list'       => 'r_homework_list',
     'plan'                => 'r_plan',
     'task'                => 'r_task',
+    'shop'                => 'r_shop',
+    'shop_redeem'         => 'r_shop_redeem',
+    'shop_cancel'         => 'r_shop_cancel',
     'speak_start'         => 'r_speak_start',
     'speak_check'         => 'r_speak_check',
     'tts'                 => 'r_tts',
@@ -49,6 +52,9 @@ $routes = [
     'parent/plan_save'    => 'r_parent_plan_save',
     'parent/rewards'      => 'r_parent_rewards',
     'parent/rewards_save' => 'r_parent_rewards_save',
+    'parent/shop'         => 'r_parent_shop',
+    'parent/shop_save'    => 'r_parent_shop_save',
+    'parent/shop_decide'  => 'r_parent_shop_decide',
     'parent/google'       => 'r_parent_google',
     'parent/google_connect' => 'r_parent_google_connect',
     'parent/google_disconnect' => 'r_parent_google_disconnect',
@@ -582,6 +588,29 @@ function r_task(array $b): never
     out(['ok' => true, 'day' => day_plan(today()), 'stars' => stars()]);
 }
 
+/* ---------------- đổi quà (bé) ---------------- */
+
+function r_shop(array $b): never
+{
+    out(rewards_for_kid());
+}
+
+function r_shop_redeem(array $b): never
+{
+    $nonce = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($b['nonce'] ?? '')) ?? '';
+    if (strlen($nonce) < 8) out(['error' => 'bad_request'], 400);
+    $r = redeem_request((int)($b['reward_id'] ?? 0), $nonce, clean($b['note'] ?? '', 255));
+    if (isset($r['error'])) out($r, 409);
+    out($r + rewards_for_kid());
+}
+
+function r_shop_cancel(array $b): never
+{
+    $r = redeem_decide((int)($b['id'] ?? 0), 'cancel', '', true);
+    if (isset($r['error'])) out($r, 409);
+    out($r + rewards_for_kid());
+}
+
 /* ---------------- kế hoạch học: ngày, tuần, tháng, quý ---------------- */
 
 function r_plan(array $b): never
@@ -838,6 +867,7 @@ function r_parent_report(array $b): never
         'conversations' => $convs,
         'homework' => $homework,
         'today' => day_plan(today()),
+        'shop_pending' => (int)q("SELECT COUNT(*) FROM redemptions WHERE status = 'pending'")->fetchColumn(),
         'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
@@ -889,6 +919,37 @@ function r_parent_rewards_save(array $b): never
     if (isset($b['daily_max'])) set_setting('stars_daily_max', (string)max(0, min(500, (int)$b['daily_max'])));
     if (isset($b['weekly_goal'])) set_setting('weekly_goal_tasks', (string)max(0, min(50, (int)$b['weekly_goal'])));
     r_parent_rewards([]);
+}
+
+/* ---------------- Đổi quà (Góc ba mẹ) ---------------- */
+
+function r_parent_shop(array $b): never
+{
+    $rewards = q('SELECT * FROM rewards ORDER BY enabled DESC, cost, id')->fetchAll();
+    $pending = q("SELECT * FROM redemptions WHERE status = 'pending' ORDER BY id")->fetchAll();
+    $history = q("SELECT * FROM redemptions WHERE status <> 'pending' ORDER BY id DESC LIMIT 30")->fetchAll();
+    out(['balance' => stars(), 'rewards' => $rewards, 'pending' => $pending, 'history' => $history]);
+}
+
+// Thêm/sửa quà (id = 0 là thêm mới). Không xoá quà đã có lịch sử: chỉ tắt đi.
+function r_parent_shop_save(array $b): never
+{
+    $name = clean($b['name'] ?? '', 120);
+    $cost = (int)($b['cost'] ?? 0);
+    if ($name === '' || $cost < 1 || $cost > 10000) out(['error' => 'bad_request'], 400);
+    $lim = fn($v) => ($v === null || $v === '') ? null : max(0, min(1000, (int)$v));
+    $vals = [$name, clean($b['description'] ?? '', 255), $cost, !empty($b['enabled']) ? 1 : 0, $lim($b['weekly_limit'] ?? null), $lim($b['stock'] ?? null), time()];
+    $id = (int)($b['id'] ?? 0);
+    if ($id > 0) q('UPDATE rewards SET name = ?, description = ?, cost = ?, enabled = ?, weekly_limit = ?, stock = ?, updated_at = ? WHERE id = ?', [...$vals, $id]);
+    else q('INSERT INTO rewards (name, description, cost, enabled, weekly_limit, stock, updated_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [...$vals, time()]);
+    r_parent_shop([]);
+}
+
+function r_parent_shop_decide(array $b): never
+{
+    $r = redeem_decide((int)($b['id'] ?? 0), (string)($b['decision'] ?? ''), clean($b['note'] ?? '', 255));
+    if (isset($r['error'])) out($r, 409);
+    r_parent_shop([]);
 }
 
 /* ---------------- Google Drive (Góc ba mẹ) ---------------- */

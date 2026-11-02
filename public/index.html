@@ -267,6 +267,11 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .rrow.head{font-weight:600;color:var(--ink-soft);font-size:12px}
 .ledger div{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:5px 0;border-bottom:1px solid var(--line)}
 .ledger .plus{color:var(--mint);font-weight:700}.ledger .minus{color:var(--coral);font-weight:700}
+.gift{display:flex;gap:12px;align-items:center;background:var(--surface);border:2px solid var(--line);border-radius:16px;padding:12px 14px;margin:10px 0}
+.gift .gi{font-size:30px}.gift .gn{flex:1}.gift .gn b{font-family:var(--display);font-size:19px;display:block}
+.gift .gc{font-family:var(--display);font-weight:800;font-size:18px;white-space:nowrap}
+.req{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:15px;padding:8px 0;border-bottom:1px solid var(--line)}
+.st.pending{background:#FFF1C7;color:#8A5A00}.st.approved{background:var(--mint-bg);color:var(--mint)}.st.rejected{background:var(--coral-bg);color:var(--coral)}
 .prow{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;margin:6px 0}
 .prow span{font-size:14px;font-weight:500}
 .prow input{width:100%;background:var(--surface-2);border:2px solid var(--line);border-radius:10px;padding:7px 10px;font-size:15px}
@@ -389,6 +394,11 @@ function copyFor(code){
     bad_plan: "Mây soạn kế hoạch bị lỗi. Ba mẹ bấm thử lại nhé.",
     google_not_configured: "VPS chưa có thông tin Google (google_client_id, google_client_secret trong config.php).",
     bad_speaking: "Mây soạn bài luyện nói bị lỗi. Bấm thử lại nhé.",
+    not_enough_stars: "Bạn chưa đủ sao cho món quà này. Cố thêm chút nữa nhé!",
+    reward_out: "Món quà này đã hết rồi.",
+    reward_week_limit: "Tuần này bạn đã đổi món quà này đủ số lần rồi.",
+    reward_unavailable: "Món quà này hiện không đổi được.",
+    already_decided: "Yêu cầu này ba mẹ đã xử lý rồi.",
     cancelled: ""
   };
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
@@ -408,6 +418,7 @@ function render(){
   else if(state.view==="homework") renderHomework();
   else if(state.view==="plan") renderPlan();
   else if(state.view==="speak") renderSpeak();
+  else if(state.view==="shop") renderShop();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
@@ -415,7 +426,7 @@ function go(view){
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   stopSpeakCapture(true);
   stopVoice();
-  if(view!=="parent"){ parentPin=""; state.devOk=false; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; } // rời Góc ba mẹ là khoá báo cáo
+  if(view!=="parent"){ parentPin=""; state.devOk=false; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; state.ps=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
 
@@ -428,7 +439,7 @@ function renderHome(){
     </div>
     ${noSampleNotice()}
     ${me.today ? todayCard(me.today) : `<button class="hwbar" id="toHomework"><span class="ic">📸</span><span><b>Chấm bài về nhà</b>Làm xong bài cô giao thì chụp ảnh gửi Mây chấm nhé!</span></button>`}
-    ${me.today ? `<div class="quick">${me.today.items.some(x=>x.key==="homework") ? "" : `<button class="btn" id="toHomework">📸 Chấm bài về nhà</button>`}<button class="btn" id="toPlan">📅 Lịch học</button></div>` : ""}
+    ${me.today ? `<div class="quick">${me.today.items.some(x=>x.key==="homework") ? "" : `<button class="btn" id="toHomework">📸 Chấm bài về nhà</button>`}<button class="btn" id="toPlan">📅 Lịch học</button><button class="btn" id="toShop">🎁 Đổi quà</button></div>` : ""}
     ${!me.today && me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
     <div class="labels">
       ${SUBJECTS.map(s=>`<button class="label" style="background:${s.color}" data-s="${s.id}">
@@ -438,6 +449,7 @@ function renderHome(){
   const tr=document.getElementById("toReview"); if(tr) tr.onclick=startReview;
   const th=document.getElementById("toHomework"); if(th) th.onclick=()=>openHomework();
   const tp=document.getElementById("toPlan"); if(tp) tp.onclick=()=>openPlan("week");
+  const ts=document.getElementById("toShop"); if(ts) ts.onclick=openShop;
   wireTasks(me.today);
 }
 
@@ -1342,6 +1354,98 @@ async function loadDriveCard(){
   state.view = "parent";
 })();
 
+/* ---------- đổi quà (bé) ---------- */
+const REQ_ST = {pending:"Chờ ba mẹ duyệt", approved:"Đã được duyệt 🎉", rejected:"Ba mẹ chưa duyệt", cancelled:"Đã huỷ"};
+async function openShop(){
+  state.shop = {loading:true}; go("shop");
+  try{ state.shop = await api("/api/shop"); setStars(state.shop.balance); }catch(e){ state.shop = {error:copyFor(e&&e.code)}; }
+  if(state.view==="shop") render();
+}
+function renderShop(){
+  const H = state.shop;
+  let body = "";
+  if(H.loading) body = `<p class="muted">Đang mở…</p>`;
+  else if(H.error) body = `<div class="notice">${esc(H.error)}</div>`;
+  else {
+    body = `<div class="say" style="max-width:none;margin:10px 0">Bạn đang có <b>${H.balance} ⭐</b>. Đổi quà cần ba mẹ duyệt nhé!</div>
+      ${H.rewards.length ? H.rewards.map(r=>{
+        const lack = r.cost - H.balance;
+        const out = r.stock!==null && r.stock<=0, lim = r.weekly_limit!==null && r.used_this_week>=r.weekly_limit;
+        return `<div class="gift"><span class="gi">🎁</span><span class="gn"><b>${esc(r.name)}</b>${r.description?`<span class="muted">${esc(r.description)}</span>`:""}
+          ${r.weekly_limit!==null?`<span class="muted" style="display:block;font-size:13px">Mỗi tuần đổi tối đa ${r.weekly_limit} lần</span>`:""}</span>
+          <span class="gc">${r.cost} ⭐</span>
+          <button class="btn ${lack<=0&&!out&&!lim?"primary":""}" data-rw="${r.id}" ${lack>0||out||lim?"disabled":""}>${out?"Hết":lim?"Đủ tuần":lack>0?`Thiếu ${lack}`:"Đổi"}</button></div>`; }).join("")
+        : `<div class="notice">Ba mẹ chưa thêm món quà nào. Bạn nhờ ba mẹ thêm quà trong Cổng ba mẹ nhé!</div>`}
+      ${H.requests.length ? `<div class="card"><h3>Yêu cầu của bạn</h3>${H.requests.map(q=>`<div class="req"><span><b>${esc(q.reward_name)}</b> · ${q.cost} ⭐<br>
+        <span class="st ${q.status}">${REQ_ST[q.status]||q.status}</span>${q.parent_note?` <span class="muted">Ba mẹ nhắn: “${esc(q.parent_note)}”</span>`:""}</span>
+        ${q.status==="pending"?`<button class="btn" data-cancel="${q.id}">Huỷ</button>`:""}</div>`).join("")}</div>` : ""}
+      <p class="muted">Sao kiếm được khi bạn tự giác học, hoàn thành nhiệm vụ và tự sửa lỗi sai. Sai không bao giờ bị trừ sao.</p>`;
+  }
+  app.innerHTML = `<button class="back" id="back">‹ Trang chính</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l3)">🎁</div><div><h2>Đổi quà</h2><div class="muted">Dùng sao để đổi quà ba mẹ chuẩn bị</div></div></div>${body}`;
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+  app.querySelectorAll("[data-rw]").forEach(b=>b.onclick=async()=>{
+    const r = H.rewards.find(x=>x.id==b.dataset.rw);
+    if(!confirm(`Đổi "${r.name}" với ${r.cost} ⭐? Sao sẽ được giữ lại chờ ba mẹ duyệt.`)) return;
+    b.disabled = true;
+    const nonce = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+Math.random()).replace(/[^A-Za-z0-9-]/g,"");
+    try{ state.shop = await api("/api/shop_redeem",{reward_id:r.id, nonce}); setStars(state.shop.balance); }catch(e){ alert(copyFor(e&&e.code)); }
+    render();
+  });
+  app.querySelectorAll("[data-cancel]").forEach(b=>b.onclick=async()=>{
+    if(!confirm("Huỷ yêu cầu này? Sao sẽ được trả lại.")) return;
+    try{ state.shop = await api("/api/shop_cancel",{id:+b.dataset.cancel}); setStars(state.shop.balance); }catch(e){ alert(copyFor(e&&e.code)); }
+    render();
+  });
+}
+
+/* ---------- đổi quà (Góc ba mẹ) ---------- */
+async function openParentShop(){
+  state.parentPage="shop"; state.ps=null; render();
+  try{ state.ps = await api("/api/parent/shop",{},true); }catch(e){ state.ps={error:copyFor(e&&e.code)}; }
+  render();
+}
+function renderParentShop(){
+  const H = state.ps;
+  const head = `<button class="back" id="back">‹ Báo cáo</button><h2 style="font-size:28px">Đổi quà</h2>`;
+  if(!H){ app.innerHTML = head + `<p class="muted">Đang mở…</p>`; }
+  else if(H.error){ app.innerHTML = head + `<div class="notice">${esc(H.error)}</div>`; }
+  else {
+    const lim = v => v===null||v===undefined ? "" : v;
+    const form = r => `<div class="card pgift" data-id="${r?r.id:0}"><h3>${r?esc(r.name):"Thêm quà mới"}</h3>
+      <div class="prow"><span>Tên quà</span><input data-f="name" value="${r?esc(r.name):""}" placeholder="Ví dụ: Chọn món ăn tối"></div>
+      <div class="prow"><span>Mô tả</span><input data-f="description" value="${r?esc(r.description):""}" placeholder="(không bắt buộc)"></div>
+      <div class="prow"><span>Giá (sao)</span><input data-f="cost" type="number" min="1" value="${r?r.cost:""}"></div>
+      <div class="prow"><span>Tối đa mỗi tuần</span><input data-f="weekly_limit" type="number" min="0" value="${r?lim(r.weekly_limit):""}" placeholder="để trống = không giới hạn"></div>
+      <div class="prow"><span>Số lượng còn</span><input data-f="stock" type="number" min="0" value="${r?lim(r.stock):""}" placeholder="để trống = không giới hạn"></div>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-f="enabled" ${!r||+r.enabled?"checked":""} style="width:22px;height:22px"> Đang cho đổi</label>
+      <div class="row"><button class="btn primary" data-save>${r?"Lưu":"Thêm quà"}</button></div></div>`;
+    app.innerHTML = head + `
+      <div class="card"><h3>Chờ ba mẹ duyệt (${H.pending.length})</h3>
+        ${H.pending.length ? H.pending.map(q=>`<div class="req"><span><b>${esc(q.reward_name)}</b> · ${q.cost} ⭐<br><span class="muted">${fmtDate(q.requested_at)}${q.kid_note?` · Bé nhắn: “${esc(q.kid_note)}”`:""}</span></span>
+          <span><button class="btn primary" data-ok="${q.id}">Duyệt</button> <button class="btn danger" data-no="${q.id}">Từ chối</button></span></div>`).join("") : `<p class="muted" style="margin:0">Không có yêu cầu nào.</p>`}
+        <p class="muted" style="margin:8px 0 0">Bé có ${H.balance} ⭐. Sao đã được giữ khi bé gửi yêu cầu; từ chối thì sao được hoàn lại cho bé.</p></div>
+      <h3 style="font-size:22px;margin:18px 0 4px">Danh sách quà</h3>
+      <p class="muted" style="margin:0">Gợi ý: ưu tiên hoạt động cùng gia đình, trải nghiệm hơn là đồ vật. Không xoá quà, chỉ tắt "Đang cho đổi".</p>
+      ${H.rewards.map(form).join("")}${form(null)}
+      <div class="card"><h3>Lịch sử</h3>${H.history.map(q=>`<div class="req"><span>${esc(q.reward_name)} · ${q.cost} ⭐ · ${fmtDate(q.requested_at)}${q.parent_note?`<br><span class="muted">“${esc(q.parent_note)}”</span>`:""}</span><span class="st ${q.status}">${REQ_ST[q.status]||q.status}</span></div>`).join("") || `<p class="muted">Chưa có.</p>`}</div>`;
+    app.querySelectorAll(".pgift [data-save]").forEach(b=>b.onclick=async()=>{
+      const c=b.closest(".pgift"), g=f=>c.querySelector(`[data-f=${f}]`);
+      const body={id:+c.dataset.id, name:g("name").value, description:g("description").value, cost:+g("cost").value, weekly_limit:g("weekly_limit").value, stock:g("stock").value, enabled:g("enabled").checked};
+      if(!body.name.trim() || !(body.cost>0)){ alert("Nhập tên quà và giá sao (lớn hơn 0)."); return; }
+      try{ state.ps = await api("/api/parent/shop_save", body, true); render(); }catch(e){ alert(copyFor(e&&e.code)); }
+    });
+    const decide = async(id, decision)=>{
+      let note = "";
+      if(decision==="reject"){ note = prompt("Nhắn cho bé lý do (không bắt buộc):") ?? null; if(note===null) return; }
+      try{ state.ps = await api("/api/parent/shop_decide",{id, decision, note},true); render(); }catch(e){ alert(copyFor(e&&e.code)); }
+    };
+    app.querySelectorAll("[data-ok]").forEach(b=>b.onclick=()=>decide(+b.dataset.ok,"approve"));
+    app.querySelectorAll("[data-no]").forEach(b=>b.onclick=()=>decide(+b.dataset.no,"reject"));
+  }
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; state.ps=null; render(); };
+}
+
 /* ---------- sao và luật thưởng (Góc ba mẹ) ---------- */
 function renderRewards(){
   const W = state.rw;
@@ -1382,6 +1486,7 @@ function renderParent(){
   if(state.parentPage==="schedule") return renderSchedule();
   if(state.parentPage==="plan") return renderParentPlan();
   if(state.parentPage==="rewards") return renderRewards();
+  if(state.parentPage==="shop") return renderParentShop();
   return PARENT_MODE ? renderParentPortal() : renderDeviceSettings();
 }
 const NOTE_CARD = `<div class="card"><h3>Lưu ý</h3>
@@ -1512,7 +1617,7 @@ function reportHtml(R){
     <div class="card">
       <h3>Lịch học và kế hoạch</h3>
       <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
-      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button><button class="btn" id="toRewards">⭐ Sao và luật thưởng</button></div>
+      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button><button class="btn" id="toRewards">⭐ Sao và luật thưởng</button><button class="btn ${R.shop_pending?"primary":""}" id="toPShop">🎁 Đổi quà${R.shop_pending?` (${R.shop_pending} chờ duyệt)`:""}</button></div>
     </div>
     <div class="card">
       <h3>Bài tập về nhà đã chấm</h3>
@@ -1554,6 +1659,7 @@ function wireReport(R){
     catch(e){ alert(copyFor(e&&e.code)); }
   });
   loadDriveCard();
+  document.getElementById("toPShop").onclick=openParentShop;
   document.getElementById("toRewards").onclick=async()=>{
     state.parentPage="rewards"; state.rw=null; render();
     try{ state.rw = await api("/api/parent/rewards",{},true); }catch(e){ state.rw={error:copyFor(e&&e.code)}; }
@@ -1631,6 +1737,8 @@ if(PARENT_MODE){
 } else {
   document.getElementById("homeBtn").onclick=()=>{ go("home"); refreshState(); };
   document.getElementById("parentBtn").onclick=()=>go("parent");
+  document.getElementById("starPill").onclick=()=>{ if(ready()) openShop(); };
+  document.getElementById("starPill").style.cursor="pointer";
   render();
   refreshState();
 }
