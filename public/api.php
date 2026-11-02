@@ -8,10 +8,13 @@ header('X-Content-Type-Options: nosniff');
 
 require __DIR__ . '/../app/lib.php';
 
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
-
 $path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
 $route = preg_replace('#^/api/#', '', $path) ?? '';
+
+// Google chuyển ba mẹ về đây sau khi đồng ý cấp quyền (GET, kiểm tra bằng mã state một lần)
+if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') google_callback();
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
 // Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
 $maxBody = $route === 'homework' ? 9 * 1024 * 1024 : 65536;
 $raw = file_get_contents('php://input', false, null, 0, $maxBody);
@@ -41,6 +44,9 @@ $routes = [
     'parent/plan'         => 'r_parent_plan',
     'parent/plan_generate'=> 'r_parent_plan_generate',
     'parent/plan_save'    => 'r_parent_plan_save',
+    'parent/google'       => 'r_parent_google',
+    'parent/google_connect' => 'r_parent_google_connect',
+    'parent/google_disconnect' => 'r_parent_google_disconnect',
 ];
 if (!isset($routes[$route])) out(['error' => 'not_found'], 404);
 
@@ -60,7 +66,8 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => TTS_VOICES]);
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => TTS_VOICES,
+         'drive' => drive_connected()]);
 }
 
 function subject_or_fail(array $b): string
@@ -257,6 +264,7 @@ function homework_images(mixed $list): array
 {
     if (!is_array($list) || count($list) < 1 || count($list) > 4) out(['error' => 'bad_photos'], 400);
     $blocks = [];
+    $bins = [];
     foreach ($list as $item) {
         if (!is_string($item) || !preg_match('#^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$#', $item, $m)) {
             out(['error' => 'bad_photos'], 400);
@@ -267,8 +275,9 @@ function homework_images(mixed $list): array
         $types = ['image/jpeg' => IMAGETYPE_JPEG, 'image/png' => IMAGETYPE_PNG, 'image/webp' => IMAGETYPE_WEBP];
         if (!$info || $info[2] !== $types[$m[1]] || $info[0] < 200 || $info[1] < 200) out(['error' => 'bad_photos'], 400);
         $blocks[] = ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => $m[1], 'data' => $m[2]]];
+        $bins[] = ['type' => $m[1], 'bin' => $bin];
     }
-    return $blocks;
+    return [$blocks, $bins];
 }
 
 function clean_practice(mixed $p): ?array
@@ -291,7 +300,7 @@ function r_homework(array $b): never
 {
     $subject = subject_or_fail($b);
     $note = clean($b['note'] ?? '', 300);
-    $images = homework_images($b['photos'] ?? null);
+    [$images, $imageBins] = homework_images($b['photos'] ?? null);
 
     $previous = null;
     $recheckOf = (int)($b['recheck_of'] ?? 0);
@@ -383,7 +392,25 @@ function r_homework(array $b): never
     $base = $recheckOf ? min(3, $improved) : 2;
     $stars = add_stars($base + ($graded > 0 && $right === $graded && ($recheckOf === 0 || $improved > 0) ? 1 : 0));
 
-    out(['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $improved > 0), 'stars' => $stars, 'due' => due_count()]);
+    $response = ['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $improved > 0), 'stars' => $stars, 'due' => due_count()];
+    if (!drive_connected()) out($response);
+
+    // Trả kết quả cho bé trước, rồi mới lưu ảnh (đã nén trên iPad) lên Google Drive; lỗi Drive không ảnh hưởng bài chấm
+    respond_now($response);
+    try {
+        drive_upload_homework($id, $subject, $result['title'], $imageBins);
+    } catch (Throwable $e) {
+        error_log('[hoc-cung-may] Drive: ' . $e->getMessage());
+    }
+    exit;
+}
+
+function respond_now(array $data): void
+{
+    http_response_code(200);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+    ignore_user_abort(true);
 }
 
 // Gửi xuống máy của bé: bỏ phần tóm tắt cho ba mẹ và đáp án của bài luyện.
@@ -806,7 +833,64 @@ function r_parent_homework(array $b): never
     $row = q('SELECT id, subject, note, photos, result, recheck_of, created_at FROM homework WHERE id = ?', [(int)($b['id'] ?? 0)])->fetch();
     if (!$row) out(['error' => 'bad_request'], 400);
     $row['result'] = json_decode($row['result'], true);
+    $row['drive'] = q('SELECT file_id, name FROM drive_files WHERE homework_id = ? AND deleted_at IS NULL ORDER BY id', [$row['id']])->fetchAll();
     out(['homework' => $row]);
+}
+
+/* ---------------- Google Drive (Góc ba mẹ) ---------------- */
+
+function r_parent_google(array $b): never
+{
+    $stat = q('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM drive_files WHERE deleted_at IS NULL')->fetch();
+    out(['configured' => google_configured(), 'connected' => drive_connected(), 'email' => setting('google_email'),
+         'files' => (int)$stat['n'], 'bytes' => (int)$stat['bytes'], 'keep_days' => max(30, (int)cfg('drive_keep_days', 365)),
+         'redirect_uri' => google_configured() ? google_redirect_uri() : '']);
+}
+
+function r_parent_google_connect(array $b): never
+{
+    if (!google_configured()) out(['error' => 'google_not_configured'], 400);
+    $state = bin2hex(random_bytes(16));
+    set_setting('google_state', json_encode(['s' => hash('sha256', $state), 'exp' => time() + 600]));
+    out(['url' => google_auth_url($state)]);
+}
+
+function google_callback(): never
+{
+    $go = function (string $result): never {
+        header('Content-Type: text/html; charset=utf-8');
+        header('Location: /?google=' . $result, true, 302);
+        exit;
+    };
+    $saved = json_decode(setting('google_state', '{}'), true) ?: [];
+    set_setting('google_state', '');
+    $state = (string)($_GET['state'] ?? '');
+    if (!google_configured() || ($saved['exp'] ?? 0) < time() || !hash_equals((string)($saved['s'] ?? ''), hash('sha256', $state))) $go('bad_state');
+    if (isset($_GET['error']) || empty($_GET['code'])) $go('denied');
+    try {
+        $d = google_token_request(['grant_type' => 'authorization_code', 'code' => (string)$_GET['code'], 'redirect_uri' => google_redirect_uri()]);
+        if (empty($d['refresh_token'])) $go('no_refresh');
+        set_setting('google_refresh', seal((string)$d['refresh_token']));
+        set_setting('google_access', json_encode(['t' => seal((string)$d['access_token']), 'exp' => time() + (int)($d['expires_in'] ?? 3600)]));
+        [$code, $about] = drive_api('GET', '/about?fields=user(emailAddress)');
+        set_setting('google_email', $code === 200 ? clean($about['user']['emailAddress'] ?? '', 120) : '');
+        drive_folder(DRIVE_ROOT, null);
+    } catch (Throwable $e) {
+        error_log('[hoc-cung-may] Google connect: ' . $e->getMessage());
+        $go('error');
+    }
+    $go('ok');
+}
+
+function r_parent_google_disconnect(array $b): never
+{
+    $refresh = unseal(setting('google_refresh'));
+    if ($refresh !== '') {
+        google_http('POST', (string)cfg('google_oauth_base', 'https://oauth2.googleapis.com') . '/revoke',
+            ['Content-Type: application/x-www-form-urlencoded'], http_build_query(['token' => $refresh]));
+    }
+    foreach (['google_refresh', 'google_access', 'google_email', 'drive_folders'] as $k) set_setting($k, '');
+    r_parent_google([]);
 }
 
 function r_parent_settings(array $b): never

@@ -10,7 +10,10 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   cho gợi ý để bé tự sửa. Bé sửa vào vở rồi chụp lại để Mây chấm lại; **chỉ khi bé tự sửa đúng ít nhất một câu**
   thì mới xem được cách làm đúng của các câu còn lại; gửi lại bài chưa sửa thì không mở đáp án, không được sao (máy chủ giữ đáp án, không gửi xuống iPad trước đó). Ba mẹ thì luôn xem được đáp án trong báo cáo.
   Câu sai được biến thành bài luyện tương tự trong Sổ ôn tập. Ba mẹ xem tóm tắt và đáp án trong báo cáo.
-  Ảnh chỉ được gửi tới Claude để chấm, **không lưu trên VPS**; kết quả chấm giữ 60 ngày.
+  Ảnh được **nén trên iPad** (cạnh dài 1600px, JPEG, khoảng 300 KB/trang, xoá thông tin vị trí GPS) rồi gửi tới Claude để chấm,
+  **không lưu trên VPS**; kết quả chấm giữ 60 ngày. Nếu ba mẹ **kết nối Google Drive** (Góc ba mẹ), bản ảnh đã nén được lưu
+  vào thư mục riêng tư "Học cùng Mây – Bài tập" trong Drive gia đình (quyền `drive.file`: app chỉ thấy file do nó tạo),
+  tự xoá sau 365 ngày (`drive_keep_days`). Cần tạo OAuth client trên Google Cloud, xem `app/config.example.php`.
 - **Lịch học và kế hoạch** 📅: ba mẹ nhập thời khoá biểu, lớp học thêm, bộ sách, số phút học mỗi ngày (Góc ba mẹ → Lịch học của bé).
   Trang chính có **"Hôm nay của bé"**: 2–4 việc vừa sức (chấm bài về nhà, sổ ôn tập, đố vui và hỏi Mây môn của ngày mai),
   tự đánh dấu ✓ khi bé làm xong; ngày có lớp học thêm và cuối tuần thì nhẹ hơn. Màn hình **Lịch học** xem theo ngày, tuần, tháng, quý

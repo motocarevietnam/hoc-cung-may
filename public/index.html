@@ -333,7 +333,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
-    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts);
+    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -351,6 +351,7 @@ function copyFor(code){
     bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
     http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
     bad_plan: "Mây soạn kế hoạch bị lỗi. Ba mẹ bấm thử lại nhé.",
+    google_not_configured: "VPS chưa có thông tin Google (google_client_id, google_client_secret trong config.php).",
     bad_speaking: "Mây soạn bài luyện nói bị lỗi. Bấm thử lại nhé.",
     cancelled: ""
   };
@@ -773,7 +774,7 @@ function renderHomework(){
         ${H.photos.map((p,i)=>`<div class="ph"><img src="${p}" alt="Ảnh ${i+1}"><button class="rm" data-i="${i}" aria-label="Bỏ ảnh ${i+1}">×</button><span class="no">${i+1}</span></div>`).join("")}
         ${H.photos.length<4 ? `<label class="addph"><span>📷</span>${H.photos.length?"Thêm trang":"Chụp ảnh"}<input type="file" id="phIn" accept="image/*" multiple hidden></label>` : ""}
       </div>
-      <p class="muted" style="margin:0">Mẹo: đặt vở chỗ sáng, chụp thẳng từ trên xuống, thấy rõ cả đề bài và chữ của bạn.</p>
+      <p class="muted" style="margin:0">Mẹo: đặt vở chỗ sáng, chụp thẳng từ trên xuống, thấy rõ cả đề bài và chữ của bạn.${me.drive?" Ảnh (đã nén) sẽ được lưu vào Google Drive của gia đình.":""}</p>
       <p style="margin:14px 0 4px"><b>3.</b> Ghi chú cho Mây (không bắt buộc)</p>
       <input class="field" id="hwNote" maxlength="300" placeholder="Ví dụ: Bài 3, 4 trang 25; cô dặn trình bày lời giải" value="${esc(H.note)}">
       ${H.error ? `<div class="notice">${esc(H.error)}</div>` : ""}
@@ -1233,6 +1234,37 @@ try{ speechSynthesis.addEventListener("voiceschanged", ()=>{
   ["vVi","vEn"].forEach(id=>{ const n=fresh.querySelector("#"+id); if(n) document.getElementById(id).innerHTML = n.innerHTML; });
 }); }catch(e){}
 
+/* ---------- Google Drive (Góc ba mẹ) ---------- */
+async function loadDriveCard(){
+  const card = document.getElementById("driveCard"); if(!card) return;
+  let G;
+  try{ G = await api("/api/parent/google",{},true); }catch(e){ card.querySelector("p").textContent = copyFor(e&&e.code); return; }
+  if(!document.body.contains(card)) return;
+  const mb = b => (b/1048576).toFixed(1).replace(".",",") + " MB";
+  card.innerHTML = `<h3>Lưu ảnh bài tập lên Google Drive</h3>
+    ${!G.configured ? `<p class="muted" style="margin:0">Chưa bật. Cần điền <b>google_client_id</b> và <b>google_client_secret</b> vào config.php trên VPS. Khi chưa bật, ảnh chỉ dùng để chấm rồi bỏ, không lưu ở đâu.</p>`
+    : G.connected ? `<p style="margin:0">✅ Đã kết nối${G.email?` với <b>${esc(G.email)}</b>`:""}. Ảnh đã nén được lưu vào thư mục <b>Học cùng Mây – Bài tập</b> (riêng tư, chia theo tháng).</p>
+        <p class="muted" style="margin:6px 0 0">Đang lưu ${G.files} ảnh, ${mb(G.bytes)}. Ảnh tự xoá khỏi Drive sau ${G.keep_days} ngày (1 năm học).</p>
+        <div class="row"><button class="btn danger" id="gOff">Ngắt kết nối</button></div>`
+    : `<p style="margin:0">Ảnh bài tập (đã nén trên iPad, khoảng 300 KB/trang) sẽ được lưu vào Google Drive của gia đình. Mây chỉ được quyền với các file do chính nó tạo, không xem được file khác trong Drive.</p>
+        <div class="row"><button class="btn primary" id="gOn">Kết nối Google Drive</button></div>`}`;
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("gOn", async()=>{ try{ const d = await api("/api/parent/google_connect",{},true); window.location.href = d.url; }catch(e){ alert(copyFor(e&&e.code)); } });
+  on("gOff", async()=>{ if(!confirm("Ngắt kết nối Google Drive? Ảnh đã lưu vẫn nằm trong Drive, nhưng Mây sẽ không tự xoá chúng sau hạn nữa.")) return;
+    try{ await api("/api/parent/google_disconnect",{},true); loadDriveCard(); }catch(e){ alert(copyFor(e&&e.code)); } });
+}
+// Google chuyển về app sau khi ba mẹ đồng ý (hoặc từ chối) cấp quyền
+(function(){
+  const g = new URLSearchParams(location.search).get("google"); if(!g) return;
+  history.replaceState(null, "", "/");
+  const msg = {ok:"Đã kết nối Google Drive ✅ Từ giờ ảnh bài tập (đã nén) sẽ được lưu vào Drive của gia đình.",
+    denied:"Ba mẹ chưa đồng ý cấp quyền Google Drive.", bad_state:"Liên kết kết nối đã hết hạn. Ba mẹ bấm Kết nối lại nhé.",
+    no_refresh:"Google chưa cấp quyền lâu dài. Ba mẹ vào myaccount.google.com/permissions gỡ quyền của app rồi kết nối lại nhé.",
+    error:"Kết nối Google Drive bị lỗi. Ba mẹ thử lại sau nhé."}[g] || "";
+  if(msg) setTimeout(()=>alert(msg), 300);
+  state.view = "parent";
+})();
+
 /* ---------- góc ba mẹ ---------- */
 function renderParent(){
   if(state.transcript) return renderTranscript();
@@ -1318,6 +1350,10 @@ function reportHtml(R){
       <p style="margin:0">Đang ôn ${R.review.pending} câu (${R.review.due} câu đến hạn hôm nay). Đã thuộc hẳn ${R.review.mastered} câu.</p>
       ${weak ? `<p class="muted" style="margin:10px 0 0">Phần bé hay sai:</p><ul class="weak">${weak}</ul>` : ""}
     </div>
+    <div class="card" id="driveCard">
+      <h3>Lưu ảnh bài tập lên Google Drive</h3>
+      <p class="muted" style="margin:0">Đang tải…</p>
+    </div>
     <div class="card">
       <h3>Lịch học và kế hoạch</h3>
       <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
@@ -1325,7 +1361,7 @@ function reportHtml(R){
     </div>
     <div class="card">
       <h3>Bài tập về nhà đã chấm</h3>
-      <p class="muted" style="margin:0">Ảnh không được lưu lại, chỉ lưu kết quả chấm (giữ 60 ngày). Bấm vào để xem chi tiết và đáp án.</p>
+      <p class="muted" style="margin:0">Kết quả chấm giữ 60 ngày. Ảnh chỉ được lưu khi đã kết nối Google Drive (ở thẻ trên, giữ 1 năm học). Bấm vào để xem chi tiết, đáp án và ảnh.</p>
       <div class="convlist">${hws || `<p class="muted">Bé chưa gửi bài nào.</p>`}</div>
     </div>
     <div class="card">
@@ -1362,6 +1398,7 @@ function wireReport(R){
     try{ state.transcript = await api("/api/parent/conversation",{id:+b.dataset.id},true); render(); window.scrollTo(0,0); }
     catch(e){ alert(copyFor(e&&e.code)); }
   });
+  loadDriveCard();
   document.getElementById("toSched").onclick=async()=>{
     state.parentPage="schedule"; state.sched=null; render();
     try{ state.sched=(await api("/api/parent/schedule",{},true)).schedule; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }
@@ -1397,6 +1434,8 @@ function renderParentHomework(){
     <button class="back" id="back">‹ Báo cáo</button>
     <h2 style="font-size:28px">${esc(subjById(h.subject)?.name||"")}${R.title?": "+esc(R.title):""}</h2>
     <p class="muted" style="margin:4px 0 0">${fmtDate(h.created_at)}, ${h.photos} ảnh${h.recheck_of?", bài bé đã sửa lại":""}${h.note?`. Ghi chú: ${esc(h.note)}`:""}</p>
+    ${(h.drive||[]).length ? `<div class="card"><h3>Ảnh bài làm trên Google Drive</h3><div class="row">${h.drive.map((f,i)=>`<a class="btn" target="_blank" rel="noopener" href="https://drive.google.com/file/d/${encodeURIComponent(f.file_id)}/view">📄 Trang ${i+1}</a>`).join("")}</div>
+      <p class="muted" style="margin:6px 0 0">Mở bằng tài khoản Google của gia đình.</p></div>` : ""}
     ${R.summary_for_parent ? `<div class="card"><h3>Tóm tắt cho ba mẹ</h3><p style="margin:0">${fmt(R.summary_for_parent)}</p></div>` : ""}
     ${(R.items||[]).map(x=>`<div class="hwitem ${esc(x.status)}">
       <div class="top"><b>${esc(x.label)}</b><span class="st ${esc(x.status)}">${HW_ST[x.status]||""}</span></div>

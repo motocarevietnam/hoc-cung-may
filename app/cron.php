@@ -35,6 +35,14 @@ foreach (glob(__DIR__ . '/cache/tts/*.mp3') ?: [] as $f) {
     if (filemtime($f) < strtotime('-30 days')) @unlink($f);
 }
 
+// Xoá ảnh bài tập trên Google Drive quá hạn (mặc định 365 ngày = 1 năm học)
+try {
+    $deletedDrive = drive_cleanup();
+    if ($deletedDrive) echo date('c') . " Drive: xoá {$deletedDrive} ảnh quá hạn" . PHP_EOL;
+} catch (Throwable $e) {
+    fwrite(STDERR, date('c') . ' LỖI Drive: ' . $e->getMessage() . PHP_EOL);
+}
+
 // 3. Sao lưu bằng mysqldump: một file .sql.gz mỗi ngày, giữ N bản gần nhất.
 //    Mật khẩu đưa qua file tạm chỉ user "may" đọc được, không lộ trên dòng lệnh.
 $dir = __DIR__ . '/backups';

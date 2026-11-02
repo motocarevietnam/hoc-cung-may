@@ -33,6 +33,14 @@ return [
     'azure_speech_key' => '',
     'azure_speech_region' => 'southeastasia',
 
+    // Lưu ảnh bài tập (đã nén) lên Google Drive của gia đình. Để trống thì không lưu ảnh ở đâu cả.
+    // Tạo OAuth client (Web application) trên console.cloud.google.com, bật Google Drive API,
+    // Authorized redirect URI: https://TEN-MIEN/api/google/callback. Ba mẹ bấm "Kết nối" trong Góc ba mẹ.
+    'google_client_id' => '',
+    'google_client_secret' => '',
+    // Giữ ảnh trên Drive bao nhiêu ngày rồi tự xoá (365 = 1 năm học)
+    'drive_keep_days' => 365,
+
     // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3, 1 lần chấm bài tập = 5)
     'daily_limit' => 150,
 

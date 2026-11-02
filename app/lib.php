@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -89,6 +89,13 @@ const SCHEMA = [
        transcript TEXT NOT NULL, result MEDIUMTEXT NOT NULL, level VARCHAR(10) NOT NULL, created_at INT UNSIGNED NOT NULL,
        KEY idx_tries_session (session_id), KEY idx_tries_created (created_at),
        CONSTRAINT fk_tries_session FOREIGN KEY (session_id) REFERENCES speaking(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Ảnh bài tập (đã nén trên iPad) lưu trên Google Drive của gia đình; DB chỉ giữ mã file để mở và để tự xoá sau hạn
+    "CREATE TABLE IF NOT EXISTS drive_files (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, homework_id INT UNSIGNED NULL, file_id VARCHAR(128) NOT NULL,
+       name VARCHAR(255) NOT NULL DEFAULT '', bytes INT UNSIGNED NOT NULL DEFAULT 0, created_at INT UNSIGNED NOT NULL,
+       deleted_at INT UNSIGNED NULL,
+       KEY idx_drive_homework (homework_id), KEY idx_drive_created (deleted_at, created_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -861,4 +868,166 @@ function tts_mp3(array $chunks, array $voices, float $rate): string
     if (!is_dir($dir)) @mkdir($dir, 0750, true);
     @file_put_contents($file, $mp3);
     return (string)$mp3;
+}
+
+/* ---------------- Google Drive: lưu ảnh bài tập (cách A: ảnh đã nén trên iPad) ---------------- */
+// Quyền tối thiểu drive.file: app chỉ thấy các file do chính app tạo, không đọc được file khác trong Drive gia đình.
+
+const DRIVE_ROOT = 'Học cùng Mây – Bài tập';
+
+function google_configured(): bool
+{
+    return trim((string)cfg('google_client_id', '')) !== '' && trim((string)cfg('google_client_secret', '')) !== '';
+}
+
+function drive_connected(): bool
+{
+    return google_configured() && setting('google_refresh') !== '';
+}
+
+// Mã hoá refresh token trước khi lưu DB (bản sao lưu DB một mình không dùng được token)
+function secret_key(): string
+{
+    return hash('sha256', 'hoc-cung-may|' . cfg('google_client_secret', '') . '|' . cfg('db_pass', ''), true);
+}
+
+function seal(string $plain): string
+{
+    $iv = random_bytes(12);
+    $ct = openssl_encrypt($plain, 'aes-256-gcm', secret_key(), OPENSSL_RAW_DATA, $iv, $tag);
+    return base64_encode($iv . $tag . $ct);
+}
+
+function unseal(string $box): string
+{
+    $raw = base64_decode($box, true);
+    if ($raw === false || strlen($raw) < 29) return '';
+    $pt = openssl_decrypt(substr($raw, 28), 'aes-256-gcm', secret_key(), OPENSSL_RAW_DATA, substr($raw, 0, 12), substr($raw, 12, 16));
+    return $pt === false ? '' : $pt;
+}
+
+function google_redirect_uri(): string
+{
+    $uri = (string)cfg('google_redirect_uri', '');
+    return $uri !== '' ? $uri : 'https://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/api/google/callback';
+}
+
+function google_http(string $method, string $url, array $headers = [], ?string $body = null, int $timeout = 30): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+    if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
+    $res = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return [$code, $res === false ? '' : (string)$res];
+}
+
+function google_auth_url(string $state): string
+{
+    return (string)cfg('google_auth_url', 'https://accounts.google.com/o/oauth2/v2/auth') . '?' . http_build_query([
+        'client_id' => cfg('google_client_id'),
+        'redirect_uri' => google_redirect_uri(),
+        'response_type' => 'code',
+        'scope' => 'https://www.googleapis.com/auth/drive.file',
+        'access_type' => 'offline',
+        'prompt' => 'consent',
+        'include_granted_scopes' => 'false',
+        'state' => $state,
+    ]);
+}
+
+function google_token_request(array $params): array
+{
+    [$code, $res] = google_http('POST', (string)cfg('google_oauth_base', 'https://oauth2.googleapis.com') . '/token',
+        ['Content-Type: application/x-www-form-urlencoded'], http_build_query($params + [
+            'client_id' => cfg('google_client_id'), 'client_secret' => cfg('google_client_secret'),
+        ]));
+    $d = json_decode($res, true);
+    if ($code !== 200 || !is_array($d) || empty($d['access_token'])) {
+        throw new UpstreamError('Google token ' . $code . ' ' . substr($res, 0, 300));
+    }
+    return $d;
+}
+
+function google_access_token(): string
+{
+    $cache = json_decode(setting('google_access', '{}'), true) ?: [];
+    if (($cache['exp'] ?? 0) > time() + 60 && !empty($cache['t'])) return unseal((string)$cache['t']);
+    $refresh = unseal(setting('google_refresh'));
+    if ($refresh === '') throw new UpstreamError('Google: chưa kết nối');
+    $d = google_token_request(['grant_type' => 'refresh_token', 'refresh_token' => $refresh]);
+    set_setting('google_access', json_encode(['t' => seal($d['access_token']), 'exp' => time() + (int)($d['expires_in'] ?? 3600)]));
+    return (string)$d['access_token'];
+}
+
+function drive_api(string $method, string $path, ?string $body = null, string $type = 'application/json', bool $upload = false): array
+{
+    $base = (string)cfg('google_api_base', 'https://www.googleapis.com') . ($upload ? '/upload/drive/v3' : '/drive/v3');
+    $headers = ['Authorization: Bearer ' . google_access_token()];
+    if ($body !== null) $headers[] = 'Content-Type: ' . $type;
+    [$code, $res] = google_http($method, $base . $path, $headers, $body, 60);
+    return [$code, json_decode($res, true) ?: []];
+}
+
+// Thư mục riêng của app (tạo một lần, nhớ mã thư mục). drive.file chỉ tìm thấy thư mục do app tạo.
+function drive_folder(string $name, ?string $parent): string
+{
+    $map = json_decode(setting('drive_folders', '{}'), true) ?: [];
+    $key = ($parent ?? 'root') . '/' . $name;
+    if (!empty($map[$key])) return $map[$key];
+    $meta = ['name' => $name, 'mimeType' => 'application/vnd.google-apps.folder'];
+    if ($parent) $meta['parents'] = [$parent];
+    [$code, $d] = drive_api('POST', '/files?fields=id', json_encode($meta, JSON_UNESCAPED_UNICODE));
+    if ($code !== 200 || empty($d['id'])) throw new UpstreamError('Drive tạo thư mục ' . $code);
+    $map[$key] = $d['id'];
+    set_setting('drive_folders', json_encode($map, JSON_UNESCAPED_UNICODE));
+    return $d['id'];
+}
+
+// Tải các ảnh đã nén của một bài lên Drive: "Học cùng Mây – Bài tập/2026-11/2026-11-02 19h05 Toán – … – trang 1.jpg"
+function drive_upload_homework(int $homeworkId, string $subject, string $title, array $images): int
+{
+    $root = drive_folder(DRIVE_ROOT, null);
+    $month = drive_folder(date('Y-m'), $root);
+    $base = date('Y-m-d H\hi') . ' ' . SUBJECTS[$subject]['name'] . ($title !== '' ? ' – ' . mb_substr($title, 0, 60) : '');
+    $base = trim(preg_replace('/[\/\\\\:*?"<>|]+/u', ' ', $base) ?? $base);
+    $n = 0;
+    foreach ($images as $i => $img) {
+        $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$img['type']] ?? 'jpg';
+        $name = $base . ' – trang ' . ($i + 1) . '.' . $ext;
+        $boundary = 'may' . bin2hex(random_bytes(8));
+        $meta = json_encode(['name' => $name, 'parents' => [$month], 'description' => 'Học cùng Mây – ảnh bài tập đã nén'], JSON_UNESCAPED_UNICODE);
+        $body = "--{$boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{$meta}\r\n"
+              . "--{$boundary}\r\nContent-Type: {$img['type']}\r\n\r\n{$img['bin']}\r\n--{$boundary}--";
+        [$code, $d] = drive_api('POST', '/files?uploadType=multipart&fields=id', $body, "multipart/related; boundary={$boundary}", true);
+        if ($code !== 200 || empty($d['id'])) throw new UpstreamError('Drive tải ảnh ' . $code);
+        q('INSERT INTO drive_files (homework_id, file_id, name, bytes, created_at) VALUES (?, ?, ?, ?, ?)',
+            [$homeworkId, $d['id'], $name, strlen($img['bin']), time()]);
+        $n++;
+    }
+    return $n;
+}
+
+// Xoá khỏi Drive các ảnh quá hạn (mặc định 365 ngày = 1 năm học). Chạy trong cron hằng đêm.
+function drive_cleanup(): int
+{
+    if (!drive_connected()) return 0;
+    $days = max(30, (int)cfg('drive_keep_days', 365));
+    $rows = q('SELECT id, file_id FROM drive_files WHERE deleted_at IS NULL AND created_at < ? LIMIT 200', [strtotime("-{$days} days")])->fetchAll();
+    $n = 0;
+    foreach ($rows as $r) {
+        [$code] = drive_api('DELETE', '/files/' . rawurlencode($r['file_id']));
+        if (in_array($code, [200, 204, 404], true)) {
+            q('UPDATE drive_files SET deleted_at = ? WHERE id = ?', [time(), $r['id']]);
+            $n++;
+        }
+    }
+    return $n;
 }
