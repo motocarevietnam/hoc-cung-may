@@ -95,7 +95,7 @@ function r_chat(array $b): never
     while ($messages && $messages[0]['role'] !== 'user') array_shift($messages);
 
     $system = chat_system($subject, $topic, setting('nick'), setting('focus'), memory_note($subject));
-    $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), $system, $messages, 600));
+    $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), $system, $messages, 4000, 60, (string)cfg('chat_effort', 'low')));
     if ($reply === '') $reply = '…';
 
     q('INSERT INTO messages (conv_id, role, content, created_at) VALUES (?, \'assistant\', ?, ?)', [$conv, $reply, time()]);
@@ -116,7 +116,9 @@ function r_quiz(array $b): never
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
         [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'))]],
-        2000
+        16000,
+        100,
+        (string)cfg('quiz_effort', 'medium')
     );
     $start = strpos($text, '{');
     $end = strrpos($text, '}');
@@ -300,8 +302,9 @@ function r_homework(array $b): never
         (string)cfg('homework_model', cfg('quiz_model', 'claude-sonnet-5-5')),
         homework_system($subject, setting('nick')),
         [['role' => 'user', 'content' => $content]],
-        4000,
-        140
+        16000,
+        140,
+        (string)cfg('homework_effort', 'medium')
     );
     $start = strpos($text, '{');
     $end = strrpos($text, '}');

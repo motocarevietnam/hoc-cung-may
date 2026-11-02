@@ -23,6 +23,11 @@ return [
     // Chấm bài tập về nhà từ ảnh chụp: cần đọc chữ viết tay và chấm chính xác
     'homework_model' => 'claude-sonnet-5-5',
 
+    // Mức "suy nghĩ" của Claude cho từng việc: low (nhanh, rẻ) / medium / high (kỹ hơn, chậm và tốn hơn)
+    'chat_effort' => 'low',
+    'quiz_effort' => 'medium',
+    'homework_effort' => 'medium',
+
     // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3, 1 lần chấm bài tập = 5)
     'daily_limit' => 150,
 

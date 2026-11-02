@@ -201,25 +201,37 @@ function due_count(): int
     return (int)q('SELECT COUNT(*) FROM mistakes WHERE mastered_at IS NULL AND due_at <= ?', [time()])->fetchColumn();
 }
 
-function ask_claude(string $model, string $system, array $messages, int $maxTokens, int $timeout = 100): string
+// Gọi Claude Messages API.
+// Các model đời mới (Haiku 5.5, Sonnet 5.5) luôn tự "suy nghĩ" trước khi trả lời, và phần suy nghĩ
+// tính chung vào max_tokens. Vì vậy max_tokens phải rộng, còn độ sâu suy nghĩ chỉnh bằng $effort
+// (low / medium / high). Đặt max_tokens quá thấp sẽ làm câu trả lời bị cụt hoặc rỗng.
+function ask_claude(string $model, string $system, array $messages, int $maxTokens, int $timeout = 100, string $effort = 'medium'): string
 {
+    $headers = [
+        'content-type: application/json',
+        'x-api-key: ' . (string)cfg('anthropic_api_key', ''),
+        'anthropic-version: 2023-06-01',
+    ];
+    $body = [
+        'model' => $model,
+        'max_tokens' => $maxTokens,
+        'system' => $system,
+        'messages' => $messages,
+        'output_config' => ['effort' => $effort],
+    ];
+    // Sonnet 5.5: nếu bộ lọc an toàn từ chối nhầm, API tự chuyển sang model dự phòng phù hợp
+    if (str_starts_with($model, 'claude-sonnet-5-5')) {
+        $headers[] = 'anthropic-beta: server-side-fallback-2026-07-01';
+        $body['fallbacks'] = 'default';
+    }
     $ch = curl_init('https://api.anthropic.com/v1/messages');
     curl_setopt_array($ch, [
         CURLOPT_POST => true,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 10,
         CURLOPT_TIMEOUT => $timeout,
-        CURLOPT_HTTPHEADER => [
-            'content-type: application/json',
-            'x-api-key: ' . (string)cfg('anthropic_api_key', ''),
-            'anthropic-version: 2023-06-01',
-        ],
-        CURLOPT_POSTFIELDS => json_encode([
-            'model' => $model,
-            'max_tokens' => $maxTokens,
-            'system' => $system,
-            'messages' => $messages,
-        ], JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
     ]);
     $raw = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -229,9 +241,17 @@ function ask_claude(string $model, string $system, array $messages, int $maxToke
         throw new UpstreamError('Anthropic ' . $code . ' ' . $err . ' ' . substr((string)$raw, 0, 400));
     }
     $data = json_decode((string)$raw, true);
+    $stop = (string)($data['stop_reason'] ?? '');
+    if ($stop === 'refusal') {
+        throw new UpstreamError('Anthropic refusal ' . json_encode($data['stop_details'] ?? null));
+    }
     $text = '';
     foreach (($data['content'] ?? []) as $block) {
         if (($block['type'] ?? '') === 'text') $text .= (string)$block['text'];
+    }
+    // Bị cắt giữa chừng: không đưa nửa câu trả lời cho bé, báo lỗi để bé bấm thử lại
+    if ($stop === 'max_tokens' || trim($text) === '') {
+        throw new UpstreamError('Anthropic stop=' . $stop . ' usage=' . json_encode($data['usage'] ?? null));
     }
     return $text;
 }
