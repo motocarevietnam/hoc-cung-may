@@ -33,6 +33,10 @@ $routes = [
     'plan'                => 'r_plan',
     'task'                => 'r_task',
     'shop'                => 'r_shop',
+    'check_start'         => 'r_check_start',
+    'check_explain'       => 'r_check_explain',
+    'check_questions'     => 'r_check_questions',
+    'check_answer'        => 'r_check_answer',
     'shop_redeem'         => 'r_shop_redeem',
     'shop_cancel'         => 'r_shop_cancel',
     'speak_start'         => 'r_speak_start',
@@ -588,6 +592,137 @@ function r_task(array $b): never
     out(['ok' => true, 'day' => day_plan(today()), 'stars' => stars()]);
 }
 
+/* ---------------- "Mình hiểu rồi": tự giải thích + kiểm tra lại ---------------- */
+
+// Bắt đầu từ một cuộc trò chuyện (chat) hoặc một bài về nhà đã chấm (homework)
+function r_check_start(array $b): never
+{
+    $source = (string)($b['source'] ?? '');
+    $ref = (int)($b['ref'] ?? 0);
+    if ($source === 'chat') {
+        $c = q('SELECT * FROM conversations WHERE id = ?', [$ref])->fetch();
+        if (!$c) out(['error' => 'bad_request'], 400);
+        $msgs = array_reverse(q('SELECT role, content FROM messages WHERE conv_id = ? ORDER BY id DESC LIMIT 8', [$ref])->fetchAll());
+        if (count(array_filter($msgs, fn($m) => $m['role'] === 'user')) < 2) out(['error' => 'check_too_early'], 400);
+        $context = implode("\n", array_map(fn($m) => ($m['role'] === 'user' ? 'Bé: ' : 'Mây: ') . mb_substr($m['content'], 0, 500), $msgs));
+        $subject = $c['subject'];
+        $skill = skill_key($c['topic'] !== '' ? $c['topic'] : skill_name_from_chat($subject, $context));
+    } elseif ($source === 'homework') {
+        $h = q('SELECT * FROM homework WHERE id = ?', [$ref])->fetch();
+        if (!$h) out(['error' => 'bad_request'], 400);
+        $res = json_decode($h['result'], true) ?: [];
+        $items = array_filter($res['items'] ?? [], fn($x) => in_array($x['status'] ?? '', ['wrong', 'partial'], true) || !empty($x['fixed']));
+        if (!$items) $items = $res['items'] ?? [];
+        $context = implode("\n", array_map(fn($x) => '- ' . ($x['label'] ?? '') . ': ' . ($x['task'] ?? '') . ' | bé làm: ' . ($x['student'] ?? '')
+            . (($x['fix'] ?? '') !== '' ? ' | cách đúng: ' . $x['fix'] : ''), array_slice(array_values($items), 0, 4)));
+        $subject = $h['subject'];
+        $skill = skill_key((string)($res['title'] ?? ''));
+    } else {
+        out(['error' => 'bad_request'], 400);
+    }
+    q('INSERT INTO checks (subject, skill, source, context, created_at) VALUES (?, ?, ?, ?, ?)', [$subject, $skill, "{$source}:{$ref}", $context, time()]);
+    out(['id' => (int)db()->lastInsertId(), 'subject' => $subject, 'skill' => $skill]);
+}
+
+// Cuộc trò chuyện chưa có chủ đề: nhờ Mây đặt tên kỹ năng ngắn (để gom tiến bộ theo kỹ năng, không theo từng câu hỏi).
+// Lỗi thì dùng câu hỏi đầu tiên của bé.
+function skill_name_from_chat(string $subject, string $context): string
+{
+    try {
+        $name = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'),
+            'Bạn đặt tên kỹ năng học tập lớp 4. Chỉ trả về tên kỹ năng, không giải thích, không dấu ngoặc kép.',
+            [['role' => 'user', 'content' => 'Môn: ' . SUBJECTS[$subject]['name'] . " (lớp 4). Đặt tên NGẮN (2–6 từ, theo cách gọi trong sách lớp 4) cho kỹ năng bé đang học trong đoạn trò chuyện sau, ví dụ \"Cộng phân số khác mẫu\", \"Past simple\":\n" . mb_substr($context, 0, 2000)]],
+            2000, 30, 'low'));
+        $name = clean(preg_replace('/["“”*]/u', '', strtok($name, "\n")) ?? '', 60);
+        if ($name !== '') return $name;
+    } catch (Throwable $e) {
+        error_log('[hoc-cung-may] skill name: ' . $e->getMessage());
+    }
+    foreach (explode("\n", $context) as $line) if (str_starts_with($line, 'Bé: ')) return mb_substr(substr($line, 5), 0, 60);
+    return 'Tổng hợp';
+}
+
+function check_row(int $id): array
+{
+    $c = q('SELECT * FROM checks WHERE id = ?', [$id])->fetch();
+    if (!$c) out(['error' => 'bad_request'], 400);
+    return $c;
+}
+
+function r_check_explain(array $b): never
+{
+    $c = check_row((int)($b['id'] ?? 0));
+    $text = clean($b['text'] ?? '', 1500);
+    if (mb_strlen($text) < 5) out(['error' => 'explain_too_short'], 400);
+    if ((int)$c['explain_tries'] >= 3) out(['error' => 'explain_limit'], 400);
+    spend(1);
+    $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'),
+        "Bạn là \"Mây\", bạn học AI của một bạn nhỏ lớp 4. Bạn đánh giá lời giải thích của bé một cách ấm áp, công bằng.\n\n"
+        . grade4_scope($c['subject']) . "\n\n" . no_fabrication_rules() . "\nChỉ trả lời bằng JSON.",
+        [['role' => 'user', 'content' => explain_judge_prompt($c['subject'], $c['skill'], $c['context'], $text)]], 16000, 100, 'low')) ?? [];
+    $verdict = in_array($d['verdict'] ?? '', ['correct', 'partial', 'incorrect'], true) ? $d['verdict'] : 'partial';
+    $wasCorrect = (json_decode((string)$c['explain_result'], true)['verdict'] ?? '') === 'correct';
+    $result = ['verdict' => $verdict, 'praise' => clean($d['praise'] ?? '', 300), 'missing' => clean($d['missing'] ?? '', 400), 'tip' => clean($d['tip'] ?? '', 300)];
+    q('UPDATE checks SET explain_text = ?, explain_result = ?, explain_tries = explain_tries + 1 WHERE id = ?',
+        [$text, json_encode($result, JSON_UNESCAPED_UNICODE), $c['id']]);
+    if ($verdict === 'correct' && !$wasCorrect) {   // mỗi lượt kiểm tra chỉ ghi nhận một lần giải thích đúng
+        q('INSERT INTO skill_mastery (subject, skill, explained, updated_at) VALUES (?, ?, 1, ?) ON DUPLICATE KEY UPDATE explained = explained + 1, updated_at = VALUES(updated_at)',
+            [$c['subject'], $c['skill'], time()]);
+        award('explain', "explain:{$c['id']}", 'Giải thích đúng: ' . $c['skill']);
+    }
+    out(['result' => $result, 'tries_left' => 3 - (int)$c['explain_tries'] - 1, 'stars' => stars()]);
+}
+
+function r_check_questions(array $b): never
+{
+    $c = check_row((int)($b['id'] ?? 0));
+    if ($c['questions'] === null) {
+        spend(3);
+        $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+            [['role' => 'user', 'content' => check_questions_prompt($c['subject'], $c['skill'], $c['context'])]], 16000, 100, (string)cfg('quiz_effort', 'medium'))) ?? [];
+        $qs = [];
+        foreach (is_array($d['questions'] ?? null) ? $d['questions'] : [] as $x) {
+            $x = clean_practice($x);
+            if ($x) $qs[] = $x;
+            if (count($qs) === 3) break;
+        }
+        if (count($qs) < 2) out(['error' => 'bad_quiz'], 502);
+        q('UPDATE checks SET questions = ?, answers = ?, total = ? WHERE id = ?', [json_encode($qs, JSON_UNESCAPED_UNICODE), '{}', count($qs), $c['id']]);
+        $c['questions'] = json_encode($qs, JSON_UNESCAPED_UNICODE);
+    }
+    $qs = json_decode($c['questions'], true);
+    out(['questions' => array_map(fn($x) => ['q' => $x['q'], 'options' => $x['options'], 'hint' => $x['hint']], $qs), 'skill' => $c['skill']]);
+}
+
+function r_check_answer(array $b): never
+{
+    $c = check_row((int)($b['id'] ?? 0));
+    $qs = json_decode((string)$c['questions'], true) ?: [];
+    $answers = json_decode((string)$c['answers'], true) ?: [];
+    $i = (int)($b['index'] ?? -1);
+    if (!isset($qs[$i])) out(['error' => 'bad_request'], 400);
+    $key = (string)$i;
+    $first = !array_key_exists($key, $answers);
+    if ($first) {
+        $answers[$key] = (int)($b['picked'] ?? -1);
+        q('UPDATE checks SET answers = ? WHERE id = ?', [json_encode($answers), $c['id']]);
+        if ($answers[$key] !== $qs[$i]['answer']) remember_mistake($c['subject'], $c['skill'], $qs[$i]);
+    }
+    $right = $answers[$key] === $qs[$i]['answer'];
+    $res = ['right' => $right, 'answer' => $qs[$i]['answer'], 'explain' => $qs[$i]['explain']];
+    if (count($answers) >= count($qs) && $c['finished_at'] === null) {
+        $score = count(array_filter(array_keys($qs), fn($k) => ($answers[(string)$k] ?? -1) === $qs[$k]['answer']));
+        $total = count($qs);
+        $passed = $score >= max(2, $total - 1) && $score >= $total - 1;   // 2/2 hoặc 3/3, 2/3
+        q('UPDATE checks SET score = ?, finished_at = ? WHERE id = ? AND finished_at IS NULL', [$score, time(), $c['id']]);
+        $level = skill_record($c['subject'], $c['skill'], $score, $total, $passed);
+        log_activity($c['subject'], $c['skill'], 'check', $score, $total);
+        if ($passed) award('progress', "check:{$c['id']}", 'Kiểm tra lại đạt ' . "{$score}/{$total}: " . $c['skill']);
+        $res += ['done' => true, 'score' => $score, 'total' => $total, 'passed' => $passed, 'level' => $level, 'level_label' => SKILL_LEVELS[$level]];
+    }
+    out($res + ['stars' => stars(), 'due' => due_count()]);
+}
+
 /* ---------------- đổi quà (bé) ---------------- */
 
 function r_shop(array $b): never
@@ -868,6 +1003,7 @@ function r_parent_report(array $b): never
         'homework' => $homework,
         'today' => day_plan(today()),
         'shop_pending' => (int)q("SELECT COUNT(*) FROM redemptions WHERE status = 'pending'")->fetchColumn(),
+        'skills' => q('SELECT subject, skill, checks, passed, explained, last_score, level, updated_at FROM skill_mastery ORDER BY updated_at DESC LIMIT 30')->fetchAll(),
         'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
@@ -899,7 +1035,7 @@ function r_parent_rewards(array $b): never
         'daily_cap' => $r['daily_cap'] === null ? null : (int)$r['daily_cap'], 'weekly_cap' => $r['weekly_cap'] === null ? null : (int)$r['weekly_cap'],
         'enabled' => (bool)$r['enabled']], q('SELECT * FROM reward_rules ORDER BY sort, code')->fetchAll());
     $ledger = q('SELECT created_at, rule_code, stars, note, balance_after FROM star_ledger ORDER BY id DESC LIMIT 60')->fetchAll();
-    $week = q("SELECT COALESCE(SUM(CASE WHEN stars > 0 AND rule_code NOT IN ('opening','refund') THEN stars END), 0) AS earned,
+    $week = q("SELECT COALESCE(SUM(CASE WHEN stars > 0 AND rule_code IN (SELECT code FROM reward_rules) THEN stars END), 0) AS earned,
                       COALESCE(SUM(CASE WHEN rule_code = 'task_complete' THEN 1 END), 0) AS tasks
                FROM star_ledger WHERE week = ?", [week_start()])->fetch();
     out(['balance' => stars(), 'rules' => $rules, 'ledger' => $ledger,

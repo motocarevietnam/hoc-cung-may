@@ -34,6 +34,9 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   chưa làm / đang làm / tạm dừng / xong / cần giúp; tự bắt đầu được sao; "Cần ba mẹ giúp" hiện trong Cổng ba mẹ.
 - **Đổi quà** 🎁: ba mẹ tạo quà trong Cổng ba mẹ (giá sao, mỗi tuần tối đa, số lượng, bật/tắt). Bé gửi yêu cầu đổi:
   sao được giữ ngay; **chỉ ba mẹ duyệt**; từ chối hoặc bé huỷ thì hoàn sao. Mọi bước ghi vào sổ sao, chống bấm hai lần/đồng thời.
+- **"Mình hiểu rồi" và tiến bộ theo kỹ năng** ✅: sau khi hỏi bài Mây (từ 2 lượt) hoặc chấm bài, bé tự giải thích cách làm
+  (nói hoặc gõ; giải thích đúng được sao), rồi làm 3 câu kiểm tra mới cùng kỹ năng (đạt 2/3 trở lên được sao "tiến bộ có bằng
+  chứng"; câu sai vào Sổ ôn tập). Mỗi kỹ năng: đang học → đang tiến bộ → thành thạo (đạt 2 lần liên tiếp); Cổng ba mẹ có bảng tiến bộ.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
