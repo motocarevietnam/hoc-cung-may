@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Học cùng Mây</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/icon-180.png">
+<link rel="icon" href="/icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Học cùng Mây">
+<meta name="theme-color" content="#FFFFFF">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Lexend:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FFFFFF; --grid:#EEE8FC; --grid-strong:#D9CCF6; --margin:#F3A1A1;
+  --ink:#3B2470; --ink-soft:#6E5C99; --surface:#FFFFFF; --surface-2:#F6F1FF;
+  --sun:#FFC83D; --mint:#1FA97F; --mint-bg:#DDF6EC; --coral:#E35B5B; --coral-bg:#FDE4E4;
+  --l1:#FFE08A; --l2:#B9E8D5; --l3:#FFC9C2; --l4:#C9DFFF; --l5:#E7D4FF; --label-ink:#2B1B52;
+  --me:#3B2470; --me-ink:#FFFFFF; --line:#D9CCF6;
+  --display:"Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --body:"Lexend", "Segoe UI", system-ui, sans-serif;
+  color-scheme: light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#1C2A2B; --grid:#233334; --grid-strong:#2C3F40; --margin:#7A4545;
+    --ink:#F2F5EC; --ink-soft:#B8C7BF; --surface:#243536; --surface-2:#2B3E3F;
+    --mint:#5FD8AE; --mint-bg:#1F4237; --coral:#FF8C8C; --coral-bg:#4A2A2A;
+    --me:#E7D4FF; --me-ink:#2B1B52; --line:#3A5051;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#1C2A2B; --grid:#233334; --grid-strong:#2C3F40; --margin:#7A4545;
+  --ink:#F2F5EC; --ink-soft:#B8C7BF; --surface:#243536; --surface-2:#2B3E3F;
+  --mint:#5FD8AE; --mint-bg:#1F4237; --coral:#FF8C8C; --coral-bg:#4A2A2A;
+  --me:#E7D4FF; --me-ink:#2B1B52; --line:#3A5051;
+  color-scheme: dark;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+body{
+  margin:0;min-height:100%;color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.55;
+  background-color:var(--paper);
+  background-image:
+    linear-gradient(var(--grid-strong) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid-strong) 1px,transparent 1px),
+    linear-gradient(var(--grid) 1px,transparent 1px);
+  background-size:28px 28px,28px 28px,7px 7px;
+}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--sky,#4BA3F5);outline-offset:2px;border-radius:10px}
+
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:2px solid var(--line);
+  display:flex;align-items:center;gap:10px;padding:8px 14px}
+.bar .home{display:flex;align-items:center;gap:8px;background:none;border:0;padding:0}
+.bar .home svg{width:42px;height:34px}
+.bar .title{font-family:var(--display);font-weight:800;font-size:22px;line-height:1}
+.bar .spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:2px solid var(--line);border-radius:999px;padding:4px 12px;font-family:var(--display);font-weight:700;font-size:18px}
+.pill.pop{animation:pop .5s ease}
+@keyframes pop{40%{transform:scale(1.25)}}
+.iconbtn{background:var(--surface-2);border:2px solid var(--line);border-radius:12px;padding:5px 10px;font-size:15px}
+
+main{max-width:760px;margin:0 auto;padding:18px 16px 40px 34px;position:relative;min-height:calc(100vh - 60px)}
+main::before{content:"";position:absolute;top:0;bottom:0;left:18px;width:2px;background:var(--margin);opacity:.8}
+
+h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
+.greet{display:flex;gap:14px;align-items:flex-end;margin:6px 0 22px}
+.greet svg{width:96px;height:78px;flex:none}
+.say{background:var(--surface);border:2.5px solid var(--ink);border-radius:20px 20px 20px 4px;padding:12px 16px;font-size:18px;max-width:440px}
+.say b{font-family:var(--display);font-size:22px}
+
+.labels{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:18px}
+.label{position:relative;border:0;text-align:left;padding:16px 18px 14px;border-radius:18px;color:var(--label-ink);
+  box-shadow:0 3px 0 rgba(43,27,82,.25);transition:transform .15s}
+.label::after{content:"";position:absolute;inset:6px;border:2px dashed rgba(43,27,82,.35);border-radius:13px;pointer-events:none}
+.label:nth-child(odd){transform:rotate(-1.2deg)}
+.label:nth-child(even){transform:rotate(1deg)}
+.label:hover{transform:rotate(0) translateY(-2px)}
+.label .ic{font-size:30px;line-height:1}
+.label h3{font-size:26px;margin-top:6px}
+.label small{font-size:14px;opacity:.8}
+
+.back{background:none;border:0;padding:4px 0;color:var(--ink-soft);font-size:15px;margin-bottom:8px}
+.sec-title{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.sec-title .badge{font-size:34px;width:58px;height:58px;display:grid;place-items:center;border-radius:16px;color:var(--label-ink)}
+.sec-title h2{font-size:32px}
+.muted{color:var(--ink-soft);font-size:15px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.chip{background:var(--surface);border:2px solid var(--line);border-radius:999px;padding:6px 14px;font-size:15px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.field{width:100%;background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:10px 14px}
+.modes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px}
+.mode{background:var(--surface);border:2.5px solid var(--ink);border-radius:20px;padding:18px;text-align:left;box-shadow:4px 4px 0 var(--ink)}
+.mode:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--ink)}
+.mode .big{font-size:36px}
+.mode h3{font-size:24px;margin:4px 0 2px}
+@media (max-width:480px){.modes{grid-template-columns:1fr}}
+
+.notice{background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:12px 14px;margin:14px 0;font-size:15px}
+
+/* chat */
+.chat{display:flex;flex-direction:column;gap:12px;margin:10px 0 16px}
+.msg{display:flex;gap:8px;align-items:flex-end;max-width:92%}
+.msg svg{width:40px;height:32px;flex:none}
+.bubble{padding:10px 14px;border-radius:18px;white-space:normal;overflow-wrap:anywhere}
+.msg.buddy .bubble{background:var(--surface);border:2px solid var(--line);border-bottom-left-radius:4px}
+.msg.me{align-self:flex-end}
+.msg.me .bubble{background:var(--me);color:var(--me-ink);border-bottom-right-radius:4px}
+.msg.err .bubble{background:var(--coral-bg);border-color:var(--coral)}
+.speak{background:none;border:0;font-size:16px;padding:2px 4px;opacity:.7}
+.thinking{display:inline-flex;gap:4px}
+.thinking i{width:8px;height:8px;border-radius:50%;background:var(--ink-soft);animation:blink 1s infinite}
+.thinking i:nth-child(2){animation-delay:.15s}.thinking i:nth-child(3){animation-delay:.3s}
+@keyframes blink{50%{opacity:.25}}
+.composer{position:sticky;bottom:0;background:var(--surface);border:2.5px solid var(--ink);border-radius:20px;padding:8px;display:flex;gap:8px;align-items:flex-end}
+.composer textarea{flex:1;border:0;background:transparent;resize:none;padding:8px;min-height:44px;max-height:140px;outline:none}
+.send{background:var(--ink);color:var(--paper);border:0;border-radius:14px;padding:10px 18px;font-family:var(--display);font-weight:700;font-size:18px}
+.send:disabled{opacity:.5;cursor:default}
+.mic{background:var(--sun);color:var(--label-ink);border:0;border-radius:14px;padding:9px 13px;font-size:22px;line-height:1}
+.mic.on{background:var(--coral);color:#fff;animation:blink 1s infinite}
+.langbtn{background:var(--surface-2);border:2px solid var(--line);border-radius:10px;padding:8px 8px;font-size:13px;font-weight:600;align-self:center}
+.voicebar{display:flex;align-items:center;gap:10px;margin:6px 0 8px;flex-wrap:wrap}
+.voicebar label{font-size:15px;display:flex;gap:8px;align-items:center;cursor:pointer}
+.voicebar input{width:20px;height:20px;accent-color:var(--ink)}
+.micnote{font-size:14px;color:var(--ink-soft);margin:6px 4px 0;min-height:1.2em}
+
+/* quiz */
+.dots{display:flex;gap:8px;margin:8px 0 16px}
+.dots span{width:30px;height:10px;border-radius:6px;background:var(--line)}
+.dots span.ok{background:var(--mint)}.dots span.no{background:var(--coral)}.dots span.now{background:var(--sun)}
+.qcard{background:var(--surface);border:2.5px solid var(--ink);border-radius:22px;padding:20px;box-shadow:5px 5px 0 var(--ink)}
+.qcard .q{font-size:21px;font-weight:500;margin-bottom:16px}
+.opts{display:grid;gap:10px}
+.opt{text-align:left;background:var(--surface-2);border:2px solid var(--line);border-radius:14px;padding:12px 14px;font-size:17px}
+.opt.right{background:var(--mint-bg);border-color:var(--mint)}
+.opt.wrong{background:var(--coral-bg);border-color:var(--coral)}
+.opt:disabled{cursor:default}
+.explain{margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--surface-2)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.btn{background:var(--surface);border:2px solid var(--ink);border-radius:14px;padding:9px 16px;font-family:var(--display);font-weight:700;font-size:17px}
+.btn.primary{background:var(--ink);color:var(--paper)}
+.score{text-align:center;padding:10px 0}
+.score .stars{font-size:44px;letter-spacing:4px}
+.score h2{font-size:34px;margin:8px 0}
+
+/* parent */
+.card{background:var(--surface);border:2px solid var(--line);border-radius:18px;padding:16px;margin:14px 0}
+.card h3{font-size:22px;margin-bottom:8px}
+.card label{display:block;font-size:15px;font-weight:500;margin:10px 0 4px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.tablewrap{overflow-x:auto}
+
+.overlay{position:fixed;inset:0;background:rgba(20,10,40,.55);display:grid;place-items:center;z-index:20;padding:20px}
+.overlay .box{background:var(--surface);border:3px solid var(--ink);border-radius:24px;padding:24px;max-width:380px;text-align:center}
+.overlay svg{width:110px;height:88px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.reviewbar{display:flex;align-items:center;gap:14px;width:100%;text-align:left;background:var(--sun);color:var(--label-ink);border:2.5px solid var(--ink);border-radius:18px;padding:12px 16px;margin:0 0 22px;box-shadow:4px 4px 0 var(--ink)}
+.reviewbar:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--ink)}
+.reviewbar .ic{font-size:32px;line-height:1}
+.reviewbar b{font-family:var(--display);font-size:22px;display:block;line-height:1.15}
+.opt.chosen{outline:3px solid var(--sun);outline-offset:1px}
+.bars{display:flex;align-items:flex-end;gap:4px;height:90px;margin:10px 0 4px}
+.bars div{flex:1;background:var(--ink);border-radius:4px 4px 0 0;min-height:3px;opacity:.85}
+.barlabels{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-soft)}
+.acc{display:grid;grid-template-columns:96px 1fr 48px;gap:10px;align-items:center;margin:8px 0;font-size:15px}
+.acc .track{height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden}
+.acc .fill{height:100%;background:var(--mint)}
+.weak{margin:8px 0 0;padding-left:20px;font-size:15px}
+.convlist button{display:block;width:100%;text-align:left;background:var(--surface-2);border:2px solid var(--line);border-radius:12px;padding:8px 12px;margin:6px 0;font-size:15px}
+.convlist small{display:block;color:var(--ink-soft);font-size:13px}
+.transcript{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.transcript .t{padding:8px 12px;border-radius:14px;font-size:15px;max-width:88%}
+.transcript .t.user{background:var(--me);color:var(--me-ink);align-self:flex-end}
+.transcript .t.assistant{background:var(--surface);border:2px solid var(--line)}
+.btn.danger{border-color:var(--coral);color:var(--coral)}
+</style>
+</head>
+<body>
+<header class="bar">
+  <button class="home" id="homeBtn" aria-label="Về trang chính">
+    <svg viewBox="0 0 100 80" aria-hidden="true" class="mascot"></svg>
+    <span class="title">Học cùng Mây</span>
+  </button>
+  <span class="spacer"></span>
+  <span class="pill" id="starPill" title="Sao của bạn">⭐ <span id="starCount">0</span></span>
+  <button class="iconbtn" id="parentBtn" title="Góc ba mẹ">👪</button>
+</header>
+<main id="app"></main>
+<div id="overlayHost"></div>
+
+<script>
+const MASCOT = `<path d="M34 28 L36 6 L50 20 Z M50 20 L64 6 L66 28 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
+<path d="M18 64 A14 14 0 0 1 22 37 A17 17 0 0 1 50 21 A17 17 0 0 1 78 37 A14 14 0 0 1 82 64 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
+<circle cx="40" cy="46" r="3.6" fill="var(--ink)"/><circle cx="60" cy="46" r="3.6" fill="var(--ink)"/>
+<ellipse cx="32" cy="54" rx="4.5" ry="2.6" fill="#F28B8B" opacity=".6"/><ellipse cx="68" cy="54" rx="4.5" ry="2.6" fill="#F28B8B" opacity=".6"/>
+<path d="M44 54 Q50 60 56 54" fill="none" stroke="var(--ink)" stroke-width="3" stroke-linecap="round"/>`;
+const mascot = (cls="") => `<svg viewBox="0 0 100 80" aria-hidden="true" class="${cls}">${MASCOT}</svg>`;
+document.querySelector(".bar .mascot").innerHTML = MASCOT;
+
+const SUBJECTS = [
+  {id:"toan", name:"Toán", sub:"Sách giáo khoa Việt Nam", ic:"➗", color:"var(--l1)", lang:"vi",
+   topics:["Số có nhiều chữ số","Phép nhân, phép chia","Phân số","Trung bình cộng","Đo lường: yến, tạ, tấn, giây, thế kỷ","Góc, đường thẳng song song và vuông góc","Biểu đồ","Toán có lời văn"]},
+  {id:"tv", name:"Tiếng Việt", sub:"Sách giáo khoa Việt Nam", ic:"📖", color:"var(--l2)", lang:"vi",
+   topics:["Danh từ, động từ, tính từ","Chủ ngữ và vị ngữ","Dấu câu","Biện pháp nhân hoá","Đọc hiểu","Viết đoạn văn tả con vật","Viết đoạn văn tả cây cối","Chính tả"]},
+  {id:"cmath", name:"Maths", sub:"Cambridge Primary", ic:"🔢", color:"var(--l3)", lang:"en",
+   topics:["Place value","Times tables","Fractions","Decimals","Measurement","2D & 3D shapes","Symmetry","Data handling","Word problems"]},
+  {id:"ceng", name:"English", sub:"Cambridge Primary", ic:"🔤", color:"var(--l4)", lang:"en",
+   topics:["Vocabulary","Past simple","Comparatives","Spelling","Phonics","Reading","Writing sentences","Speaking practice"]},
+  {id:"csci", name:"Science", sub:"Cambridge Primary", ic:"🔬", color:"var(--l5)", lang:"en",
+   topics:["Living things & habitats","Human body: skeleton & muscles","States of matter","Electricity","Sound","Earth & space","Thinking like a scientist"]},
+];
+const subjById = id => SUBJECTS.find(s=>s.id===id);
+
+const LS = {
+  get(k,d){try{const v=localStorage.getItem("may_"+k);return v?JSON.parse(v):d}catch(e){return d}},
+  set(k,v){try{localStorage.setItem("may_"+k,JSON.stringify(v))}catch(e){}}
+};
+let pin = LS.get("pin","");
+let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
+let autoRead = LS.get("autoRead", true);
+const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0};
+const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null};
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let micLang = "vi", rec = null;
+
+const app = document.getElementById("app");
+const esc = s => String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = s => esc(s).replace(/\*\*(.+?)\*\*/g,"<b>$1</b>").replace(/\n/g,"<br>");
+const nick = () => (me.nick||"").trim() || "bạn";
+const ready = () => !!pin;
+const fmtDate = t => new Date(t*1000).toLocaleString("vi-VN",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+async function api(path, body={}, asParent=false){
+  const headers = {"content-type":"application/json"};
+  if(asParent) headers["x-parent-pin"] = parentPin; else headers["x-app-pin"] = pin;
+  let res;
+  try{ res = await fetch(path,{method:"POST",headers,body:JSON.stringify(body)}); }
+  catch(e){ throw {code:"offline"}; }
+  let data = {}; try{ data = await res.json(); }catch(e){}
+  if(!res.ok) throw {code: data.error || ("http_"+res.status)};
+  return data;
+}
+function setStars(n){
+  if(typeof n!=="number") return;
+  const up = n > me.stars; me.stars = n; LS.set("starsCache", n);
+  document.getElementById("starCount").textContent = n;
+  if(up){ const p=document.getElementById("starPill"); p.classList.remove("pop"); void p.offsetWidth; p.classList.add("pop"); }
+}
+async function refreshState(){
+  if(!ready()) return;
+  try{
+    const s = await api("/api/state");
+    me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
+  }catch(e){}
+  if(state.view==="home") renderHome();
+}
+function copyFor(code){
+  const m = {
+    bad_pin: "Mã PIN của app chưa đúng. Nhờ ba mẹ vào Góc ba mẹ 👪 nhập lại nhé.",
+    bad_parent_pin: "Mã PIN của ba mẹ chưa đúng.",
+    daily_limit: "Hôm nay Mây trò chuyện nhiều quá rồi, mai mình học tiếp nhé! 🌙",
+    offline: "Máy đang mất mạng. Kiểm tra Wi-Fi rồi thử lại nhé.",
+    server_not_configured: "App chưa cài đặt xong (thiếu file config.php trên VPS).",
+    upstream: "Mây chưa kết nối được tới Claude. Thử lại sau ít phút nhé.",
+    bad_quiz: "Mây soạn câu hỏi bị lỗi. Bấm thử lại nhé.",
+    cancelled: ""
+  };
+  return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
+}
+function noSampleNotice(){
+  if(!ready()) return `<div class="notice">Ba mẹ cần nhập <b>mã PIN của app</b> trong Góc ba mẹ 👪 (góc trên bên phải) trước khi bé học với Mây.</div>`;
+  return "";
+}
+
+/* ---------- views ---------- */
+function render(){
+  document.getElementById("starCount").textContent = me.stars;
+  if(state.view==="home") renderHome();
+  else if(state.view==="subject") renderSubject();
+  else if(state.view==="chat") renderChat();
+  else if(state.view==="quiz") renderQuiz();
+  else if(state.view==="parent") renderParent();
+}
+function go(view){
+  if(state.ctl){ state.ctl.abort(); state.ctl=null; }
+  if(rec){ try{rec.abort()}catch(e){} rec=null; }
+  try{ speechSynthesis.cancel(); }catch(e){}
+  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; } // rời Góc ba mẹ là khoá báo cáo
+  state.view=view; render(); window.scrollTo(0,0);
+}
+
+function renderHome(){
+  const h = new Date().getHours();
+  const hello = h<11 ? "Chào buổi sáng" : h<18 ? "Chào buổi chiều" : "Chào buổi tối";
+  app.innerHTML = `
+    <div class="greet">${mascot()}
+      <div class="say"><b>${hello}, ${esc(nick())}!</b><br>Mình là Mây ☁️ Hôm nay mình học môn gì nào?</div>
+    </div>
+    ${noSampleNotice()}
+    ${me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
+    <div class="labels">
+      ${SUBJECTS.map(s=>`<button class="label" style="background:${s.color}" data-s="${s.id}">
+        <div class="ic">${s.ic}</div><h3>${s.name}</h3><small>${s.sub}</small></button>`).join("")}
+    </div>`;
+  app.querySelectorAll(".label").forEach(b=>b.onclick=()=>{ state.subject=b.dataset.s; state.topic=""; go("subject"); });
+  const tr=document.getElementById("toReview"); if(tr) tr.onclick=startReview;
+}
+
+function renderSubject(){
+  const s = subjById(state.subject);
+  app.innerHTML = `
+    <button class="back" id="back">‹ Chọn môn khác</button>
+    <div class="sec-title"><div class="badge" style="background:${s.color}">${s.ic}</div>
+      <div><h2>${s.name}</h2><div class="muted">${s.sub}</div></div></div>
+    <p style="margin:14px 0 4px">Hôm nay bạn học bài gì? (chọn một, hoặc bỏ qua)</p>
+    <div class="chips">${s.topics.map(t=>`<button class="chip" aria-pressed="${state.topic===t}" data-t="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+    <input class="field" id="ownTopic" placeholder="Hoặc gõ tên bài của bạn…" value="${s.topics.includes(state.topic)?"":esc(state.topic)}">
+    ${noSampleNotice()}
+    <div class="modes">
+      <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
+      <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 5 câu</h3><div class="muted">Trả lời đúng để nhận sao ⭐</div></button>
+    </div>`;
+  document.getElementById("back").onclick=()=>go("home");
+  app.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{
+    state.topic = state.topic===c.dataset.t ? "" : c.dataset.t;
+    document.getElementById("ownTopic").value="";
+    app.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed", x.dataset.t===state.topic));
+  });
+  document.getElementById("ownTopic").oninput=e=>{
+    state.topic=e.target.value.trim();
+    app.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed","false"));
+  };
+  document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; go("chat"); };
+  document.getElementById("toQuiz").onclick=()=>startQuiz();
+}
+
+/* ---------- chat ---------- */
+function greetingFor(s){
+  return s.lang==="vi"
+    ? `Chào ${nick()}! Mình là Mây ☁️ Hôm nay mình cùng học **${s.name}**${state.topic?` – bài “${state.topic}”`:""} nhé. Bạn muốn hỏi bài nào, hay để Mây đố bạn một câu?`
+    : `Hi ${nick()}! I’m Mây ☁️ Let’s learn **${s.name}** together${state.topic?` – “${state.topic}”`:""}. Ask me anything, or say “Quiz me!” (Bạn hỏi bằng tiếng Việt cũng được nhé.)`;
+}
+function renderChat(){
+  const s = subjById(state.subject);
+  micLang = s.lang;
+  const sugg = s.lang==="vi"
+    ? ["Mây đố mình một câu nhé","Giải thích dễ hơn được không?","Cho mình thêm gợi ý","Mình làm đúng chưa?"]
+    : ["Quiz me, please!","Can you explain it more simply?","Give me a hint","Is my answer right?"];
+  app.innerHTML = `
+    <button class="back" id="back">‹ ${esc(s.name)}${state.topic?": "+esc(state.topic):""}</button>
+    ${noSampleNotice()}
+    <div class="chat" id="chat"></div>
+    <div class="chips" id="sugg">${sugg.map(x=>`<button class="chip">${esc(x)}</button>`).join("")}</div>
+    <div class="voicebar"><label><input type="checkbox" id="autoRead" ${autoRead?"checked":""}> 🔊 Mây tự đọc to câu trả lời</label></div>
+    <div class="composer">
+      ${SR?`<button class="langbtn" id="langBtn" title="Ngôn ngữ khi nói: bấm để đổi">${micLang==="vi"?"VI":"EN"}</button><button class="mic" id="micBtn" aria-label="Bấm để nói">🎤</button>`:""}
+      <textarea id="box" rows="1" placeholder="${SR?"Bấm 🎤 để nói, hoặc gõ…":(s.lang==="vi"?"Gõ câu hỏi của bạn…":"Type your question…")}"></textarea>
+      <button class="send" id="sendBtn">Gửi</button>
+    </div>
+    <div class="micnote" id="micNote">${SR?"":"Mẹo: bấm biểu tượng micro trên bàn phím của máy để nói thay vì gõ."}</div>`;
+  document.getElementById("back").onclick=()=>go("subject");
+  const box=document.getElementById("box");
+  box.addEventListener("input",()=>{box.style.height="auto";box.style.height=Math.min(box.scrollHeight,140)+"px"});
+  box.addEventListener("keydown",e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault(); onSend();} });
+  document.getElementById("sendBtn").onclick=onSend;
+  app.querySelectorAll("#sugg .chip").forEach(c=>c.onclick=()=>sendChat(c.textContent));
+  const ar=document.getElementById("autoRead");
+  ar.onchange=()=>{ autoRead=ar.checked; LS.set("autoRead",autoRead); if(!autoRead){ try{speechSynthesis.cancel()}catch(e){} } };
+  const lb=document.getElementById("langBtn");
+  if(lb) lb.onclick=()=>{ micLang = micLang==="vi"?"en":"vi"; lb.textContent = micLang==="vi"?"VI":"EN"; };
+  const mb=document.getElementById("micBtn"); if(mb) mb.onclick=toggleMic;
+  drawMessages();
+  updateComposer();
+}
+function onSend(){
+  if(state.busy) { state.ctl?.abort(); return; }
+  const box=document.getElementById("box"); const v=box.value; box.value=""; box.style.height="auto"; sendChat(v);
+}
+function updateComposer(){
+  const b=document.getElementById("sendBtn"); if(!b) return;
+  b.textContent = state.busy ? "Dừng" : "Gửi";
+  b.disabled = !ready();
+}
+function drawMessages(){
+  const s = subjById(state.subject); const el=document.getElementById("chat"); if(!el) return;
+  const all = [{role:"assistant",content:greetingFor(s)}, ...state.turns];
+  el.innerHTML = all.map((t,i)=> t.role==="user"
+    ? `<div class="msg me"><div class="bubble">${fmt(t.content)}</div></div>`
+    : `<div class="msg buddy${t.err?" err":""}">${mascot()}<div class="bubble">${t.pending&&!t.content?`<span class="thinking"><i></i><i></i><i></i></span>`:fmt(t.content)}</div>${!t.pending&&!t.err&&"speechSynthesis" in window?`<button class="speak" data-i="${i}" aria-label="Đọc to">🔊</button>`:""}</div>`
+  ).join("");
+  el.querySelectorAll(".speak").forEach(b=>b.onclick=()=>speak(all[+b.dataset.i].content, s.lang));
+  el.lastElementChild?.scrollIntoView({block:"end",behavior:"smooth"});
+}
+function toggleMic(){
+  const mb=document.getElementById("micBtn"), note=document.getElementById("micNote"), box=document.getElementById("box");
+  if(rec){ try{rec.stop()}catch(e){} return; }
+  if(state.busy || !ready()) return;
+  try{ speechSynthesis.cancel(); }catch(e){}
+  try{
+    rec = new SR(); rec.lang = micLang==="vi" ? "vi-VN" : "en-US";
+    rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+  }catch(e){ rec=null; note.textContent="Máy này chưa nói chuyện trực tiếp được. Bé bấm micro trên bàn phím để nói nhé."; return; }
+  let finalText = "";
+  rec.onstart = ()=>{ mb.classList.add("on"); mb.setAttribute("aria-label","Dừng nghe"); note.textContent = micLang==="vi" ? "Mây đang nghe… nói xong thì dừng lại một chút nhé." : "Mây is listening… (đang nghe tiếng Anh)"; };
+  rec.onresult = ev=>{ let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript; } box.value=(finalText+interim).trim(); };
+  rec.onerror = ev=>{ const m={"not-allowed":"Cần cho phép dùng micro. Nếu không được, bé bấm micro trên bàn phím để nói thay nhé.","service-not-allowed":"Trình duyệt chưa cho nói ở đây. Bé bấm micro trên bàn phím để nói thay nhé.","no-speech":"Mây chưa nghe thấy gì. Bấm 🎤 rồi nói lại nhé.","audio-capture":"Không tìm thấy micro trên máy.","network":"Mạng chập chờn nên Mây nghe chưa được. Thử lại nhé."}; note.textContent = m[ev.error] || (ev.error==="aborted" ? "" : "Mây nghe chưa rõ. Thử lại nhé."); finalText=""; };
+  rec.onend = ()=>{ rec=null; mb.classList.remove("on"); mb.setAttribute("aria-label","Bấm để nói"); const t=box.value.trim(); if(finalText.trim() && t){ note.textContent=""; box.value=""; sendChat(t); } };
+  try{ rec.start(); }catch(e){ rec=null; }
+}
+function guessLang(text, fallback){
+  const vi = (text.match(/[ăâđêôơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/gi)||[]).length;
+  const words = text.split(/\s+/).length || 1;
+  return vi/words > 0.15 ? "vi" : (fallback==="vi" && vi>0 ? "vi" : (vi/words > 0.08 && fallback==="vi" ? "vi" : fallback==="vi" ? "vi" : "en"));
+}
+function speak(text, lang){
+  try{
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text.replace(/\*\*/g,"").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,""));
+    u.lang = guessLang(text, lang)==="vi" ? "vi-VN" : "en-GB"; u.rate=.95;
+    const v = speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith(u.lang.slice(0,2)));
+    if(v) u.voice=v;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+async function sendChat(text){
+  text = (text||"").trim();
+  if(!text || state.busy || !ready()) return;
+  state.turns.push({role:"user",content:text});
+  const reply = {role:"assistant",content:"",pending:true};
+  state.turns.push(reply);
+  state.busy=true; updateComposer(); drawMessages();
+  const ctl = {aborted:false, abort(){ this.aborted=true; }}; state.ctl=ctl;
+  try{
+    const res = await api("/api/chat",{conv_id:state.convId, subject:state.subject, topic:state.topic, text});
+    state.convId = res.conv_id; setStars(res.stars);
+    if(ctl.aborted) throw {code:"cancelled"};
+    reply.content = res.text || "…"; reply.pending=false;
+    if(autoRead && state.view==="chat") speak(reply.content, subjById(state.subject).lang);
+  }catch(e){
+    reply.pending=false; reply.content = copyFor(e&&e.code) || "(Đã dừng)"; reply.err=true;
+  }finally{
+    state.busy=false; if(state.ctl===ctl) state.ctl=null;
+    if(state.view==="chat"){ drawMessages(); updateComposer(); }
+  }
+}
+
+/* ---------- đố vui và sổ ôn tập ---------- */
+async function startQuiz(){
+  if(!ready()){ state.quiz={kind:"quiz", error:"Ba mẹ cần nhập mã PIN của app trong Góc ba mẹ 👪 trước nhé."}; go("quiz"); return; }
+  state.quiz={kind:"quiz", loading:true}; go("quiz");
+  try{
+    const d = await api("/api/quiz",{subject:state.subject, topic:state.topic});
+    state.quiz={kind:"quiz", id:d.quiz_id, qs:d.questions, i:0, results:[], picked:null, hint:false, waiting:false};
+  }catch(e){ state.quiz={kind:"quiz", error: copyFor(e&&e.code) || "Đã dừng."}; }
+  if(state.view==="quiz") render();
+}
+async function startReview(){
+  state.quiz={kind:"review", loading:true}; go("quiz");
+  try{
+    const d = await api("/api/review_list");
+    if(!d.items || !d.items.length) state.quiz={kind:"review", empty:true};
+    else state.quiz={kind:"review", qs:d.items, i:0, results:[], picked:null, hint:false, waiting:false, mastered:0};
+  }catch(e){ state.quiz={kind:"review", error: copyFor(e&&e.code) || "Đã dừng."}; }
+  if(state.view==="quiz") render();
+}
+function renderQuiz(){
+  const Q = state.quiz; const review = Q.kind==="review";
+  const s = review ? null : subjById(state.subject);
+  const head = `<button class="back" id="back">‹ ${review ? "Trang chính" : esc(s.name)}</button>`;
+  const backTo = review ? "home" : "subject";
+  if(Q.loading){
+    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">${review ? "Mây đang mở Sổ ôn tập…" : `Mây đang soạn câu đố cho ${esc(nick())}…`} <span class="thinking"><i></i><i></i><i></i></span>${review?"":`<br><span class="muted">Có thể mất vài chục giây đó.</span>`}</div></div>`;
+  } else if(Q.empty){
+    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">Hôm nay không còn câu nào cần ôn. Giỏi quá! 🎉</div></div><div class="row"><button class="btn primary" id="homeAgain">Về trang chính</button></div>`;
+    document.getElementById("homeAgain").onclick=()=>go("home");
+  } else if(Q.error){
+    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">${esc(Q.error)}</div></div><div class="row"><button class="btn primary" id="retry">Thử lại</button></div>`;
+    document.getElementById("retry").onclick = review ? startReview : startQuiz;
+  } else if(Q.i >= Q.qs.length){
+    const ok = Q.results.filter(Boolean).length, n = Q.qs.length;
+    const msg = ok===n ? "Tuyệt vời! Đúng hết luôn!" : ok>=n-1 ? "Giỏi quá đi!" : ok>=n/2 ? "Làm tốt lắm! Cố thêm chút nữa nhé." : "Không sao cả, mình cùng ôn lại nha!";
+    const wrong = Q.qs.filter((q,i)=>!Q.results[i]);
+    let extra = "";
+    if(review) extra = Q.mastered ? `Bạn đã thuộc hẳn ${Q.mastered} câu, Mây cất chúng khỏi sổ rồi ⭐` : "Câu đúng sẽ được hẹn ôn lại thưa dần, câu sai thì mai mình làm lại nhé.";
+    else extra = (Q.bonus ? "Thưởng thêm 2 sao! " : "") + (wrong.length ? "Câu sai đã được ghi vào Sổ ôn tập 📒, mai Mây sẽ đố lại nhé." : "");
+    app.innerHTML = head + `<div class="qcard score">${mascot()}
+      <div class="stars">${"⭐".repeat(ok)}${"☆".repeat(n-ok)}</div>
+      <h2>${ok}/${n} câu đúng</h2><p>${msg}</p><p class="muted">${extra}</p>
+      <div class="row" style="justify-content:center">
+        ${review ? `<button class="btn primary" id="homeAgain">Về trang chính</button>` : `<button class="btn primary" id="again">Chơi lượt mới</button>`}
+        ${!review && wrong.length ? `<button class="btn" id="askWrong">Hỏi Mây câu sai</button>` : ""}
+      </div></div>`;
+    const ag=document.getElementById("again"); if(ag) ag.onclick=startQuiz;
+    const ha=document.getElementById("homeAgain"); if(ha) ha.onclick=()=>{ go("home"); refreshState(); };
+    const aw=document.getElementById("askWrong");
+    if(aw) aw.onclick=()=>{
+      const q = wrong[0]; state.turns=[]; state.convId=null; go("chat");
+      sendChat((s.lang==="vi" ? "Mình làm sai câu này, Mây giảng lại giúp mình nhé: " : "I got this one wrong, can you help me understand it? ") + q.q + " (" + q.options.join(" / ") + ")");
+    };
+  } else {
+    const q = Q.qs[Q.i]; const done = Q.picked!==null;
+    const label = review ? `Ôn lại câu ${Q.i+1}/${Q.qs.length}, môn ${esc(subjById(q.subject)?.name || "")}` : `Câu ${Q.i+1}/${Q.qs.length}`;
+    app.innerHTML = head + `
+      <div class="dots">${Q.qs.map((_,i)=>`<span class="${i<Q.results.length?(Q.results[i]?"ok":"no"):(i===Q.i?"now":"")}"></span>`).join("")}</div>
+      <div class="qcard">
+        <div class="muted">${label}</div>
+        <div class="q">${fmt(q.q)}</div>
+        <div class="opts">${q.options.map((o,i)=>{
+          let c=""; if(done){ if(i===q.answer) c="right"; else if(i===Q.picked) c="wrong"; }
+          return `<button class="opt ${c}" data-i="${i}" ${done||Q.waiting?"disabled":""}>${"ABCD"[i]||""}. ${fmt(o)}</button>`;}).join("")}</div>
+        ${Q.err ? `<div class="explain">${esc(Q.err)}</div>` : ""}
+        ${!done&&Q.hint&&q.hint ? `<div class="explain">💡 ${fmt(q.hint)}</div>` : ""}
+        ${done ? `<div class="explain"><b>${Q.picked===q.answer?"Chính xác! 🎉":"Chưa đúng rồi, xem nè:"}</b><br>${fmt(q.explain||"")}</div>` : ""}
+        <div class="row">
+          ${!done&&q.hint&&!Q.hint ? `<button class="btn" id="hintBtn">💡 Gợi ý</button>` : ""}
+          ${done ? `<button class="btn primary" id="next">${Q.i+1<Q.qs.length?"Câu tiếp theo":"Xem kết quả"}</button>` : ""}
+        </div>
+      </div>`;
+    app.querySelectorAll(".opt").forEach(b=>b.onclick=async()=>{
+      if(Q.picked!==null || Q.waiting) return;
+      const picked = +b.dataset.i;
+      Q.waiting=true; Q.err=""; b.classList.add("chosen");
+      app.querySelectorAll(".opt").forEach(x=>x.disabled=true);
+      try{
+        const r = review ? await api("/api/review_answer",{id:q.id, picked}) : await api("/api/answer",{quiz_id:Q.id, index:Q.i, picked});
+        q.answer = r.answer; q.explain = r.explain || "";
+        Q.picked = picked; Q.results.push(!!r.right);
+        if(r.mastered) Q.mastered++;
+        if(r.bonus) Q.bonus = true;
+        if(typeof r.due==="number") me.due = r.due;
+        setStars(r.stars);
+      }catch(e){ Q.err = copyFor(e&&e.code); }
+      Q.waiting=false;
+      if(state.view==="quiz") render();
+    });
+    const hb=document.getElementById("hintBtn"); if(hb) hb.onclick=()=>{ Q.hint=true; render(); };
+    const nx=document.getElementById("next"); if(nx) nx.onclick=()=>{ Q.i++; Q.picked=null; Q.hint=false; Q.err=""; render(); };
+  }
+  document.getElementById("back").onclick=()=>{ go(backTo); if(backTo==="home") refreshState(); };
+}
+
+/* ---------- góc ba mẹ ---------- */
+function renderParent(){
+  if(state.transcript) return renderTranscript();
+  const R = state.report;
+  app.innerHTML = `
+    <button class="back" id="back">‹ Về trang của bé</button>
+    <h2 style="font-size:32px">Góc ba mẹ</h2>
+    <div class="card">
+      <h3>Mã PIN của app trên máy này</h3>
+      <label for="pinIn">Nhập mã PIN của app (app_pin trong config.php). Mỗi máy chỉ cần nhập một lần.</label>
+      <input class="field" id="pinIn" type="password" inputmode="numeric" autocomplete="off" value="${esc(pin)}">
+      <div class="row"><button class="btn primary" id="savePin">Lưu mã PIN</button><span class="muted" id="pinMsg" style="align-self:center"></span></div>
+    </div>
+    ${R ? reportHtml(R) : `
+    <div class="card">
+      <h3>Báo cáo học tập</h3>
+      <label for="ppin">Nhập mã PIN của ba mẹ (parent_pin, khác mã của app) để xem báo cáo, lịch sử trò chuyện và cài đặt cho Mây</label>
+      <input class="field" id="ppin" type="password" inputmode="numeric" autocomplete="off">
+      <div class="row"><button class="btn primary" id="openReport">Mở báo cáo</button><span class="muted" id="ppMsg" style="align-self:center"></span></div>
+    </div>`}
+    <div class="card">
+      <h3>Lưu ý</h3>
+      <p class="muted" style="margin:0">Mây được dặn gợi ý từng bước thay vì cho đáp án ngay, không hỏi thông tin cá nhân, và khuyên bé kể với ba mẹ khi có chuyện buồn. Dữ liệu học lưu trên VPS của gia đình; lịch sử trò chuyện tự xoá sau một thời gian. Báo cáo tự khoá khi rời Góc ba mẹ. AI đôi khi vẫn có thể sai, nên ba mẹ thỉnh thoảng ngồi cùng bé để kiểm tra nhé.</p>
+    </div>`;
+  document.getElementById("back").onclick=()=>go("home");
+  document.getElementById("savePin").onclick=async()=>{
+    const msg=document.getElementById("pinMsg"); const v=document.getElementById("pinIn").value.trim();
+    msg.textContent="Đang kiểm tra…"; const old=pin; pin=v;
+    try{ await api("/api/state"); LS.set("pin",pin); msg.textContent="Đã lưu, mã PIN đúng ✅"; refreshState(); }
+    catch(e){ pin=old; msg.textContent=copyFor(e&&e.code); }
+  };
+  if(!R){
+    const open = async()=>{
+      const msg=document.getElementById("ppMsg"); parentPin=document.getElementById("ppin").value.trim();
+      msg.textContent="Đang mở…";
+      try{ state.report = await api("/api/parent/report",{},true); render(); }
+      catch(e){ parentPin=""; msg.textContent=copyFor(e&&e.code); }
+    };
+    document.getElementById("openReport").onclick=open;
+    document.getElementById("ppin").addEventListener("keydown",e=>{ if(e.key==="Enter") open(); });
+  } else wireReport(R);
+}
+function reportHtml(R){
+  const max = Math.max(1, ...R.days.map(d=>d.n));
+  const total14 = R.days.reduce((a,d)=>a+d.n,0);
+  const dd = d => d.slice(8,10)+"/"+d.slice(5,7);
+  const acc = (R.subjects||[]).map(x=>{
+    const pct = x.total ? Math.round(100*(+x.correct||0)/x.total) : 0;
+    return `<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`;
+  }).join("");
+  const weak = (R.weak||[]).map(w=>`<li>${esc(subjById(w.subject)?.name||w.subject)}: ${esc(w.topic||"chưa rõ chủ đề")} (${w.n} câu)</li>`).join("");
+  const convs = (R.conversations||[]).map(c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`).join("");
+  return `
+    <div class="card">
+      <h3>Cài đặt cho Mây</h3>
+      <label for="nick">Mây gọi bé là (chỉ cần tên ở nhà)</label>
+      <input class="field" id="nick" value="${esc(R.settings.nick)}" placeholder="Ví dụ: Bông">
+      <label for="focus">Tuần này bé đang học gì? (Mây sẽ ưu tiên nội dung này)</label>
+      <textarea class="field" id="focus" rows="3" placeholder="Ví dụ: Toán đang học phân số; English Unit 5 – past simple">${esc(R.settings.focus)}</textarea>
+      <div class="row"><button class="btn primary" id="saveSettings">Lưu cài đặt</button><span class="muted" id="setMsg" style="align-self:center"></span></div>
+    </div>
+    <div class="card">
+      <h3>14 ngày qua</h3>
+      <p class="muted" style="margin:0">Bé có ${R.stars} sao và ${total14} hoạt động học trong 14 ngày.</p>
+      <div class="bars">${R.days.map(d=>`<div style="height:${Math.round(100*d.n/max)}%" title="${dd(d.day)}: ${d.n} hoạt động"></div>`).join("")}</div>
+      <div class="barlabels"><span>${dd(R.days[0].day)}</span><span>Hôm nay</span></div>
+    </div>
+    <div class="card">
+      <h3>Tỉ lệ đúng khi đố vui</h3>
+      ${acc || `<p class="muted">Chưa có lượt đố vui nào.</p>`}
+    </div>
+    <div class="card">
+      <h3>Sổ ôn tập</h3>
+      <p style="margin:0">Đang ôn ${R.review.pending} câu (${R.review.due} câu đến hạn hôm nay). Đã thuộc hẳn ${R.review.mastered} câu.</p>
+      ${weak ? `<p class="muted" style="margin:10px 0 0">Phần bé hay sai:</p><ul class="weak">${weak}</ul>` : ""}
+    </div>
+    <div class="card">
+      <h3>Lịch sử trò chuyện</h3>
+      <p class="muted" style="margin:0">Tự xoá sau ${R.retention_days} ngày. Bấm vào để đọc lại.</p>
+      <div class="convlist">${convs || `<p class="muted">Chưa có cuộc trò chuyện nào.</p>`}</div>
+    </div>
+    <div class="card">
+      <h3>Dữ liệu</h3>
+      <div class="row">
+        <button class="btn" id="lock">Khoá báo cáo</button>
+        <button class="btn danger" id="clearChats">Xoá lịch sử trò chuyện</button>
+        <button class="btn danger" id="clearAll">Xoá toàn bộ dữ liệu học</button>
+      </div>
+    </div>`;
+}
+function wireReport(R){
+  document.getElementById("saveSettings").onclick=async()=>{
+    const msg=document.getElementById("setMsg");
+    const nickV=document.getElementById("nick").value.trim(), focusV=document.getElementById("focus").value.trim();
+    try{ await api("/api/parent/settings",{nick:nickV, focus:focusV},true); me.nick=nickV; LS.set("nick",nickV); R.settings={nick:nickV,focus:focusV}; msg.textContent="Đã lưu"; }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+  app.querySelectorAll(".convlist button").forEach(b=>b.onclick=async()=>{
+    try{ state.transcript = await api("/api/parent/conversation",{id:+b.dataset.id},true); render(); window.scrollTo(0,0); }
+    catch(e){ alert(copyFor(e&&e.code)); }
+  });
+  document.getElementById("lock").onclick=()=>{ parentPin=""; state.report=null; render(); };
+  const clear = async(what, question)=>{
+    if(!confirm(question)) return;
+    try{ await api("/api/parent/clear",{what},true); state.report = await api("/api/parent/report",{},true); render(); refreshState(); }
+    catch(e){ alert(copyFor(e&&e.code)); }
+  };
+  document.getElementById("clearChats").onclick=()=>clear("chats","Xoá toàn bộ lịch sử trò chuyện của bé?");
+  document.getElementById("clearAll").onclick=()=>clear("all","Xoá toàn bộ dữ liệu học (trò chuyện, sổ ôn tập, điểm, sao)? Không khôi phục được.");
+}
+function renderTranscript(){
+  const T = state.transcript, c = T.conversation;
+  app.innerHTML = `
+    <button class="back" id="back">‹ Báo cáo</button>
+    <h2 style="font-size:28px">${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</h2>
+    <p class="muted" style="margin:4px 0 0">${fmtDate(c.started_at)}</p>
+    <div class="transcript">${T.messages.map(m=>`<div class="t ${m.role==="assistant"?"assistant":"user"}">${fmt(m.content)}</div>`).join("")}</div>`;
+  document.getElementById("back").onclick=()=>{ state.transcript=null; render(); window.scrollTo(0,0); };
+}
+
+/* ---------- break reminder ---------- */
+let lastBreak = Date.now();
+setInterval(()=>{
+  if(Date.now()-lastBreak < 25*60*1000 || document.getElementById("overlayHost").innerHTML) return;
+  document.getElementById("overlayHost").innerHTML = `<div class="overlay" role="dialog" aria-modal="true"><div class="box">${mascot()}
+    <h2 style="font-size:28px;margin:8px 0">Nghỉ mắt chút nhé!</h2>
+    <p>Mình học được 25 phút rồi. Hãy nhìn ra xa, uống ngụm nước và vươn vai 5 phút nha ${esc(nick())} 🌿</p>
+    <button class="btn primary" id="rested">Mình nghỉ xong rồi</button></div></div>`;
+  document.getElementById("rested").onclick=()=>{ lastBreak=Date.now(); document.getElementById("overlayHost").innerHTML=""; };
+}, 60*1000);
+
+
+if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{})); }
+document.getElementById("homeBtn").onclick=()=>{ go("home"); refreshState(); };
+document.getElementById("parentBtn").onclick=()=>go("parent");
+render();
+refreshState();
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden && state.view==="home") refreshState(); });
+</script>
+</body>
+</html>
