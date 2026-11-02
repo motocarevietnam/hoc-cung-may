@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -121,7 +121,18 @@ const SCHEMA = [
        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, kind VARCHAR(10) NOT NULL, ip VARCHAR(45) NOT NULL, created_at INT UNSIGNED NOT NULL,
        KEY idx_fail (kind, ip, created_at), KEY idx_fail_created (created_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Nhiệm vụ trong ngày: chốt danh sách lần đầu mở trong ngày, kèm lý do giao và trạng thái bé tự cập nhật
+    "CREATE TABLE IF NOT EXISTS daily_tasks (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, day CHAR(10) NOT NULL, task_key VARCHAR(40) NOT NULL,
+       icon VARCHAR(16) NOT NULL DEFAULT '', title VARCHAR(255) NOT NULL, reason VARCHAR(255) NOT NULL DEFAULT '',
+       minutes INT NOT NULL DEFAULT 10, action TEXT NOT NULL, sort INT NOT NULL DEFAULT 0,
+       status VARCHAR(12) NOT NULL DEFAULT 'planned', help_note VARCHAR(255) NOT NULL DEFAULT '',
+       started_at INT UNSIGNED NULL, completed_at INT UNSIGNED NULL, updated_at INT UNSIGNED NOT NULL,
+       UNIQUE KEY uq_task_day_key (day, task_key), KEY idx_task_day (day)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
+
+const TASK_STATUSES = ['planned', 'started', 'paused', 'completed', 'needs_help'];
 
 // Luật sao mặc định (theo issue #5). Ba mẹ chỉnh trong Góc ba mẹ; đây chỉ là giá trị khởi tạo.
 const DEFAULT_REWARD_RULES = [
@@ -722,13 +733,13 @@ function day_plan(string $day): array
     $items = [];
     if (!$weekend) {
         $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Chấm bài về nhà: làm bài cô giao rồi chụp gửi Mây', 'minutes' => 15,
-                    'action' => ['view' => 'homework']];
+                    'reason' => 'Ưu tiên số 1: bài cô giao hôm nay', 'action' => ['view' => 'homework']];
     }
     $endOfDay = strtotime($day . ' 23:59:59');
     $due = (int)q('SELECT COUNT(*) FROM mistakes WHERE mastered_at IS NULL AND due_at <= ?', [$endOfDay])->fetchColumn();
     if ($due > 0) {
         $items[] = ['key' => 'review', 'icon' => '📒', 'title' => "Sổ ôn tập: {$due} câu đến hạn", 'minutes' => min(10, max(5, $due * 2)),
-                    'action' => ['view' => 'review']];
+                    'reason' => "{$due} câu từng làm sai đến hạn ôn lại (ôn cách quãng 1 → 3 → 7 ngày)", 'action' => ['view' => 'review']];
     }
 
     // Môn ôn hôm nay: ưu tiên môn của ngày mai, xoay vòng theo ngày; ngày có lớp tiếng Anh thì ôn English
@@ -737,14 +748,21 @@ function day_plan(string $day): array
     $doy = (int)date('z', $ts);
     $main = $hasEnglishClass ? 'ceng' : $cands[$doy % count($cands)];
     $t = $topic($main);
+    $tomorrowSubs = subjects_in($tomorrowText);
+    $why = function (string $subj, string $t) use ($tomorrowSubs, $tomorrowN): string {
+        if ($t !== '') return 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t;
+        if (in_array($subj, $tomorrowSubs, true)) return 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$subj]['name'];
+        return 'Ôn xoay vòng các môn (ba mẹ chưa nhập thời khoá biểu/kế hoạch tuần)';
+    };
     if ($hasEnglishClass) {
         // Ngày có lớp tiếng Anh: khởi động bằng luyện nói (trả lời câu hỏi)
         $items[] = ['key' => 'speaking:ceng', 'icon' => '🗣️',
                     'title' => 'Khởi động trước lớp tiếng Anh: luyện nói English' . ($t !== '' ? " – {$t}" : ''),
-                    'minutes' => 10, 'action' => ['view' => 'speak', 'subject' => 'ceng', 'type' => 'answer', 'topic' => $t]];
+                    'minutes' => 10, 'reason' => 'Hôm nay có lớp tiếng Anh: khởi động nhẹ, không giao bài nặng',
+                    'action' => ['view' => 'speak', 'subject' => 'ceng', 'type' => 'answer', 'topic' => $t]];
     } else {
         $items[] = ['key' => "quiz:{$main}", 'icon' => '🎯', 'title' => 'Đố vui ' . SUBJECTS[$main]['name'] . ($t !== '' ? " – {$t}" : ''),
-                    'minutes' => 10, 'action' => ['view' => 'quiz', 'subject' => $main, 'topic' => $t]];
+                    'minutes' => 10, 'reason' => $why($main, $t), 'action' => ['view' => 'quiz', 'subject' => $main, 'topic' => $t]];
     }
 
     $budget = $weekend ? 20 : ($classes ? 30 : $sch['minutes']);
@@ -755,7 +773,23 @@ function day_plan(string $day): array
         $t2 = $topic($second);
         $items[] = ['key' => "chat:{$second}", 'icon' => '💬',
                     'title' => 'Hỏi Mây ôn ' . SUBJECTS[$second]['name'] . ($t2 !== '' ? " – {$t2}" : ($tomorrowText !== '' ? ' cho ngày mai' : '')),
-                    'minutes' => 10, 'action' => ['view' => 'chat', 'subject' => $second, 'topic' => $t2]];
+                    'minutes' => 10, 'reason' => $why($second, $t2), 'action' => ['view' => 'chat', 'subject' => $second, 'topic' => $t2]];
+    }
+
+    // Hôm nay: chốt danh sách lần đầu mở trong ngày (không tự đổi giữa chừng), đọc trạng thái bé đã cập nhật
+    $rows = [];
+    if ($day === today()) {
+        $ins = db()->prepare('INSERT IGNORE INTO daily_tasks (day, task_key, icon, title, reason, minutes, action, sort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        if (!q('SELECT 1 FROM daily_tasks WHERE day = ? LIMIT 1', [$day])->fetchColumn()) {
+            foreach ($items as $i => $it) {
+                $ins->execute([$day, $it['key'], $it['icon'], $it['title'], $it['reason'] ?? '', $it['minutes'],
+                               json_encode($it['action'], JSON_UNESCAPED_UNICODE), $i, time()]);
+            }
+        }
+        $rows = q('SELECT * FROM daily_tasks WHERE day = ? ORDER BY sort, id', [$day])->fetchAll();
+        $items = array_map(fn($r) => ['key' => $r['task_key'], 'icon' => $r['icon'], 'title' => $r['title'], 'reason' => $r['reason'],
+            'minutes' => (int)$r['minutes'], 'action' => json_decode($r['action'], true) ?: [], 'status' => $r['status'],
+            'help_note' => $r['help_note']], $rows);
     }
 
     // Đánh dấu việc đã làm, dựa trên hoạt động thật trong ngày
@@ -767,6 +801,14 @@ function day_plan(string $day): array
     }
     foreach ($items as &$it) {
         $it['done'] = isset($doneKey[$it['key']]) || ($it['key'] === 'review' && $day === today() && due_count() === 0);
+        if ($day === today()) {
+            if ($it['done'] && $it['status'] !== 'completed') {
+                q("UPDATE daily_tasks SET status = 'completed', completed_at = ?, updated_at = ? WHERE day = ? AND task_key = ?", [time(), time(), $day, $it['key']]);
+                $it['status'] = 'completed';
+            }
+        } else {
+            $it['status'] = $it['done'] ? 'completed' : 'planned';
+        }
     }
     unset($it);
 
@@ -1188,4 +1230,18 @@ function drive_cleanup(): int
         }
     }
     return $n;
+}
+
+// Bé cập nhật trạng thái một việc hôm nay: bắt đầu (+ sao tự bắt đầu), tạm dừng, cần giúp
+function task_update(string $key, string $op, string $note = ''): array
+{
+    $row = q('SELECT * FROM daily_tasks WHERE day = ? AND task_key = ?', [today(), $key])->fetch();
+    if (!$row) return ['error' => 'bad_request'];
+    if ($row['status'] === 'completed') return ['ok' => true];
+    $map = ['start' => 'started', 'pause' => 'paused', 'help' => 'needs_help'];
+    if (!isset($map[$op])) return ['error' => 'bad_request'];
+    q('UPDATE daily_tasks SET status = ?, started_at = COALESCE(started_at, ?), help_note = ?, updated_at = ? WHERE id = ?',
+        [$map[$op], $op === 'start' ? time() : null, $op === 'help' ? mb_substr($note, 0, 255) : $row['help_note'], time(), $row['id']]);
+    if ($op === 'start') award('self_start', 'start:' . today(), 'Tự bắt đầu: ' . $row['title']);
+    return ['ok' => true];
 }
