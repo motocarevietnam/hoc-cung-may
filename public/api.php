@@ -114,7 +114,7 @@ function r_quiz(array $b): never
 
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
-        'Bạn soạn câu hỏi ôn tập cho học sinh lớp 4. Nội dung luôn phù hợp trẻ em và chính xác. Chỉ trả lời bằng JSON.',
+        quiz_system(),
         [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'))]],
         2000
     );
