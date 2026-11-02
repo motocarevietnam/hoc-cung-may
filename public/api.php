@@ -27,12 +27,17 @@ $routes = [
     'review_answer'       => 'r_review_answer',
     'homework'            => 'r_homework',
     'homework_list'       => 'r_homework_list',
+    'plan'                => 'r_plan',
     'parent/check'        => 'r_parent_check',
     'parent/report'       => 'r_parent_report',
     'parent/conversation' => 'r_parent_conversation',
     'parent/homework'     => 'r_parent_homework',
     'parent/settings'     => 'r_parent_settings',
     'parent/clear'        => 'r_parent_clear',
+    'parent/schedule'     => 'r_parent_schedule',
+    'parent/plan'         => 'r_parent_plan',
+    'parent/plan_generate'=> 'r_parent_plan_generate',
+    'parent/plan_save'    => 'r_parent_plan_save',
 ];
 if (!isset($routes[$route])) out(['error' => 'not_found'], 404);
 
@@ -94,7 +99,7 @@ function r_chat(array $b): never
     }
     while ($messages && $messages[0]['role'] !== 'user') array_shift($messages);
 
-    $system = chat_system($subject, $topic, setting('nick'), setting('focus'), memory_note($subject));
+    $system = chat_system($subject, $topic, setting('nick'), setting('focus'), memory_note($subject), schedule_note());
     $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), $system, $messages, 4000, 60, (string)cfg('chat_effort', 'low')));
     if ($reply === '') $reply = '…';
 
@@ -430,7 +435,174 @@ function r_homework_list(array $b): never
     out(['list' => $list, 'detail' => $detail]);
 }
 
+/* ---------------- kế hoạch học: ngày, tuần, tháng, quý ---------------- */
+
+function r_plan(array $b): never
+{
+    $view = (string)($b['view'] ?? 'day');
+    $today = today();
+    if ($view === 'day') out(['view' => 'day', 'day' => day_plan($today)]);
+
+    if ($view === 'week') {
+        $mon = date('Y-m-d', strtotime('monday this week', strtotime($today)));
+        $days = [];
+        for ($i = 0; $i < 7; $i++) {
+            $d = date('Y-m-d', strtotime("{$mon} +{$i} days"));
+            $p = day_plan($d);
+            if ($d > $today) foreach ($p['items'] as &$it) $it['done'] = null; // ngày chưa tới
+            unset($it);
+            $days[] = $p;
+        }
+        $sun = date('Y-m-d', strtotime("{$mon} +6 days"));
+        $plan = approved_plan($today);
+        out(['view' => 'week', 'from' => $mon, 'to' => $sun, 'days' => $days, 'topics' => plan_week($plan, $today),
+             'stats' => period_stats($mon, $sun)]);
+    }
+
+    if ($view === 'month') {
+        $from = date('Y-m-01', strtotime($today));
+        $to = date('Y-m-t', strtotime($today));
+        out(['view' => 'month', 'from' => $from, 'to' => $to, 'weeks' => plan_weeks_between($from, $to),
+             'stats' => period_stats($from, $to)]);
+    }
+
+    if ($view === 'quarter') {
+        $plan = approved_plan($today);
+        if ($plan) {
+            $from = $plan['start_day'];
+            $to = $plan['end_day'];
+        } else {
+            $qStartMonth = intdiv((int)date('n', strtotime($today)) - 1, 3) * 3 + 1;
+            $from = date('Y-m-d', mktime(0, 0, 0, $qStartMonth, 1, (int)date('Y', strtotime($today))));
+            $to = date('Y-m-t', strtotime("{$from} +2 months"));
+        }
+        $months = [];
+        for ($m = strtotime(date('Y-m-01', strtotime($from))); $m <= strtotime($to); $m = strtotime('+1 month', $m)) {
+            $mFrom = max($from, date('Y-m-01', $m));
+            $mTo = min($to, date('Y-m-t', $m));
+            $months[] = ['month' => date('Y-m', $m), 'weeks' => plan_weeks_between($mFrom, $mTo),
+                         'stats' => $mFrom <= $today ? period_stats($mFrom, min($mTo, $today)) : null];
+        }
+        out(['view' => 'quarter', 'from' => $from, 'to' => $to, 'has_plan' => (bool)$plan, 'months' => $months,
+             'stats' => period_stats($from, min($to, $today))]);
+    }
+    out(['error' => 'bad_request'], 400);
+}
+
+// Các tuần trong kế hoạch đã duyệt có ngày bắt đầu (thứ 2) nằm trong khoảng [from, to].
+// Tuần vắt qua hai tháng thuộc về tháng chứa ngày thứ 2 đầu tuần, để không bị lặp.
+function plan_weeks_between(string $from, string $to): array
+{
+    $plan = approved_plan($from) ?? approved_plan($to) ?? approved_plan(today());
+    $weeks = [];
+    foreach ($plan['content']['weeks'] ?? [] as $w) {
+        $start = (string)($w['start'] ?? '');
+        if ($start >= $from && $start <= $to) $weeks[] = $w;
+    }
+    return $weeks;
+}
+
 /* ---------------- cho ba mẹ ---------------- */
+
+function r_parent_schedule(array $b): never
+{
+    if (isset($b['save']) && is_array($b['save'])) {
+        $in = $b['save'];
+        $tt = [];
+        for ($d = 1; $d <= 7; $d++) $tt[(string)$d] = clean($in['timetable'][(string)$d] ?? '', 200);
+        $classes = [];
+        foreach (is_array($in['classes'] ?? null) ? array_slice($in['classes'], 0, 10) : [] as $c) {
+            if (!is_array($c) || clean($c['name'] ?? '', 60) === '') continue;
+            $time = clean($c['time'] ?? '', 5);
+            if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time)) $time = '';
+            $classes[] = ['day' => max(1, min(7, (int)($c['day'] ?? 1))), 'time' => $time,
+                          'minutes' => max(0, min(300, (int)($c['minutes'] ?? 0))), 'name' => clean($c['name'], 60)];
+        }
+        set_setting('schedule', json_encode([
+            'book' => clean($in['book'] ?? '', 60),
+            'minutes' => max(15, min(90, (int)($in['minutes'] ?? 40))),
+            'timetable' => $tt,
+            'classes' => $classes,
+        ], JSON_UNESCAPED_UNICODE));
+    }
+    out(['schedule' => schedule()]);
+}
+
+function plan_row(?array $row): ?array
+{
+    if (!$row) return null;
+    $row['content'] = json_decode((string)$row['content'], true) ?: ['weeks' => []];
+    return $row;
+}
+
+function r_parent_plan(array $b): never
+{
+    $draft = q("SELECT * FROM plans WHERE status = 'draft' ORDER BY id DESC LIMIT 1")->fetch() ?: null;
+    $approved = q("SELECT * FROM plans WHERE status = 'approved' ORDER BY id DESC LIMIT 1")->fetch() ?: null;
+    out(['draft' => plan_row($draft), 'approved' => plan_row($approved)]);
+}
+
+function r_parent_plan_generate(array $b): never
+{
+    $mon = date('Y-m-d', strtotime('monday this week', strtotime(today())));
+    $weeks = [];
+    for ($i = 0; $i < 13; $i++) $weeks[] = date('Y-m-d', strtotime("{$mon} +{$i} weeks"));
+    $weak = implode(', ', array_map(fn($r) => SUBJECTS[$r['subject']]['name'] . ': ' . $r['topic'],
+        q("SELECT subject, topic FROM mistakes WHERE mastered_at IS NULL AND topic <> '' GROUP BY subject, topic
+           ORDER BY COUNT(*) DESC LIMIT 6")->fetchAll()));
+    spend(5);
+    $text = ask_claude(
+        (string)cfg('quiz_model', 'claude-sonnet-5-5'),
+        "Bạn giúp ba mẹ lập kế hoạch ôn tập ở nhà cho học sinh lớp 4.\n\n" . no_fabrication_rules() . "\nChỉ trả lời bằng JSON.",
+        [['role' => 'user', 'content' => plan_prompt($weeks, schedule(), setting('focus'), $weak)]],
+        16000, 110, (string)cfg('quiz_effort', 'medium')
+    );
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    $data = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
+    $byStart = [];
+    foreach (is_array($data['weeks'] ?? null) ? $data['weeks'] : [] as $w) {
+        if (is_array($w) && in_array($w['start'] ?? '', $weeks, true)) $byStart[$w['start']] = $w;
+    }
+    if (count($byStart) < 4) out(['error' => 'bad_plan'], 502);
+    $content = ['weeks' => array_map(fn($d) => clean_plan_week($byStart[$d] ?? ['start' => $d]), $weeks),
+                'summary' => clean($data['summary'] ?? '', 600)];
+    q("DELETE FROM plans WHERE status = 'draft'");
+    q("INSERT INTO plans (status, start_day, end_day, content, created_at) VALUES ('draft', ?, ?, ?, ?)",
+        [$weeks[0], date('Y-m-d', strtotime(end($weeks) . ' +6 days')), json_encode($content, JSON_UNESCAPED_UNICODE), time()]);
+    $id = (int)db()->lastInsertId();
+    out(['draft' => plan_row(q('SELECT * FROM plans WHERE id = ?', [$id])->fetch())]);
+}
+
+function clean_plan_week(array $w): array
+{
+    $out = ['start' => (string)$w['start']];
+    foreach (array_keys(SUBJECTS) as $sub) $out[$sub] = clean($w[$sub] ?? '', 120);
+    $out['note'] = clean($w['note'] ?? '', 200);
+    return $out;
+}
+
+function r_parent_plan_save(array $b): never
+{
+    $row = plan_row(q("SELECT * FROM plans WHERE id = ? AND status IN ('draft', 'approved')", [(int)($b['id'] ?? 0)])->fetch() ?: null);
+    if (!$row) out(['error' => 'bad_request'], 400);
+    $edited = [];
+    foreach (is_array($b['weeks'] ?? null) ? $b['weeks'] : [] as $w) {
+        if (is_array($w) && isset($w['start'])) $edited[(string)$w['start']] = $w;
+    }
+    $weeks = [];
+    foreach ($row['content']['weeks'] as $w) $weeks[] = clean_plan_week(array_merge($w, $edited[$w['start']] ?? [], ['start' => $w['start']]));
+    $content = json_encode(['weeks' => $weeks, 'summary' => $row['content']['summary'] ?? ''], JSON_UNESCAPED_UNICODE);
+    if (!empty($b['approve'])) {
+        db()->beginTransaction();
+        q("UPDATE plans SET status = 'old' WHERE status = 'approved' AND id <> ?", [$row['id']]);
+        q("UPDATE plans SET content = ?, status = 'approved', approved_at = ? WHERE id = ?", [$content, time(), $row['id']]);
+        db()->commit();
+    } else {
+        q('UPDATE plans SET content = ? WHERE id = ?', [$content, $row['id']]);
+    }
+    r_parent_plan([]);
+}
 
 function r_parent_check(array $b): never
 {

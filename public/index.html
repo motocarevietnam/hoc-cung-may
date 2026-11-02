@@ -213,6 +213,35 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .hwitem .btn{font-size:15px;padding:6px 12px}
 .reveal{margin-top:8px;padding:10px 12px;border-radius:12px;background:var(--surface-2);font-size:15px}
 .tips{margin:6px 0 0;padding-left:20px}
+
+/* kế hoạch học */
+.today{background:var(--surface);border:2.5px solid var(--ink);border-radius:20px;padding:14px 16px;margin:0 0 18px;box-shadow:4px 4px 0 var(--ink)}
+.today .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.today .head h3{font-size:24px}
+.task{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:var(--surface-2);border:2px solid var(--line);border-radius:14px;padding:10px 12px;margin:8px 0;font-size:16px}
+.task .ck{width:28px;height:28px;border-radius:50%;border:2.5px solid var(--ink-soft);display:grid;place-items:center;flex:none;font-size:16px}
+.task.done{opacity:.7}.task.done .ck{background:var(--mint);border-color:var(--mint);color:#fff}
+.task.done .tt{text-decoration:line-through}
+.task .tt{flex:1}.task .min{font-size:13px;color:var(--ink-soft);white-space:nowrap}
+.pnote{font-size:14px;color:var(--ink-soft);margin:4px 0}
+.quick{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 22px}
+.tabs{display:flex;gap:8px;margin:10px 0 14px;flex-wrap:wrap}
+.daycol{background:var(--surface);border:2px solid var(--line);border-radius:14px;padding:8px 12px;margin:8px 0}
+.daycol.now{border-color:var(--ink);border-width:2.5px}
+.daycol b{font-family:var(--display);font-size:18px}
+.daycol ul{margin:4px 0 0;padding-left:0;list-style:none;font-size:14px}
+.daycol li{margin:2px 0}
+.pweek h3{font-size:19px!important}
+.prow{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;margin:6px 0}
+.prow span{font-size:14px;font-weight:500}
+.prow input{width:100%;background:var(--surface-2);border:2px solid var(--line);border-radius:10px;padding:7px 10px;font-size:15px}
+@media (max-width:520px){.prow{grid-template-columns:1fr}}
+.statrow{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+.stat{background:var(--surface-2);border-radius:12px;padding:6px 12px;font-size:14px}
+.stat b{font-family:var(--display);font-size:20px;display:block}
+.clsrow{display:grid;grid-template-columns:110px 90px 80px 1fr 36px;gap:6px;margin:6px 0;align-items:center}
+.clsrow select,.clsrow input{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
+@media (max-width:520px){.clsrow{grid-template-columns:1fr 1fr 1fr}.clsrow input[data-f=name]{grid-column:1/3}}
 </style>
 </head>
 <body>
@@ -258,8 +287,9 @@ const LS = {
 let pin = LS.get("pin","");
 let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
 let autoRead = LS.get("autoRead", true);
-const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0};
-const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null};
+const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null};
+const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null,
+  plan:null, planTab:"day", parentPage:null, sched:null, pplan:null};
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let micLang = "vi", rec = null;
 
@@ -291,6 +321,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
+    me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
 }
@@ -306,6 +337,7 @@ function copyFor(code){
     bad_photos: "Ảnh chưa gửi được. Bạn chụp lại (tối đa 4 ảnh) rồi thử lần nữa nhé.",
     bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
     http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
+    bad_plan: "Mây soạn kế hoạch bị lỗi. Ba mẹ bấm thử lại nhé.",
     cancelled: ""
   };
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
@@ -323,13 +355,14 @@ function render(){
   else if(state.view==="chat") renderChat();
   else if(state.view==="quiz") renderQuiz();
   else if(state.view==="homework") renderHomework();
+  else if(state.view==="plan") renderPlan();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   try{ speechSynthesis.cancel(); }catch(e){}
-  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; } // rời Góc ba mẹ là khoá báo cáo
+  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
 
@@ -341,8 +374,9 @@ function renderHome(){
       <div class="say"><b>${hello}, ${esc(nick())}!</b><br>Mình là Mây ☁️ Hôm nay mình học môn gì nào?</div>
     </div>
     ${noSampleNotice()}
-    <button class="hwbar" id="toHomework"><span class="ic">📸</span><span><b>Chấm bài về nhà</b>Làm xong bài cô giao thì chụp ảnh gửi Mây chấm nhé!</span></button>
-    ${me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
+    ${me.today ? todayCard(me.today) : `<button class="hwbar" id="toHomework"><span class="ic">📸</span><span><b>Chấm bài về nhà</b>Làm xong bài cô giao thì chụp ảnh gửi Mây chấm nhé!</span></button>`}
+    ${me.today ? `<div class="quick"><button class="btn" id="toHomework">📸 Chấm bài về nhà</button><button class="btn" id="toPlan">📅 Lịch học</button></div>` : ""}
+    ${!me.today && me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
     <div class="labels">
       ${SUBJECTS.map(s=>`<button class="label" style="background:${s.color}" data-s="${s.id}">
         <div class="ic">${s.ic}</div><h3>${s.name}</h3><small>${s.sub}</small></button>`).join("")}
@@ -350,6 +384,8 @@ function renderHome(){
   app.querySelectorAll(".label").forEach(b=>b.onclick=()=>{ state.subject=b.dataset.s; state.topic=""; go("subject"); });
   const tr=document.getElementById("toReview"); if(tr) tr.onclick=startReview;
   document.getElementById("toHomework").onclick=()=>openHomework();
+  const tp=document.getElementById("toPlan"); if(tp) tp.onclick=()=>openPlan("week");
+  wireTasks(me.today);
 }
 
 function renderSubject(){
@@ -731,10 +767,190 @@ function renderHomeworkResult(H, head){
   document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
 }
 
+/* ---------- kế hoạch học: hôm nay, tuần, tháng, quý ---------- */
+const MONTHS_VI = m => "Tháng " + (+m.slice(5,7)) + "/" + m.slice(0,4);
+const ddmm = d => d.slice(8,10)+"/"+d.slice(5,7);
+function taskList(day, clickable){
+  return day.items.map((it,i)=>`<button class="task${it.done?" done":""}" data-i="${i}" ${clickable?"":"disabled"}>
+    <span class="ck">${it.done?"✓":""}</span><span class="tt">${it.icon} ${esc(it.title)}</span><span class="min">${it.minutes} phút</span></button>`).join("");
+}
+function todayCard(day){
+  const done = day.items.filter(x=>x.done).length;
+  return `<div class="today">
+    <div class="head"><h3>Hôm nay của ${esc(nick())}</h3><span class="muted">${esc(day.weekday)} · ${done}/${day.items.length} việc · khoảng ${day.minutes} phút</span></div>
+    ${day.notes.map(n=>`<div class="pnote">📌 ${esc(n)}</div>`).join("")}
+    ${taskList(day, true)}
+    ${done===day.items.length && day.items.length ? `<div class="pnote">🎉 Xong hết việc hôm nay rồi! Giỏi quá.</div>` : ""}
+  </div>`;
+}
+function wireTasks(day){
+  if(!day) return;
+  app.querySelectorAll(".task[data-i]").forEach(b=>b.onclick=()=>runAction(day.items[+b.dataset.i].action));
+}
+function runAction(a){
+  if(!a) return;
+  if(a.view==="homework") return openHomework(a.subject);
+  if(a.view==="review") return startReview();
+  state.subject = a.subject; state.topic = a.topic || "";
+  if(a.view==="quiz") return startQuiz();
+  if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat"); }
+}
+async function openPlan(tab){
+  state.planTab = tab || state.planTab || "day"; state.plan = {loading:true}; go("plan");
+  try{ state.plan = await api("/api/plan",{view:state.planTab}); }
+  catch(e){ state.plan = {error: copyFor(e&&e.code)}; }
+  if(state.view==="plan") render();
+}
+function statsHtml(st){
+  if(!st) return "";
+  const acc = (st.subjects||[]).map(x=>`<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${Math.round(100*x.correct/x.total)}%"></div></div><span>${Math.round(100*x.correct/x.total)}%</span></div>`).join("");
+  return `<div class="statrow">
+    <div class="stat"><b>${st.active_days}</b>ngày có học</div>
+    <div class="stat"><b>${st.count.homework}</b>bài về nhà đã chấm</div>
+    <div class="stat"><b>${st.count.quiz}</b>lượt đố vui</div>
+    <div class="stat"><b>${st.count.review}</b>câu ôn lại</div>
+  </div>${acc ? `<div class="muted" style="margin-top:6px">Tỉ lệ đúng (đố vui và bài về nhà):</div>${acc}` : ""}`;
+}
+function weekTopicsHtml(w){
+  if(!w) return "";
+  const rows = SUBJECTS.filter(s=>w[s.id]).map(s=>`<li>${s.ic} <b>${esc(s.name)}:</b> ${esc(w[s.id])}</li>`).join("");
+  return rows || w.note ? `<ul class="weak">${rows}${w.note?`<li>📌 ${esc(w.note)}</li>`:""}</ul>` : "";
+}
+function renderPlan(){
+  const P = state.plan;
+  const tabs = [["day","Hôm nay"],["week","Tuần"],["month","Tháng"],["quarter","Quý"]];
+  let body = "";
+  if(P.loading) body = `<div class="greet">${mascot()}<div class="say">Mây đang mở lịch học… <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
+  else if(P.error) body = `<div class="notice">${esc(P.error)}</div>`;
+  else if(P.view==="day"){ body = todayCard(P.day); }
+  else if(P.view==="week"){
+    const today = new Date().toISOString().slice(0,10);
+    body = `<p class="muted">Tuần ${ddmm(P.from)} – ${ddmm(P.to)}</p>
+      ${P.topics ? `<div class="card"><h3>Tuần này ôn gì</h3>${weekTopicsHtml(P.topics)}</div>` : `<div class="notice">Ba mẹ chưa duyệt kế hoạch học, nên Mây tự chọn bài theo thời khoá biểu.</div>`}
+      ${P.days.map(d=>`<div class="daycol${d.day===me.today?.day?" now":""}"><b>${esc(d.weekday)} ${ddmm(d.day)}</b>
+        <ul>${d.items.map(it=>`<li>${it.done===true?"✅":it.done===false&&d.day<(me.today?.day||today)?"⬜":"▫️"} ${esc(it.title)}</li>`).join("")}</ul>
+        ${d.notes.filter(n=>n.startsWith("Hôm nay có lớp")).map(n=>`<div class="pnote">📌 ${esc(n.replace("Hôm nay có","Có"))}</div>`).join("")}</div>`).join("")}
+      <div class="card"><h3>Tổng kết tuần</h3>${statsHtml(P.stats)}</div>`;
+  }
+  else if(P.view==="month"){
+    body = `<h3 style="font-size:24px;margin:6px 0">${MONTHS_VI(P.from)}</h3>
+      <div class="card"><h3>Kết quả tháng này</h3>${statsHtml(P.stats)}</div>
+      ${P.weeks.length ? P.weeks.map(w=>`<div class="card"><h3>Tuần ${ddmm(w.start)}</h3>${weekTopicsHtml(w)}</div>`).join("")
+        : `<div class="notice">Chưa có kế hoạch học đã duyệt cho tháng này. Ba mẹ vào Góc ba mẹ 👪 → Kế hoạch học để Mây soạn nhé.</div>`}`;
+  }
+  else if(P.view==="quarter"){
+    body = `<p class="muted">Từ ${ddmm(P.from)}/${P.from.slice(0,4)} đến ${ddmm(P.to)}/${P.to.slice(0,4)}</p>
+      <div class="card"><h3>Kết quả từ đầu quý</h3>${statsHtml(P.stats)}</div>
+      ${!P.has_plan ? `<div class="notice">Chưa có kế hoạch học đã duyệt. Ba mẹ vào Góc ba mẹ 👪 → Kế hoạch học để Mây soạn nhé.</div>` : ""}
+      ${P.months.map(m=>`<div class="card"><h3>${MONTHS_VI(m.month)}</h3>
+        ${m.weeks.map(w=>`<p style="margin:8px 0 0"><b>Tuần ${ddmm(w.start)}</b></p>${weekTopicsHtml(w)}`).join("") || `<p class="muted">Chưa có kế hoạch.</p>`}
+        ${m.stats ? `<p class="muted" style="margin:8px 0 0">Đã học ${m.stats.active_days} ngày, chấm ${m.stats.count.homework} bài về nhà, ${m.stats.count.quiz} lượt đố vui.</p>` : ""}</div>`).join("")}`;
+  }
+  app.innerHTML = `<button class="back" id="back">‹ Trang chính</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">📅</div><div><h2>Lịch học</h2><div class="muted">Kế hoạch học và ôn tập của ${esc(nick())}</div></div></div>
+    <div class="tabs">${tabs.map(([k,l])=>`<button class="chip" aria-pressed="${state.planTab===k}" data-t="${k}">${l}</button>`).join("")}</div>
+    ${body}`;
+  app.querySelectorAll(".tabs .chip").forEach(c=>c.onclick=()=>openPlan(c.dataset.t));
+  if(P.view==="day") wireTasks(P.day);
+  document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+
+/* ---------- góc ba mẹ: lịch học và kế hoạch ---------- */
+const DAY_OPTS = [1,2,3,4,5,6,7].map(d=>[d, d===7?"Chủ nhật":"Thứ "+(d+1)]);
+function renderSchedule(){
+  const S = state.sched;
+  if(!S){ app.innerHTML = `<button class="back" id="back">‹ Báo cáo</button><p>Đang mở…</p>`; document.getElementById("back").onclick=()=>{state.parentPage=null;render();}; return; }
+  app.innerHTML = `<button class="back" id="back">‹ Báo cáo</button>
+    <h2 style="font-size:28px">Lịch học của bé</h2>
+    <div class="card">
+      <label for="book">Bộ sách giáo khoa (Toán, Tiếng Việt)</label>
+      <input class="field" id="book" value="${esc(S.book)}" placeholder="Ví dụ: Kết nối tri thức với cuộc sống">
+      <label for="mins">Thời gian học ở nhà mỗi ngày (phút)</label>
+      <input class="field" id="mins" type="number" min="15" max="90" value="${S.minutes}">
+    </div>
+    <div class="card"><h3>Thời khoá biểu ở trường</h3>
+      <p class="muted" style="margin:0">Ghi các môn mỗi ngày, cách nhau bằng dấu phẩy. Mây dùng để chọn môn ôn cho ngày mai.</p>
+      ${DAY_OPTS.map(([d,l])=>`<label for="tt${d}">${l}</label><input class="field" id="tt${d}" value="${esc(S.timetable[d]||"")}" placeholder="${d<=5?"Ví dụ: Toán, Tiếng Việt, Tiếng Anh, Khoa học":"(nghỉ)"}">`).join("")}
+    </div>
+    <div class="card"><h3>Lớp học thêm</h3>
+      <div id="clsList">${S.classes.map(clsRow).join("")}</div>
+      <button class="btn" id="addCls">+ Thêm lớp</button>
+    </div>
+    <div class="row"><button class="btn primary" id="saveSched">Lưu lịch học</button><span class="muted" id="schMsg" style="align-self:center"></span></div>`;
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; render(); };
+  document.getElementById("addCls").onclick=()=>{ document.getElementById("clsList").insertAdjacentHTML("beforeend", clsRow({day:1,time:"",minutes:60,name:""})); wireCls(); };
+  wireCls();
+  document.getElementById("saveSched").onclick=async()=>{
+    const msg=document.getElementById("schMsg");
+    const save = {book:document.getElementById("book").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
+    DAY_OPTS.forEach(([d])=>save.timetable[d]=document.getElementById("tt"+d).value);
+    app.querySelectorAll(".clsrow").forEach(r=>{ const g=f=>r.querySelector(`[data-f=${f}]`).value; save.classes.push({day:+g("day"), time:g("time"), minutes:+g("minutes")||0, name:g("name")}); });
+    try{ state.sched = (await api("/api/parent/schedule",{save},true)).schedule; msg.textContent="Đã lưu ✅"; }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+}
+function clsRow(c){
+  return `<div class="clsrow"><select data-f="day">${DAY_OPTS.map(([d,l])=>`<option value="${d}" ${d===c.day?"selected":""}>${l}</option>`).join("")}</select>
+    <input data-f="time" type="time" value="${esc(c.time)}"><input data-f="minutes" type="number" min="0" max="300" value="${c.minutes}" title="Số phút">
+    <input data-f="name" value="${esc(c.name)}" placeholder="Tên lớp, ví dụ: Tiếng Anh"><button class="btn danger" data-rm title="Xoá">×</button></div>`;
+}
+function wireCls(){ app.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>b.closest(".clsrow").remove()); }
+
+function renderParentPlan(){
+  const PP = state.pplan || {};
+  const cur = PP.draft || null, ok = PP.approved || null;
+  const editing = PP.edit ? (PP.edit==="draft" ? cur : ok) : null;
+  let body = "";
+  if(PP.loading) body = `<div class="greet">${mascot()}<div class="say">${esc(PP.loading)} <span class="thinking"><i></i><i></i><i></i></span><br><span class="muted">Có thể mất khoảng một phút.</span></div></div>`;
+  else if(editing){
+    body = `<p class="muted">${editing.status==="draft"?"Bản nháp Mây đề xuất":"Kế hoạch đang áp dụng"} · ${ddmm(editing.start_day)} – ${ddmm(editing.end_day)}/${editing.end_day.slice(0,4)}</p>
+      ${editing.content.summary ? `<div class="notice">${esc(editing.content.summary)}</div>` : ""}
+      <div class="notice">Ba mẹ đối chiếu với tiến độ trên lớp và sửa ngay bên dưới. Mây chỉ đề xuất, có thể chưa khớp với lịch của cô giáo.</div>
+      ${editing.content.weeks.map(w=>`<div class="card pweek" data-start="${w.start}"><h3>Tuần ${ddmm(w.start)} – ${ddmm(new Date(new Date(w.start+"T00:00:00Z").getTime()+6*864e5).toISOString().slice(0,10))}</h3>
+          ${SUBJECTS.map(s=>`<div class="prow"><span>${s.ic} ${esc(s.name)}</span><input data-k="${s.id}" value="${esc(w[s.id]||"")}"></div>`).join("")}
+          <div class="prow"><span>📌 Ghi chú</span><input data-k="note" value="${esc(w.note||"")}" placeholder="Ví dụ: tuần thi giữa kỳ"></div></div>`).join("")}
+      <div class="row"><button class="btn" id="planSave">Lưu</button>
+        <button class="btn primary" id="planApprove">${editing.status==="draft"?"Duyệt và áp dụng":"Lưu và áp dụng"}</button>
+        <button class="btn" id="planCancel">Đóng</button><span class="muted" id="planMsg" style="align-self:center"></span></div>`;
+  } else {
+    body = `${PP.error ? `<div class="notice">${esc(PP.error)}</div>` : ""}
+      <div class="card"><h3>Kế hoạch đang áp dụng</h3>
+        ${ok ? `<p style="margin:0">Từ ${ddmm(ok.start_day)} đến ${ddmm(ok.end_day)}/${ok.end_day.slice(0,4)}, ${ok.content.weeks.length} tuần.</p><div class="row"><button class="btn" id="editOk">Xem / sửa</button></div>`
+             : `<p class="muted" style="margin:0">Chưa có. Mây sẽ tự chọn bài ôn theo thời khoá biểu.</p>`}</div>
+      ${cur ? `<div class="card"><h3>Bản nháp chờ duyệt</h3><p style="margin:0">Từ ${ddmm(cur.start_day)} đến ${ddmm(cur.end_day)}/${cur.end_day.slice(0,4)}.</p><div class="row"><button class="btn primary" id="editDraft">Xem, sửa và duyệt</button></div></div>` : ""}
+      <div class="card"><h3>Nhờ Mây soạn kế hoạch quý</h3>
+        <p class="muted" style="margin:0">Mây soạn đề xuất 13 tuần tới cho 5 môn, theo chương trình lớp 4, bộ sách và lịch học ba mẹ đã nhập, cùng những phần bé hay sai. Ba mẹ sửa và duyệt rồi mới áp dụng.</p>
+        <div class="row"><button class="btn primary" id="genPlan">${cur?"Soạn lại bản nháp":"Mây soạn kế hoạch"}</button></div></div>`;
+  }
+  app.innerHTML = `<button class="back" id="back">‹ Báo cáo</button><h2 style="font-size:28px">Kế hoạch học</h2>${body}`;
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; state.pplan=null; render(); };
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("editOk",()=>{ PP.edit="approved"; render(); });
+  on("editDraft",()=>{ PP.edit="draft"; render(); });
+  on("planCancel",()=>{ PP.edit=null; render(); });
+  on("genPlan", async()=>{
+    PP.loading="Mây đang soạn kế hoạch 13 tuần…"; PP.error=""; render();
+    try{ const d = await api("/api/parent/plan_generate",{},true); PP.draft=d.draft; PP.edit="draft"; }
+    catch(e){ PP.error = copyFor(e&&e.code); }
+    PP.loading=null; if(state.parentPage==="plan") render();
+  });
+  const collect = ()=>[...app.querySelectorAll(".pweek[data-start]")].map(tr=>{ const w={start:tr.dataset.start}; tr.querySelectorAll("input").forEach(i=>w[i.dataset.k]=i.value); return w; });
+  const save = async(approve)=>{
+    const msg=document.getElementById("planMsg"); msg.textContent="Đang lưu…";
+    try{ const d = await api("/api/parent/plan_save",{id:editing.id, weeks:collect(), approve},true);
+      Object.assign(PP, {draft:d.draft, approved:d.approved}); if(approve){ PP.edit=null; render(); refreshState(); } else msg.textContent="Đã lưu ✅"; }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+  on("planSave",()=>save(false));
+  on("planApprove",()=>save(true));
+}
+
 /* ---------- góc ba mẹ ---------- */
 function renderParent(){
   if(state.transcript) return renderTranscript();
   if(state.hwDetail) return renderParentHomework();
+  if(state.parentPage==="schedule") return renderSchedule();
+  if(state.parentPage==="plan") return renderParentPlan();
   const R = state.report;
   app.innerHTML = `
     <button class="back" id="back">‹ Về trang của bé</button>
@@ -810,6 +1026,11 @@ function reportHtml(R){
       ${weak ? `<p class="muted" style="margin:10px 0 0">Phần bé hay sai:</p><ul class="weak">${weak}</ul>` : ""}
     </div>
     <div class="card">
+      <h3>Lịch học và kế hoạch</h3>
+      <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
+      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button></div>
+    </div>
+    <div class="card">
       <h3>Bài tập về nhà đã chấm</h3>
       <p class="muted" style="margin:0">Ảnh không được lưu lại, chỉ lưu kết quả chấm (giữ 60 ngày). Bấm vào để xem chi tiết và đáp án.</p>
       <div class="convlist">${hws || `<p class="muted">Bé chưa gửi bài nào.</p>`}</div>
@@ -843,6 +1064,16 @@ function wireReport(R){
     try{ state.transcript = await api("/api/parent/conversation",{id:+b.dataset.id},true); render(); window.scrollTo(0,0); }
     catch(e){ alert(copyFor(e&&e.code)); }
   });
+  document.getElementById("toSched").onclick=async()=>{
+    state.parentPage="schedule"; state.sched=null; render();
+    try{ state.sched=(await api("/api/parent/schedule",{},true)).schedule; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }
+    render();
+  };
+  document.getElementById("toPPlan").onclick=async()=>{
+    state.parentPage="plan"; state.pplan={loading:"Đang mở…"}; render();
+    try{ state.pplan=await api("/api/parent/plan",{},true); }catch(e){ state.pplan={error:copyFor(e&&e.code)}; }
+    render();
+  };
   document.getElementById("lock").onclick=()=>{ parentPin=""; state.report=null; render(); };
   const clear = async(what, question)=>{
     if(!confirm(question)) return;

@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -69,6 +69,13 @@ const SCHEMA = [
        photos TINYINT UNSIGNED NOT NULL DEFAULT 1, result MEDIUMTEXT NOT NULL, right_n INT NOT NULL DEFAULT 0,
        graded_n INT NOT NULL DEFAULT 0, recheck_of INT UNSIGNED NULL, created_at INT UNSIGNED NOT NULL,
        KEY idx_homework_created (created_at), KEY idx_homework_recheck (recheck_of)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Kế hoạch học theo tuần cho cả quý: Mây soạn nháp (draft), ba mẹ sửa rồi duyệt (approved)
+    "CREATE TABLE IF NOT EXISTS plans (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, status VARCHAR(10) NOT NULL,
+       start_day CHAR(10) NOT NULL, end_day CHAR(10) NOT NULL, content MEDIUMTEXT NOT NULL,
+       created_at INT UNSIGNED NOT NULL, approved_at INT UNSIGNED NULL,
+       KEY idx_plans_status (status, start_day)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -310,13 +317,14 @@ Trung thực, không bịa đặt (BẮT BUỘC):
 TXT;
 }
 
-function chat_system(string $id, string $topic, string $nick, string $focus, string $memory): string
+function chat_system(string $id, string $topic, string $nick, string $focus, string $memory, string $schedule = ''): string
 {
     $s = SUBJECTS[$id];
     $topicText = $topic !== '' ? $topic : 'bất kỳ nội dung nào của lớp 4';
     $nickText = $nick !== '' ? $nick : 'bạn';
     $focusText = $focus !== '' ? "\nGhi chú của ba mẹ về việc học tuần này: " . $focus : '';
     $memoryText = $memory !== '' ? "\n" . $memory : '';
+    $memoryText .= $schedule !== '' ? "\n" . $schedule : '';
     $rule = lang_rule($id);
     $scope = grade4_scope($id);
     $honest = no_fabrication_rules();
@@ -435,5 +443,209 @@ Trả về đúng một JSON dạng:
  "summary_for_parent":"2–3 câu tóm tắt cho ba mẹ: bé làm tốt gì, cần ôn gì"}
 Quy tắc: mỗi câu/ý trong bài là một phần tử "items" (tối đa 20). Chỉ thêm "practice" cho câu "wrong" hoặc "partial" có đáp án rõ ràng (3–4 lựa chọn, đúng một đáp án, "answer" là chỉ số bắt đầu từ 0); câu khác đặt "practice": null.
 Nếu "readable" là false thì "items" để rỗng và "praise" là lời nhắc bé chụp lại.
+TXT;
+}
+
+/* ---------------- Lịch học và kế hoạch học ---------------- */
+
+const WEEKDAYS_VI = [1 => 'Thứ 2', 2 => 'Thứ 3', 3 => 'Thứ 4', 4 => 'Thứ 5', 5 => 'Thứ 6', 6 => 'Thứ 7', 7 => 'Chủ nhật'];
+
+// Lịch học do ba mẹ nhập: bộ sách, thời gian học mỗi ngày, thời khoá biểu ở trường, lớp học thêm.
+function schedule(): array
+{
+    $s = json_decode(setting('schedule', '{}'), true);
+    $s = is_array($s) ? $s : [];
+    $tt = [];
+    for ($d = 1; $d <= 7; $d++) $tt[(string)$d] = (string)($s['timetable'][(string)$d] ?? '');
+    $classes = [];
+    foreach (is_array($s['classes'] ?? null) ? $s['classes'] : [] as $c) {
+        if (!is_array($c)) continue;
+        $day = (int)($c['day'] ?? 0);
+        if ($day < 1 || $day > 7) continue;
+        $classes[] = ['day' => $day, 'time' => clean($c['time'] ?? '', 5), 'minutes' => max(0, min(300, (int)($c['minutes'] ?? 0))),
+                      'name' => clean($c['name'] ?? '', 60)];
+    }
+    usort($classes, fn($a, $b) => [$a['day'], $a['time']] <=> [$b['day'], $b['time']]);
+    return [
+        'book' => (string)($s['book'] ?? ''),
+        'minutes' => max(15, min(90, (int)($s['minutes'] ?? 40))),
+        'timetable' => $tt,
+        'classes' => $classes,
+    ];
+}
+
+// Môn nào trong app khớp với chữ ghi trên thời khoá biểu ("Toán, Tiếng Việt, Tiếng Anh…")
+function subjects_in(string $text): array
+{
+    $t = mb_strtolower($text);
+    $found = [];
+    if (preg_match('/tiếng việt/u', $t)) $found[] = 'tv';
+    if (preg_match('/(^|[^\p{L}])toán/u', $t)) $found[] = 'toan';
+    if (preg_match('/\bmaths?\b/u', $t)) $found[] = 'cmath';
+    if (preg_match('/english|tiếng anh/u', $t)) $found[] = 'ceng';
+    if (preg_match('/\bscience\b/u', $t)) $found[] = 'csci';
+    return $found;
+}
+
+function fmt_minutes(int $m): string
+{
+    $h = intdiv($m, 60);
+    $r = $m % 60;
+    return $h ? ($h . ' giờ' . ($r ? " {$r} phút" : '')) : "{$r} phút";
+}
+
+// Kế hoạch đã duyệt đang áp dụng cho một ngày (nếu có)
+function approved_plan(string $day): ?array
+{
+    $row = q("SELECT id, start_day, end_day, content FROM plans WHERE status = 'approved' AND start_day <= ? AND end_day >= ?
+              ORDER BY id DESC LIMIT 1", [$day, $day])->fetch();
+    if (!$row) return null;
+    $row['content'] = json_decode($row['content'], true) ?: ['weeks' => []];
+    return $row;
+}
+
+function plan_week(?array $plan, string $day): ?array
+{
+    foreach ($plan['content']['weeks'] ?? [] as $w) {
+        $start = (string)($w['start'] ?? '');
+        if ($start !== '' && $start <= $day && $day < date('Y-m-d', strtotime($start . ' +7 days'))) return $w;
+    }
+    return null;
+}
+
+// Việc cần làm trong một ngày, tính từ lịch học + kế hoạch tuần + sổ ôn tập (không gọi Claude).
+function day_plan(string $day): array
+{
+    $sch = schedule();
+    $ts = strtotime($day);
+    $n = (int)date('N', $ts);
+    $tomorrowN = $n % 7 + 1;
+    $weekend = $n >= 6;
+    $classes = array_values(array_filter($sch['classes'], fn($c) => $c['day'] === $n));
+    $week = plan_week(approved_plan($day), $day);
+    $topic = fn(string $subj) => clean($week[$subj] ?? '', 80);
+
+    $notes = [];
+    foreach ($classes as $c) {
+        $notes[] = "Hôm nay có lớp {$c['name']} lúc {$c['time']}" . ($c['minutes'] ? ' (' . fmt_minutes($c['minutes']) . ')' : '')
+                 . '. Học với Mây trước giờ đó nhé.';
+    }
+    $tomorrowText = $sch['timetable'][(string)$tomorrowN];
+    if ($tomorrowText !== '') $notes[] = 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') học: ' . $tomorrowText;
+    if (!empty($week['note'])) $notes[] = 'Ghi chú tuần này: ' . clean($week['note'], 200);
+
+    $items = [];
+    if (!$weekend) {
+        $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Làm bài cô giao rồi chụp gửi Mây chấm', 'minutes' => 15,
+                    'action' => ['view' => 'homework']];
+    }
+    $endOfDay = strtotime($day . ' 23:59:59');
+    $due = (int)q('SELECT COUNT(*) FROM mistakes WHERE mastered_at IS NULL AND due_at <= ?', [$endOfDay])->fetchColumn();
+    if ($due > 0) {
+        $items[] = ['key' => 'review', 'icon' => '📒', 'title' => "Sổ ôn tập: {$due} câu đến hạn", 'minutes' => min(10, max(5, $due * 2)),
+                    'action' => ['view' => 'review']];
+    }
+
+    // Môn ôn hôm nay: ưu tiên môn của ngày mai, xoay vòng theo ngày; ngày có lớp tiếng Anh thì ôn English
+    $hasEnglishClass = (bool)array_filter($classes, fn($c) => in_array('ceng', subjects_in($c['name']), true));
+    $cands = subjects_in($tomorrowText) ?: array_keys(SUBJECTS);
+    $doy = (int)date('z', $ts);
+    $main = $hasEnglishClass ? 'ceng' : $cands[$doy % count($cands)];
+    $t = $topic($main);
+    $items[] = ['key' => "quiz:{$main}", 'icon' => '🎯',
+                'title' => ($hasEnglishClass ? 'Khởi động trước lớp tiếng Anh: đố vui English' : 'Đố vui ' . SUBJECTS[$main]['name']) . ($t !== '' ? " – {$t}" : ''),
+                'minutes' => 10, 'action' => ['view' => 'quiz', 'subject' => $main, 'topic' => $t]];
+
+    $budget = $weekend ? 20 : ($classes ? 30 : $sch['minutes']);
+    $used = array_sum(array_column($items, 'minutes'));
+    if ($budget - $used >= 10) {
+        $others = array_values(array_diff($cands, [$main])) ?: [$main];
+        $second = $others[$doy % count($others)];
+        $t2 = $topic($second);
+        $items[] = ['key' => "chat:{$second}", 'icon' => '💬',
+                    'title' => 'Hỏi Mây ôn ' . SUBJECTS[$second]['name'] . ($t2 !== '' ? " – {$t2}" : ($tomorrowText !== '' ? ' cho ngày mai' : '')),
+                    'minutes' => 10, 'action' => ['view' => 'chat', 'subject' => $second, 'topic' => $t2]];
+    }
+
+    // Đánh dấu việc đã làm, dựa trên hoạt động thật trong ngày
+    $act = q('SELECT type, subject FROM activity WHERE day = ?', [$day])->fetchAll();
+    $doneKey = [];
+    foreach ($act as $a) {
+        $doneKey[$a['type']] = true;
+        $doneKey[$a['type'] . ':' . $a['subject']] = true;
+    }
+    foreach ($items as &$it) {
+        $it['done'] = isset($doneKey[$it['key']]) || ($it['key'] === 'review' && $day === today() && due_count() === 0);
+    }
+    unset($it);
+
+    return ['day' => $day, 'weekday' => WEEKDAYS_VI[$n], 'weekend' => $weekend, 'notes' => $notes, 'items' => $items,
+            'minutes' => array_sum(array_column($items, 'minutes')),
+            'week_topics' => $week ? array_filter(array_intersect_key($week, SUBJECTS)) : []];
+}
+
+// Tổng kết hoạt động trong một khoảng ngày
+function period_stats(string $from, string $to): array
+{
+    $rows = q('SELECT day, type, subject, score, total FROM activity WHERE day >= ? AND day <= ?', [$from, $to])->fetchAll();
+    $days = [];
+    $count = ['homework' => 0, 'quiz' => 0, 'review' => 0, 'chat' => 0];
+    $acc = [];
+    foreach ($rows as $r) {
+        $days[$r['day']] = true;
+        if (isset($count[$r['type']])) $count[$r['type']]++;
+        if (in_array($r['type'], ['quiz', 'homework'], true) && (int)$r['total'] > 0) {
+            $acc[$r['subject']]['correct'] = ($acc[$r['subject']]['correct'] ?? 0) + (int)$r['score'];
+            $acc[$r['subject']]['total'] = ($acc[$r['subject']]['total'] ?? 0) + (int)$r['total'];
+        }
+    }
+    $subjects = [];
+    foreach ($acc as $sub => $a) $subjects[] = ['subject' => $sub, 'correct' => $a['correct'], 'total' => $a['total']];
+    return ['from' => $from, 'to' => $to, 'active_days' => count($days), 'count' => $count, 'subjects' => $subjects];
+}
+
+// Thông tin lịch học đưa cho Mây khi trò chuyện (chỉ dữ liệu ba mẹ nhập và kế hoạch đã duyệt)
+function schedule_note(): string
+{
+    $p = day_plan(today());
+    $lines = [];
+    $lines[] = 'Hôm nay là ' . $p['weekday'] . '.';
+    foreach ($p['notes'] as $n) $lines[] = $n;
+    if ($p['week_topics']) {
+        $parts = [];
+        foreach ($p['week_topics'] as $sub => $t) $parts[] = SUBJECTS[$sub]['name'] . ': ' . $t;
+        $lines[] = 'Kế hoạch tuần này (ba mẹ đã duyệt): ' . implode('; ', $parts) . '.';
+    }
+    return "Lịch học của bé (chỉ dùng đúng thông tin này, không tự đoán thêm lịch hay bài học):\n- " . implode("\n- ", $lines);
+}
+
+// Mây soạn nháp kế hoạch học theo tuần cho 13 tuần (một quý)
+function plan_prompt(array $weeks, array $sch, string $focus, string $weak): string
+{
+    $book = $sch['book'] !== '' ? $sch['book'] : 'Kết nối tri thức với cuộc sống';
+    $tt = [];
+    foreach ($sch['timetable'] as $d => $txt) if ($txt !== '') $tt[] = WEEKDAYS_VI[(int)$d] . ': ' . $txt;
+    $cls = array_map(fn($c) => WEEKDAYS_VI[$c['day']] . " {$c['time']}: {$c['name']}", $sch['classes']);
+    $list = implode(', ', $weeks);
+    $ttText = $tt ? implode('; ', $tt) : '(ba mẹ chưa nhập)';
+    $clsText = $cls ? implode('; ', $cls) : '(không có)';
+    $focusText = $focus !== '' ? $focus : '(không có)';
+    $weakText = $weak !== '' ? $weak : '(chưa có dữ liệu)';
+    return <<<TXT
+Soạn ĐỀ XUẤT kế hoạch ôn tập ở nhà theo từng tuần cho một học sinh lớp 4 ở Việt Nam, để ba mẹ kiểm tra và sửa trước khi áp dụng.
+- Môn sách giáo khoa Việt Nam (Toán, Tiếng Việt): bộ sách "{$book}", chương trình GDPT 2018 lớp 4, năm học bắt đầu tháng 9.
+- Môn Cambridge Primary Stage 4: Maths, English, Science.
+- Thời khoá biểu ở trường: {$ttText}. Lớp học thêm: {$clsText}.
+- Ghi chú của ba mẹ: {$focusText}
+- Phần bé đang hay sai: {$weakText}
+- Các tuần cần lập kế hoạch (ngày thứ 2 đầu tuần): {$list}
+
+Yêu cầu:
+- Mỗi tuần, mỗi môn ghi NGẮN GỌN chủ đề/kiến thức nên ôn ở nhà tuần đó (dưới 12 từ), theo đúng trình tự thường gặp của chương trình lớp 4 tại thời điểm đó trong năm học.
+- Chỉ ghi kiến thức lớp 4. Ghi theo tên kiến thức (ví dụ "Phép cộng, phép trừ số có nhiều chữ số"), KHÔNG ghi số bài, số trang hay tên bài nếu không chắc chắn. Không bịa.
+- Những tuần cuối học kỳ có thể dành để "Ôn tập cuối học kỳ". Nếu không chắc lịch nghỉ lễ hay thi, không tự đặt ra; ghi vào "note" để ba mẹ kiểm tra.
+- Xen kẽ ôn lại phần bé hay sai.
+Chỉ trả về JSON đúng dạng:
+{"weeks":[{"start":"YYYY-MM-DD","toan":"...","tv":"...","cmath":"...","ceng":"...","csci":"...","note":""}],"summary":"2–3 câu giải thích cách sắp xếp, nhắc ba mẹ đối chiếu với tiến độ của lớp"}
 TXT;
 }

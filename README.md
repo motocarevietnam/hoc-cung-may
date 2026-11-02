@@ -11,6 +11,10 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   thì mới xem được cách làm đúng của các câu còn lại; gửi lại bài chưa sửa thì không mở đáp án, không được sao (máy chủ giữ đáp án, không gửi xuống iPad trước đó). Ba mẹ thì luôn xem được đáp án trong báo cáo.
   Câu sai được biến thành bài luyện tương tự trong Sổ ôn tập. Ba mẹ xem tóm tắt và đáp án trong báo cáo.
   Ảnh chỉ được gửi tới Claude để chấm, **không lưu trên VPS**; kết quả chấm giữ 60 ngày.
+- **Lịch học và kế hoạch** 📅: ba mẹ nhập thời khoá biểu, lớp học thêm, bộ sách, số phút học mỗi ngày (Góc ba mẹ → Lịch học của bé).
+  Trang chính có **"Hôm nay của bé"**: 2–4 việc vừa sức (chấm bài về nhà, sổ ôn tập, đố vui và hỏi Mây môn của ngày mai),
+  tự đánh dấu ✓ khi bé làm xong; ngày có lớp học thêm và cuối tuần thì nhẹ hơn. Màn hình **Lịch học** xem theo ngày, tuần, tháng, quý
+  kèm tổng kết kết quả. **Kế hoạch quý** (13 tuần × 5 môn): Mây soạn nháp theo chương trình lớp 4 và bộ sách, ba mẹ sửa rồi duyệt mới áp dụng.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
