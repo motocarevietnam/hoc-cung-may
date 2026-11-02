@@ -33,6 +33,11 @@ return [
     'azure_speech_key' => '',
     'azure_speech_region' => 'southeastasia',
 
+    // Giọng tiếng Việt tự nhiên bằng FPT.AI (khi không dùng Azure). Lấy API key tại console.fpt.ai.
+    // Tiếng Anh vẫn do iPad đọc. Giọng: banmai, thuminh, myan, lannhi, linhsan, leminh, giahuy.
+    'fpt_tts_key' => '',
+    'fpt_tts_voice' => 'banmai',
+
     // Lưu ảnh bài tập (đã nén) lên Google Drive của gia đình. Để trống thì không lưu ảnh ở đâu cả.
     // Tạo OAuth client (Web application) trên console.cloud.google.com, bật Google Drive API,
     // Authorized redirect URI: https://TEN-MIEN/api/google/callback. Ba mẹ bấm "Kết nối" trong Góc ba mẹ.
