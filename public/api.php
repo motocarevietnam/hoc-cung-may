@@ -338,6 +338,22 @@ function r_homework(array $b): never
         out(['readable' => false, 'praise' => $result['praise'] ?: 'Mây chưa đọc được ảnh này. Bạn chụp lại thật rõ, đủ sáng và thẳng trang giúp Mây nhé!', 'stars' => stars()]);
     }
 
+    // Bài chấm lại: đếm số câu lần trước sai/gần đúng mà nay đã đúng (so theo tên câu)
+    $improved = 0;
+    if ($previous) {
+        $wasBad = [];
+        foreach ($previous['items'] ?? [] as $p) {
+            if (in_array($p['status'] ?? '', ['wrong', 'partial'], true)) $wasBad[hw_label_key((string)($p['label'] ?? ''))] = true;
+        }
+        foreach ($result['items'] as &$x) {
+            $x['fixed'] = $x['status'] === 'right' && isset($wasBad[hw_label_key($x['label'])]);
+            if ($x['fixed']) $improved++;
+        }
+        unset($x);
+        $items = $result['items'];
+    }
+    $result['improved'] = $improved;
+
     $right = count(array_filter($items, fn($x) => $x['status'] === 'right'));
     $graded = count(array_filter($items, fn($x) => in_array($x['status'], ['right', 'partial', 'wrong'], true)));
     q('INSERT INTO homework (subject, note, photos, result, right_n, graded_n, recheck_of, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -351,14 +367,16 @@ function r_homework(array $b): never
         if ($x['practice']) remember_mistake($subject, $topic, $x['practice']);
     }
 
-    // Thưởng sao: 2 sao vì đã tự giác gửi bài, thêm 1 sao nếu đúng hết; bài sửa lại được thêm 1 sao
-    $stars = add_stars(2 + ($graded > 0 && $right === $graded ? 1 : 0) + ($recheckOf ? 1 : 0));
+    // Thưởng sao: lần đầu 2 sao vì tự giác gửi bài; bài chấm lại chỉ được sao khi có câu sửa đúng
+    // (1 sao mỗi câu, tối đa 3). Đúng hết thêm 1 sao.
+    $base = $recheckOf ? min(3, $improved) : 2;
+    $stars = add_stars($base + ($graded > 0 && $right === $graded && ($recheckOf === 0 || $improved > 0) ? 1 : 0));
 
-    out(['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $recheckOf > 0), 'stars' => $stars, 'due' => due_count()]);
+    out(['readable' => true, 'id' => $id, 'result' => homework_for_kid($result, $improved > 0), 'stars' => $stars, 'due' => due_count()]);
 }
 
 // Gửi xuống máy của bé: bỏ phần tóm tắt cho ba mẹ và đáp án của bài luyện.
-// Cách làm đúng ("fix") chỉ gửi khi bài đã được chấm lại: bé phải tự sửa và chụp lại trước đã.
+// Cách làm đúng ("fix") chỉ gửi khi bé đã tự sửa đúng ít nhất một câu và gửi chấm lại.
 function homework_for_kid(array $r, bool $answersOpen): array
 {
     unset($r['summary_for_parent']);
@@ -367,17 +385,27 @@ function homework_for_kid(array $r, bool $answersOpen): array
     foreach ($r['items'] as &$x) {
         $x['practice'] = ($x['practice'] ?? null) !== null;
         $x['has_fix'] = ($x['fix'] ?? '') !== '';
+        $x['fixed'] = (bool)($x['fixed'] ?? false);
         if (!$answersOpen) $x['fix'] = '';
     }
     unset($x);
     return $r;
 }
 
-// Đáp án của một bài được mở khi: bài này là bài chấm lại, hoặc bé đã gửi bài sửa lại của nó
-function homework_answers_open(int $id, mixed $recheckOf): bool
+function hw_label_key(string $label): string
 {
-    if ($recheckOf !== null) return true;
-    return q('SELECT 1 FROM homework WHERE recheck_of = ? LIMIT 1', [$id])->fetchColumn() !== false;
+    return preg_replace('/[^\p{L}\p{N}]+/u', '', mb_strtolower($label)) ?? '';
+}
+
+// Đáp án của một bài được mở khi bài đó, hoặc một lần chấm lại sau nó, có ít nhất một câu bé đã sửa đúng
+function homework_answers_open(int $id): bool
+{
+    $rows = q('WITH RECURSIVE chain(id) AS (SELECT ? UNION SELECT h.id FROM homework h JOIN chain c ON h.recheck_of = c.id)
+               SELECT result FROM homework WHERE id IN (SELECT id FROM chain)', [$id])->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($rows as $r) {
+        if (((json_decode((string)$r, true) ?: [])['improved'] ?? 0) > 0) return true;
+    }
+    return false;
 }
 
 function r_homework_list(array $b): never
@@ -394,7 +422,7 @@ function r_homework_list(array $b): never
         $row = q('SELECT id, subject, note, result, recheck_of, created_at FROM homework WHERE id = ?', [$open])->fetch();
         if ($row) $detail = ['id' => (int)$row['id'], 'subject' => $row['subject'], 'note' => $row['note'],
                              'created_at' => (int)$row['created_at'], 'recheck_of' => $row['recheck_of'] !== null ? (int)$row['recheck_of'] : null,
-                             'result' => homework_for_kid(json_decode($row['result'], true) ?: [], homework_answers_open((int)$row['id'], $row['recheck_of']))];
+                             'result' => homework_for_kid(json_decode($row['result'], true) ?: [], homework_answers_open((int)$row['id']))];
     }
     out(['list' => $list, 'detail' => $detail]);
 }

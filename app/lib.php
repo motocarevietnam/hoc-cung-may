@@ -312,7 +312,8 @@ function homework_prompt(string $note, int $photos, ?array $previous): string
             $lines[] = '- ' . ($it['label'] ?? '') . ': ' . ($it['status'] ?? '') . (($it['comment'] ?? '') !== '' ? ' (' . $it['comment'] . ')' : '');
         }
         $prevText = "\nĐây là bài bé ĐÃ SỬA LẠI sau lần chấm trước. Kết quả lần trước:\n" . implode("\n", $lines)
-            . "\nHãy khen cụ thể những câu bé đã sửa đúng, và chấm lại toàn bộ.";
+            . "\nHãy khen cụ thể những câu bé đã sửa đúng, và chấm lại toàn bộ."
+            . "\nDùng ĐÚNG các \"label\" như lần trước cho cùng một câu. Chỉ chấm \"right\" khi bé thật sự đã sửa đúng trong ảnh mới.";
     }
     return <<<TXT
 Bé gửi {$photos} ảnh bài tập về nhà (theo thứ tự trang).{$noteText}{$prevText}

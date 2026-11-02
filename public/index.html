@@ -600,7 +600,7 @@ async function loadHomeworkList(open){
     const d = await api("/api/homework_list", open ? {open} : {});
     if(!state.hw) return;
     state.hw.list = d.list || [];
-    if(d.detail){ Object.assign(state.hw, {result:d.detail.result, id:d.detail.id, subject:d.detail.subject, past:d.detail.created_at, recheckOf:null, revealed:{}, hinted:{}}); }
+    if(d.detail){ Object.assign(state.hw, {result:d.detail.result, id:d.detail.id, subject:d.detail.subject, past:d.detail.created_at, wasRecheck:d.detail.recheck_of!==null, recheckOf:null, revealed:{}, hinted:{}}); }
     if(state.view==="homework") render();
   }catch(e){}
 }
@@ -674,7 +674,7 @@ async function sendHomework(){
     setStars(d.stars);
     if(typeof d.due==="number") me.due=d.due;
     if(!d.readable){ H.error = d.praise; }
-    else { Object.assign(H, {result:d.result, id:d.id, photos:[], past:null, recheckOf:null, revealed:{}, hinted:{}}); }
+    else { Object.assign(H, {result:d.result, id:d.id, photos:[], past:null, wasRecheck:!!H.recheckOf, recheckOf:null, revealed:{}, hinted:{}}); }
   }catch(e){ H.error = copyFor(e&&e.code); }
   H.loading=false;
   if(state.view==="homework" && state.hw===H){ render(); window.scrollTo(0,0); }
@@ -691,11 +691,12 @@ function renderHomeworkResult(H, head){
     <div class="greet" style="margin-top:14px">${mascot()}<div class="say">${fmt(R.praise||"Mây chấm xong rồi nè!")}
       ${graded.length ? `<br><b>${ok}/${graded.length}</b> câu đúng${toFix?`, ${toFix} câu cần sửa`:" 🎉"}` : ""}
       ${"speechSynthesis" in window ? ` <button class="speak" id="hwSpeak" aria-label="Đọc to">🔊</button>` : ""}</div></div>
-    ${toFix ? (R.answers_open
-      ? `<div class="notice">Bạn đã sửa bài rồi, giờ có thể bấm <b>Xem cách làm đúng</b> ở câu còn sai để hiểu thêm nhé.</div>`
-      : `<div class="notice">Với câu cần sửa: đọc nhận xét, bấm <b>💡 Gợi ý</b> rồi tự sửa vào vở. Sửa xong thì <b>chụp lại gửi Mây chấm lại</b>, lúc đó bạn mới xem được cách làm đúng nhé!</div>`) : ""}
+    ${R.improved>0 ? `<div class="notice">🎉 Bạn đã tự sửa đúng <b>${R.improved} câu</b>! Giỏi quá.${toFix?" Giờ bạn có thể bấm <b>Xem cách làm đúng</b> ở câu còn sai để hiểu thêm nhé.":""}</div>` : ""}
+    ${toFix && !R.answers_open ? (H.wasRecheck && !R.improved
+      ? `<div class="notice">Mây chưa thấy câu nào được sửa đúng. Bạn đọc lại nhận xét, bấm <b>💡 Gợi ý</b>, sửa tiếp vào vở rồi chụp lại nhé. Khi sửa đúng được ít nhất một câu, bạn sẽ xem được cách làm đúng!</div>`
+      : `<div class="notice">Với câu cần sửa: đọc nhận xét, bấm <b>💡 Gợi ý</b> rồi tự sửa vào vở. Sửa xong thì <b>chụp lại gửi Mây chấm lại</b>. Khi bạn sửa đúng được ít nhất một câu, Mây sẽ mở cách làm đúng cho các câu còn lại nhé!</div>`) : ""}
     ${R.items.map((x,i)=>`<div class="hwitem ${x.status}">
-      <div class="top"><b>${esc(x.label)}</b><span class="st ${x.status}">${HW_ST[x.status]||""}</span></div>
+      <div class="top"><b>${esc(x.label)}</b><span class="st ${x.status}">${x.fixed?"Đã sửa đúng 🎉":(HW_ST[x.status]||"")}</span></div>
       ${x.task ? `<div class="small">Đề: ${fmt(x.task)}</div>` : ""}
       ${x.student ? `<div class="small">Bạn làm: ${fmt(x.student)}</div>` : ""}
       ${x.comment ? `<div style="margin-top:4px">${fmt(x.comment)}</div>` : ""}
@@ -705,7 +706,7 @@ function renderHomeworkResult(H, head){
         ${x.hint&&!H.hinted[i] ? `<button class="btn" data-hint="${i}">💡 Gợi ý</button>` : ""}
         ${x.fix&&!H.revealed[i] ? `<button class="btn" data-fix="${i}">✅ Xem cách làm đúng</button>` : ""}
       </div>` : ""}
-      ${!R.answers_open&&x.has_fix ? `<div class="small" style="margin-top:6px">🔒 Cách làm đúng sẽ mở sau khi Mây chấm lại bài bạn đã sửa.</div>` : ""}
+      ${!R.answers_open&&x.has_fix ? `<div class="small" style="margin-top:6px">🔒 Cách làm đúng sẽ mở khi bạn tự sửa đúng ít nhất một câu và gửi Mây chấm lại.</div>` : ""}
     </div>`).join("")}
     ${R.tips?.length ? `<div class="card"><h3>Lần sau nhớ nhé</h3><ul class="tips">${R.tips.map(t=>`<li>${fmt(t)}</li>`).join("")}</ul></div>` : ""}
     ${practice ? `<p class="muted">Mây đã thêm ${practice} bài luyện tương tự vào Sổ ôn tập 📒, ngày mai Mây sẽ đố lại nhé.</p>` : ""}
