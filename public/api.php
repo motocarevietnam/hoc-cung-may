@@ -35,6 +35,8 @@ $routes = [
     'speak_check'         => 'r_speak_check',
     'tts'                 => 'r_tts',
     'parent/check'        => 'r_parent_check',
+    'parent/login'        => 'r_parent_login',
+    'parent/logout'       => 'r_parent_logout',
     'parent/report'       => 'r_parent_report',
     'parent/conversation' => 'r_parent_conversation',
     'parent/homework'     => 'r_parent_homework',
@@ -53,7 +55,8 @@ $routes = [
 if (!isset($routes[$route])) out(['error' => 'not_found'], 404);
 
 try {
-    if (str_starts_with($route, 'parent/')) require_parent_pin();
+    if ($route === 'parent/login') r_parent_login($body);
+    if (str_starts_with($route, 'parent/')) require_parent();
     else require_app_pin();
     $routes[$route]($body);
 } catch (UpstreamError $e) {
@@ -750,6 +753,23 @@ function r_parent_plan_save(array $b): never
     r_parent_plan([]);
 }
 
+// Cổng ba mẹ: đăng nhập bằng mã PIN ba mẹ → phiên 7 ngày (cookie HttpOnly, SameSite=Strict, chỉ gửi tới /api/)
+function r_parent_login(array $b): never
+{
+    if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') !== 'may') out(['error' => 'bad_request'], 400);
+    check_pin('parent', clean($b['pin'] ?? '', 40), (string)cfg('parent_pin', ''), 'bad_parent_pin');
+    create_parent_session();
+    out(['ok' => true, 'days' => max(1, (int)cfg('parent_session_days', 7))]);
+}
+
+function r_parent_logout(array $b): never
+{
+    $token = (string)($_COOKIE[SESSION_COOKIE] ?? '');
+    if ($token !== '') q('DELETE FROM parent_sessions WHERE token_hash = ?', [hash('sha256', $token)]);
+    set_session_cookie('', 0);
+    out(['ok' => true]);
+}
+
 function r_parent_check(array $b): never
 {
     out(['ok' => true]);
@@ -884,7 +904,7 @@ function google_callback(): never
 {
     $go = function (string $result): never {
         header('Content-Type: text/html; charset=utf-8');
-        header('Location: /?google=' . $result, true, 302);
+        header('Location: /parents/?google=' . $result, true, 302);
         exit;
     };
     $saved = json_decode(setting('google_state', '{}'), true) ?: [];
