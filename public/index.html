@@ -232,6 +232,18 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .daycol ul{margin:4px 0 0;padding-left:0;list-style:none;font-size:14px}
 .daycol li{margin:2px 0}
 .pweek h3{font-size:19px!important}
+.sp-card{background:var(--surface);border:2.5px solid var(--ink);border-radius:22px;padding:18px;box-shadow:5px 5px 0 var(--ink)}
+.sp-big{font-size:24px;font-weight:600;line-height:1.4;margin:6px 0 10px}
+.sp-mic{display:flex;flex-direction:column;align-items:center;gap:8px;margin:16px 0 6px}
+.sp-mic button{width:96px;height:96px;border-radius:50%;border:0;background:var(--sun);font-size:42px;box-shadow:0 4px 0 rgba(43,27,82,.3)}
+.sp-mic button.on{background:var(--coral);animation:blink 1s infinite}
+.sp-live{min-height:2.4em;background:var(--surface-2);border-radius:12px;padding:8px 12px;font-size:17px}
+.sp-res{margin-top:14px;padding:12px 14px;border-radius:16px;background:var(--surface-2)}
+.sp-res .lv{font-family:var(--display);font-size:24px;font-weight:800}
+.sp-res .lv.great{color:var(--mint)}.sp-res .lv.try_again{color:var(--coral)}
+.wd{display:inline-block;padding:1px 6px;margin:2px;border-radius:8px;font-size:19px}
+.wd.ok{background:var(--mint-bg);color:var(--mint)}.wd.no{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
+.fix{margin:8px 0;padding:8px 10px;border-left:4px solid var(--sun);background:var(--surface);border-radius:8px;font-size:15px}
 .prow{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;margin:6px 0}
 .prow span{font-size:14px;font-weight:500}
 .prow input{width:100%;background:var(--surface-2);border:2px solid var(--line);border-radius:10px;padding:7px 10px;font-size:15px}
@@ -338,6 +350,7 @@ function copyFor(code){
     bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
     http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
     bad_plan: "Mây soạn kế hoạch bị lỗi. Ba mẹ bấm thử lại nhé.",
+    bad_speaking: "Mây soạn bài luyện nói bị lỗi. Bấm thử lại nhé.",
     cancelled: ""
   };
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
@@ -356,11 +369,13 @@ function render(){
   else if(state.view==="quiz") renderQuiz();
   else if(state.view==="homework") renderHomework();
   else if(state.view==="plan") renderPlan();
+  else if(state.view==="speak") renderSpeak();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
+  stopSpeakCapture(true);
   try{ speechSynthesis.cancel(); }catch(e){}
   if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
@@ -401,6 +416,7 @@ function renderSubject(){
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 5 câu</h3><div class="muted">Trả lời đúng để nhận sao ⭐</div></button>
+      ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
   app.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{
@@ -414,6 +430,7 @@ function renderSubject(){
   };
   document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; go("chat"); };
   document.getElementById("toQuiz").onclick=()=>startQuiz();
+  const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
 }
 
 /* ---------- chat ---------- */
@@ -494,11 +511,11 @@ function guessLang(text, fallback){
   const words = text.split(/\s+/).length || 1;
   return vi/words > 0.15 ? "vi" : (fallback==="vi" && vi>0 ? "vi" : (vi/words > 0.08 && fallback==="vi" ? "vi" : fallback==="vi" ? "vi" : "en"));
 }
-function speak(text, lang){
+function speak(text, lang, rate){
   try{
     speechSynthesis.cancel();
     const u=new SpeechSynthesisUtterance(text.replace(/\*\*/g,"").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,""));
-    u.lang = guessLang(text, lang)==="vi" ? "vi-VN" : "en-GB"; u.rate=.95;
+    u.lang = lang==="en-only" ? "en-GB" : guessLang(text, lang)==="vi" ? "vi-VN" : "en-GB"; u.rate=rate||.95;
     const v = speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith(u.lang.slice(0,2)));
     if(v) u.voice=v;
     speechSynthesis.speak(u);
@@ -767,6 +784,148 @@ function renderHomeworkResult(H, head){
   document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
 }
 
+/* ---------- luyện nói tiếng Anh (Speaking) ---------- */
+// iPad chuyển giọng nói thành chữ (SpeechRecognition); đồng thời ghi âm để bé nghe lại giọng mình (chỉ trên máy, không gửi đi).
+const SP_TYPES = {read:{ic:"📖", name:"Đọc to câu mẫu", sub:"Nghe mẫu rồi đọc lại"}, answer:{ic:"❓", name:"Trả lời câu hỏi", sub:"Như phần thi nói Cambridge"}, tell:{ic:"💭", name:"Kể / miêu tả ngắn", sub:"Nói 3–5 câu về một chủ đề"}};
+const LEVELS = {great:"🌟 Tuyệt vời!", good:"👍 Khá lắm!", try_again:"💪 Thử lại nhé!"};
+let spRec = null, spMedia = null, spStream = null, spChunks = [];
+function openSpeak(type, topic){
+  state.sp = {type:type||null, topic:topic||"", phase: type ? "loading" : "setup"};
+  go("speak");
+  if(type) startSpeakSession(type);
+}
+async function startSpeakSession(type){
+  const S = state.sp; S.type=type; S.phase="loading"; S.err=""; render();
+  try{
+    const d = await api("/api/speak_start",{type, topic:S.topic});
+    if(state.sp!==S) return;
+    Object.assign(S, {sid:d.session_id, items:d.items, i:0, phase:"item", res:{}, tries:{}, live:"", showVi:false, audio:{}});
+    sayPrompt();
+  }catch(e){ S.phase="setup"; S.err=copyFor(e&&e.code); }
+  if(state.view==="speak") render();
+}
+function curItem(){ const S=state.sp; return S.items[S.i]; }
+function sayPrompt(){
+  const S=state.sp, it=curItem(); if(!it) return;
+  if(S.type==="answer") speak(it.q,"en-only",.9);
+  else if(S.type==="tell") speak(it.topic,"en-only",.9);
+}
+function stopSpeakCapture(abort){
+  if(spRec){ try{ abort ? spRec.abort() : spRec.stop(); }catch(e){} if(abort) spRec=null; }
+  if(spMedia && spMedia.state!=="inactive"){ try{ spMedia.stop(); }catch(e){} }
+  if(abort && spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; }
+}
+async function startSpeakCapture(){
+  const S=state.sp; const idx=S.i;
+  try{ speechSynthesis.cancel(); }catch(e){}
+  S.live=""; S.note=""; S.res[idx]=null; S.listening=true; render();
+  // Ghi âm để nghe lại (tuỳ chọn; nếu máy không cho thì bỏ qua)
+  spChunks=[];
+  if(LS.get("recAudio", true) && navigator.mediaDevices && window.MediaRecorder){
+    try{
+      spStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      spMedia = new MediaRecorder(spStream);
+      spMedia.ondataavailable = e=>{ if(e.data && e.data.size) spChunks.push(e.data); };
+      spMedia.onstop = ()=>{ if(spChunks.length){ const old=S.audio[idx]; if(old) URL.revokeObjectURL(old); S.audio[idx]=URL.createObjectURL(new Blob(spChunks,{type:spMedia.mimeType||"audio/mp4"})); }
+        if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } if(state.view==="speak") render(); };
+      spMedia.start();
+    }catch(e){ spMedia=null; if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } }
+  }
+  let finalText="";
+  try{
+    spRec = new SR(); spRec.lang="en-US"; spRec.interimResults=true; spRec.continuous = S.type==="tell"; spRec.maxAlternatives=1;
+  }catch(e){ spRec=null; S.listening=false; S.note="Máy này chưa nghe trực tiếp được. Bạn bấm vào ô bên dưới và dùng micro trên bàn phím nhé."; stopSpeakCapture(true); render(); return; }
+  spRec.onresult = ev=>{ let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=(finalText?" ":"")+r[0].transcript.trim(); else interim+=r[0].transcript; }
+    S.live=(finalText+" "+interim).trim(); const el=document.getElementById("spLive"); if(el) el.textContent=S.live||"…"; };
+  spRec.onerror = ev=>{
+    if(spMedia && (ev.error==="audio-capture"||ev.error==="not-allowed"||ev.error==="service-not-allowed")){
+      LS.set("recAudio", false); S.note="Mây tắt phần ghi âm để nghe bạn rõ hơn. Bấm 🎤 nói lại nhé.";
+    } else S.note = {"not-allowed":"Cần cho phép dùng micro.","no-speech":"Mây chưa nghe thấy gì. Bấm 🎤 rồi nói to, rõ nhé.","network":"Mạng chập chờn, thử lại nhé."}[ev.error] || (ev.error==="aborted"?"":"Mây nghe chưa rõ. Thử lại nhé.");
+  };
+  spRec.onend = ()=>{ spRec=null; S.listening=false; if(spMedia && spMedia.state!=="inactive"){ try{spMedia.stop();}catch(e){} }
+    const t=(finalText||S.live||"").trim(); if(t && state.sp===S && S.i===idx) checkSpeak(t); else if(state.view==="speak") render(); };
+  try{ spRec.start(); }catch(e){ spRec=null; S.listening=false; stopSpeakCapture(true); render(); }
+}
+async function checkSpeak(text){
+  const S=state.sp, idx=S.i;
+  S.checking=true; S.live=text; render();
+  try{ const d = await api("/api/speak_check",{session_id:S.sid, index:idx, transcript:text}); S.res[idx]=d.result; S.tries[idx]=(S.tries[idx]||0)+1; setStars(d.stars); }
+  catch(e){ S.note=copyFor(e&&e.code); }
+  S.checking=false; if(state.view==="speak" && state.sp===S) render();
+}
+function renderSpeak(){
+  const S = state.sp;
+  const head = `<button class="back" id="back">‹ English</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">🗣️</div><div><h2>Luyện nói</h2><div class="muted">Speaking${S.topic?" – "+esc(S.topic):""}</div></div></div>`;
+  let body="";
+  if(S.phase==="setup"){
+    body = `${S.err?`<div class="notice">${esc(S.err)}</div>`:""}
+      <p style="margin:14px 0 4px">Hôm nay luyện kiểu nào?</p>
+      <div class="modes">${Object.entries(SP_TYPES).map(([k,t])=>`<button class="mode" data-sp="${k}"><div class="big">${t.ic}</div><h3>${t.name}</h3><div class="muted">${t.sub}</div></button>`).join("")}</div>
+      <p class="muted" style="margin-top:16px">Mây nghe qua phần chữ iPad chép lại, nên có thể nghe nhầm. Bạn nói to, rõ, chậm rãi nhé.</p>`;
+  } else if(S.phase==="loading"){
+    body = `<div class="greet">${mascot()}<div class="say">Mây đang soạn bài luyện nói… <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
+  } else if(S.phase==="done"){
+    const lv = S.items.map((_,i)=>S.res[i]?.level).filter(Boolean);
+    body = `<div class="qcard score">${mascot()}<h2>Xong rồi!</h2>
+      <p>${lv.filter(x=>x==="great").length} câu tuyệt vời, ${lv.filter(x=>x==="good").length} câu khá, ${lv.filter(x=>x==="try_again").length} câu cần luyện thêm.</p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="spAgain">Luyện kiểu khác</button><button class="btn" id="spHome">Về trang chính</button></div></div>`;
+  } else {
+    const it=curItem(), r=S.res[S.i], t=SP_TYPES[S.type];
+    let prompt="";
+    if(S.type==="read") prompt = `<div class="muted">${t.ic} Đọc to câu này</div><div class="sp-big">${esc(it.text)}</div>`;
+    else if(S.type==="answer") prompt = `<div class="muted">${t.ic} Mây hỏi, bạn trả lời bằng tiếng Anh</div><div class="sp-big">${esc(it.q)}</div>
+      ${it.hints?.length?`<div class="chips">${it.hints.map(h=>`<span class="chip">${esc(h)}</span>`).join("")}</div>`:""}`;
+    else prompt = `<div class="muted">${t.ic} Kể hoặc miêu tả 3–5 câu</div><div class="sp-big">${esc(it.topic)}</div>
+      <ul class="weak">${(it.guide||[]).map(g=>`<li>${esc(g)}</li>`).join("")}</ul>
+      ${it.words?.length?`<div class="chips">${it.words.map(h=>`<span class="chip">${esc(h)}</span>`).join("")}</div>`:""}`;
+    const modelText = S.type==="read" ? it.text : (r ? it.sample : "");
+    body = `<div class="dots">${S.items.map((_,i)=>`<span class="${S.res[i]?(S.res[i].level==="try_again"?"no":"ok"):(i===S.i?"now":"")}"></span>`).join("")}</div>
+      <div class="sp-card">${prompt}
+        ${S.showVi?`<div class="pnote">🇻🇳 ${esc(it.vi)}</div>`:""}
+        <div class="row">
+          ${S.type==="read"?`<button class="btn" id="spModel">🔊 Nghe mẫu</button><button class="btn" id="spSlow">🐢 Nghe chậm</button>`:`<button class="btn" id="spAsk">🔊 Nghe câu hỏi</button>`}
+          ${!S.showVi?`<button class="btn" id="spVi">Nghĩa là gì?</button>`:""}
+        </div>
+        ${SR ? `<div class="sp-mic"><button id="spMic" class="${S.listening?"on":""}" ${S.checking?"disabled":""} aria-label="${S.listening?"Nói xong":"Bấm để nói"}">${S.listening?"⏹️":"🎤"}</button>
+            <span class="muted">${S.checking?"Mây đang nghe lại…":S.listening?(S.type==="tell"?"Nói xong thì bấm ⏹️":"Đang nghe… nói xong dừng lại một chút"):"Bấm 🎤 rồi nói"}</span></div>
+          <div class="sp-live" id="spLive">${esc(S.live||"")||"&nbsp;"}</div>`
+        : `<p class="muted">Bấm vào ô dưới, chọn 🎤 trên bàn phím để nói (đọc chính tả tiếng Anh), rồi bấm Gửi.</p>
+          <textarea class="field" id="spText" rows="2" placeholder="Bạn nói gì sẽ hiện ở đây…">${esc(S.live||"")}</textarea>
+          <div class="row"><button class="btn primary" id="spSend" ${S.checking?"disabled":""}>${S.checking?"Mây đang nghe…":"Gửi Mây"}</button></div>`}
+        ${S.note?`<div class="pnote">${esc(S.note)}</div>`:""}
+        ${r ? `<div class="sp-res"><div class="lv ${r.level}">${LEVELS[r.level]}</div>
+          ${r.diff?`<div style="margin:6px 0">${r.diff.words.map(w=>`<span class="wd ${w.ok?"ok":"no"}">${esc(w.w)}</span>`).join(" ")}</div>
+            <div class="muted">Mây nghe được ${r.diff.matched}/${r.diff.total} từ${r.diff.missed.length?". Từ gạch đỏ: Mây chưa nghe rõ, đọc chậm và rõ hơn nhé":""}.</div>`:""}
+          ${r.praise?`<p style="margin:8px 0 4px">${esc(r.praise)}</p>`:""}
+          ${r.fixes.map(f=>`<div class="fix">${f.said?`<s>${esc(f.said)}</s> → `:""}<b>${esc(f.better)}</b>${f.why?`<br><span class="muted">${esc(f.why)}</span>`:""}</div>`).join("")}
+          ${r.tip?`<p class="muted" style="margin:6px 0">💡 ${esc(r.tip)}</p>`:""}
+          ${r.say_it && S.type!=="read"?`<p style="margin:8px 0 0">Nói lại thử: <b>${esc(r.say_it)}</b> <button class="speak" id="spSayIt">🔊</button></p>`:""}
+          ${modelText && S.type!=="read"?`<p class="muted" style="margin:8px 0 0">Câu mẫu: ${esc(modelText)} <button class="speak" id="spSample">🔊</button></p>`:""}
+          ${S.audio[S.i]?`<div style="margin-top:10px"><div class="muted">🎧 Giọng của bạn:</div><audio controls src="${S.audio[S.i]}" style="width:100%"></audio></div>`:""}
+        </div>` : ""}
+        <div class="row">
+          ${r?`<button class="btn" id="spRetry">🔁 Nói lại</button>`:""}
+          <button class="btn ${r?"primary":""}" id="spNext">${S.i+1<S.items.length?"Câu tiếp ›":"Xem kết quả"}</button>
+        </div>
+      </div>`;
+  }
+  app.innerHTML = head + body;
+  document.getElementById("back").onclick=()=>{ state.subject="ceng"; go("subject"); };
+  app.querySelectorAll("[data-sp]").forEach(b=>b.onclick=()=>startSpeakSession(b.dataset.sp));
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  const it = S.items?.[S.i];
+  on("spModel",()=>speak(it.text,"en-only",.9)); on("spSlow",()=>speak(it.text,"en-only",.6)); on("spAsk",sayPrompt);
+  on("spVi",()=>{ S.showVi=true; render(); });
+  on("spMic",()=>{ if(S.listening) stopSpeakCapture(false); else startSpeakCapture(); });
+  on("spSend",()=>{ const v=document.getElementById("spText").value.trim(); if(v) checkSpeak(v); });
+  on("spSayIt",()=>speak(S.res[S.i].say_it,"en-only",.9)); on("spSample",()=>speak(it.sample,"en-only",.9));
+  on("spRetry",()=>{ S.res[S.i]=null; S.live=""; S.note=""; render(); });
+  on("spNext",()=>{ stopSpeakCapture(true); if(S.i+1<S.items.length){ S.i++; S.live=""; S.note=""; S.showVi=false; render(); sayPrompt(); } else { S.phase="done"; render(); } });
+  on("spAgain",()=>{ S.phase="setup"; render(); });
+  on("spHome",()=>{ go("home"); refreshState(); });
+}
+
 /* ---------- kế hoạch học: hôm nay, tuần, tháng, quý ---------- */
 const MONTHS_VI = m => "Tháng " + (+m.slice(5,7)) + "/" + m.slice(0,4);
 const ddmm = d => d.slice(8,10)+"/"+d.slice(5,7);
@@ -791,6 +950,7 @@ function runAction(a){
   if(!a) return;
   if(a.view==="homework") return openHomework(a.subject);
   if(a.view==="review") return startReview();
+  if(a.view==="speak") return openSpeak(a.type, a.topic||"");
   state.subject = a.subject; state.topic = a.topic || "";
   if(a.view==="quiz") return startQuiz();
   if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat"); }
@@ -809,6 +969,7 @@ function statsHtml(st){
     <div class="stat"><b>${st.count.homework}</b>bài về nhà đã chấm</div>
     <div class="stat"><b>${st.count.quiz}</b>lượt đố vui</div>
     <div class="stat"><b>${st.count.review}</b>câu ôn lại</div>
+    <div class="stat"><b>${st.count.speaking||0}</b>câu luyện nói</div>
   </div>${acc ? `<div class="muted" style="margin-top:6px">Tỉ lệ đúng (đố vui và bài về nhà):</div>${acc}` : ""}`;
 }
 function weekTopicsHtml(w){
@@ -1001,6 +1162,9 @@ function reportHtml(R){
     return `<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`;
   }).join("");
   const weak = (R.weak||[]).map(w=>`<li>${esc(subjById(w.subject)?.name||w.subject)}: ${esc(w.topic||"chưa rõ chủ đề")} (${w.n} câu)</li>`).join("");
+  const LV = {great:"🌟", good:"👍", try_again:"💪"};
+  const sps = (R.speaking||[]).map(t=>`<div class="fix"><small class="muted">${fmtDate(t.created_at)} · ${esc(SP_TYPES[t.type]?.name||"")}</small><br>
+    <b>${esc(t.prompt)}</b><br>${LV[t.level]||""} Bé nói: “${esc(t.transcript||"(không nghe được)")}”</div>`).join("");
   const hws = (R.homework||[]).map(h=>`<button data-hw="${h.id}"><b>${esc(subjById(h.subject)?.name||"")}${h.title?": "+esc(h.title):""}${h.recheck?" (bài sửa lại)":""}</b><small>${fmtDate(h.created_at)}${h.graded?`, đúng ${h.right}/${h.graded} câu`:""}</small>${esc(h.summary||"")}</button>`).join("");
   const convs = (R.conversations||[]).map(c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`).join("");
   return `
@@ -1036,6 +1200,11 @@ function reportHtml(R){
       <h3>Bài tập về nhà đã chấm</h3>
       <p class="muted" style="margin:0">Ảnh không được lưu lại, chỉ lưu kết quả chấm (giữ 60 ngày). Bấm vào để xem chi tiết và đáp án.</p>
       <div class="convlist">${hws || `<p class="muted">Bé chưa gửi bài nào.</p>`}</div>
+    </div>
+    <div class="card">
+      <h3>Luyện nói tiếng Anh</h3>
+      <p class="muted" style="margin:0">Chữ do iPad chép lại từ giọng bé (không lưu âm thanh), giữ 60 ngày.</p>
+      ${sps || `<p class="muted">Bé chưa luyện nói lần nào.</p>`}
     </div>
     <div class="card">
       <h3>Lịch sử trò chuyện</h3>

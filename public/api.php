@@ -28,6 +28,8 @@ $routes = [
     'homework'            => 'r_homework',
     'homework_list'       => 'r_homework_list',
     'plan'                => 'r_plan',
+    'speak_start'         => 'r_speak_start',
+    'speak_check'         => 'r_speak_check',
     'parent/check'        => 'r_parent_check',
     'parent/report'       => 'r_parent_report',
     'parent/conversation' => 'r_parent_conversation',
@@ -435,6 +437,90 @@ function r_homework_list(array $b): never
     out(['list' => $list, 'detail' => $detail]);
 }
 
+/* ---------------- luyện nói tiếng Anh ---------------- */
+
+function claude_json(string $text): ?array
+{
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    $d = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
+    return is_array($d) ? $d : null;
+}
+
+function strs(mixed $v, int $n, int $max): array
+{
+    return array_slice(array_values(array_filter(array_map(fn($x) => clean($x, $max), is_array($v) ? $v : []))), 0, $n);
+}
+
+function r_speak_start(array $b): never
+{
+    $type = (string)($b['type'] ?? '');
+    if (!isset(SPEAK_TYPES[$type])) out(['error' => 'bad_request'], 400);
+    $topic = clean($b['topic'] ?? '', 80);
+    spend(2);
+    $data = claude_json(ask_claude(
+        (string)cfg('quiz_model', 'claude-sonnet-5-5'),
+        "Bạn soạn bài luyện nói tiếng Anh cho học sinh lớp 4.\n\n" . no_fabrication_rules() . "\nChỉ trả lời bằng JSON.",
+        [['role' => 'user', 'content' => speaking_gen_prompt($type, $topic, setting('focus'))]],
+        16000, 100, 'low'
+    ));
+    $items = [];
+    foreach (is_array($data['items'] ?? null) ? $data['items'] : [] as $it) {
+        if (!is_array($it)) continue;
+        $x = match ($type) {
+            'read' => ['text' => clean($it['text'] ?? '', 200), 'vi' => clean($it['vi'] ?? '', 200)],
+            'answer' => ['q' => clean($it['q'] ?? '', 200), 'vi' => clean($it['vi'] ?? '', 200), 'hints' => strs($it['hints'] ?? [], 4, 40),
+                         'sample' => clean($it['sample'] ?? '', 300)],
+            default => ['topic' => clean($it['topic'] ?? '', 200), 'vi' => clean($it['vi'] ?? '', 200), 'guide' => strs($it['guide'] ?? [], 3, 120),
+                        'words' => strs($it['words'] ?? [], 6, 30), 'sample' => clean($it['sample'] ?? '', 600)],
+        };
+        if (($x['text'] ?? $x['q'] ?? $x['topic']) === '') continue;
+        $items[] = $x;
+        if (count($items) === ($type === 'tell' ? 2 : 5)) break;
+    }
+    if (!$items) out(['error' => 'bad_speaking'], 502);
+    q('INSERT INTO speaking (type, topic, items, created_at) VALUES (?, ?, ?, ?)',
+        [$type, $topic, json_encode($items, JSON_UNESCAPED_UNICODE), time()]);
+    out(['session_id' => (int)db()->lastInsertId(), 'type' => $type, 'items' => $items]);
+}
+
+function r_speak_check(array $b): never
+{
+    $sess = q('SELECT * FROM speaking WHERE id = ?', [(int)($b['session_id'] ?? 0)])->fetch();
+    $idx = (int)($b['index'] ?? -1);
+    $items = $sess ? json_decode($sess['items'], true) : [];
+    if (!$sess || !isset($items[$idx])) out(['error' => 'bad_request'], 400);
+    $item = $items[$idx];
+    $transcript = clean($b['transcript'] ?? '', 1500);
+    spend(1);
+
+    $diff = $sess['type'] === 'read' ? word_diff($item['text'], $transcript) : null;
+    $data = claude_json(ask_claude(
+        (string)cfg('chat_model', 'claude-haiku-5-5'),
+        speaking_check_system(),
+        [['role' => 'user', 'content' => speaking_check_prompt($sess['type'], $item, $transcript, $diff)]],
+        4000, 60, 'low'
+    )) ?? [];
+    $level = in_array($data['level'] ?? '', ['great', 'good', 'try_again'], true) ? $data['level'] : 'good';
+    if ($diff) $level = $diff['score'] >= 90 ? 'great' : ($diff['score'] >= 60 ? 'good' : 'try_again'); // bài đọc: chấm theo số từ khớp
+    if (trim($transcript) === '') $level = 'try_again';
+    $fixes = [];
+    foreach (is_array($data['fixes'] ?? null) ? array_slice($data['fixes'], 0, 2) : [] as $f) {
+        if (is_array($f)) $fixes[] = ['said' => clean($f['said'] ?? '', 200), 'better' => clean($f['better'] ?? '', 200), 'why' => clean($f['why'] ?? '', 300)];
+    }
+    $result = ['level' => $level, 'praise' => clean($data['praise'] ?? '', 300), 'fixes' => $fixes, 'tip' => clean($data['tip'] ?? '', 300),
+               'say_it' => clean($data['say_it'] ?? '', 400), 'diff' => $diff];
+
+    $first = q('SELECT COUNT(*) FROM speaking_tries WHERE session_id = ? AND idx = ?', [$sess['id'], $idx])->fetchColumn() == 0;
+    q('INSERT INTO speaking_tries (session_id, idx, transcript, result, level, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [$sess['id'], $idx, $transcript, json_encode($result, JSON_UNESCAPED_UNICODE), $level, time()]);
+    $gotGreat = q("SELECT COUNT(*) FROM speaking_tries WHERE session_id = ? AND idx = ? AND level = 'great'", [$sess['id'], $idx])->fetchColumn();
+    if ($first) log_activity('ceng', $sess['topic'], 'speaking', $level === 'try_again' ? 0 : 1, 1);
+    // 1 sao cho lần đầu đạt "great" ở mỗi câu
+    $stars = ($level === 'great' && (int)$gotGreat === 1) ? add_stars(1) : stars();
+    out(['result' => $result, 'stars' => $stars]);
+}
+
 /* ---------------- kế hoạch học: ngày, tuần, tháng, quý ---------------- */
 
 function r_plan(array $b): never
@@ -647,6 +733,13 @@ function r_parent_report(array $b): never
                   (SELECT COUNT(*) FROM messages m WHERE m.conv_id = c.id AND m.role = \'user\') AS n,
                   (SELECT content FROM messages m WHERE m.conv_id = c.id AND m.role = \'user\' ORDER BY m.id LIMIT 1) AS preview
                 FROM conversations c ORDER BY c.updated_at DESC LIMIT 40')->fetchAll();
+    $speaking = [];
+    foreach (q('SELECT t.transcript, t.level, t.created_at, t.idx, s.type, s.items FROM speaking_tries t JOIN speaking s ON s.id = t.session_id
+                ORDER BY t.id DESC LIMIT 30')->fetchAll() as $t) {
+        $it = (json_decode($t['items'], true) ?: [])[$t['idx']] ?? [];
+        $speaking[] = ['type' => $t['type'], 'prompt' => $it['text'] ?? $it['q'] ?? $it['topic'] ?? '', 'transcript' => $t['transcript'],
+                       'level' => $t['level'], 'created_at' => (int)$t['created_at']];
+    }
     $homework = [];
     foreach (q('SELECT id, subject, result, right_n, graded_n, recheck_of, created_at FROM homework ORDER BY id DESC LIMIT 30')->fetchAll() as $h) {
         $res = json_decode($h['result'], true) ?: [];
@@ -666,6 +759,7 @@ function r_parent_report(array $b): never
         'review' => $review,
         'conversations' => $convs,
         'homework' => $homework,
+        'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
 }
@@ -700,7 +794,7 @@ function r_parent_clear(array $b): never
     $pdo = db();
     $tables = match ($what) {
         'chats' => ['messages', 'conversations'],
-        'all' => ['messages', 'conversations', 'quizzes', 'mistakes', 'activity', 'homework'],
+        'all' => ['messages', 'conversations', 'quizzes', 'mistakes', 'activity', 'homework', 'speaking_tries', 'speaking'],
         default => out(['error' => 'bad_request'], 400),
     };
     $pdo->beginTransaction();

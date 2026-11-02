@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -76,6 +76,19 @@ const SCHEMA = [
        start_day CHAR(10) NOT NULL, end_day CHAR(10) NOT NULL, content MEDIUMTEXT NOT NULL,
        created_at INT UNSIGNED NOT NULL, approved_at INT UNSIGNED NULL,
        KEY idx_plans_status (status, start_day)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Luyện nói tiếng Anh: một lượt gồm vài câu (đọc to / trả lời câu hỏi / kể ngắn) và các lần bé nói.
+    // Chỉ lưu chữ do iPad nhận dạng, KHÔNG lưu âm thanh.
+    "CREATE TABLE IF NOT EXISTS speaking (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, type VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
+       items MEDIUMTEXT NOT NULL, created_at INT UNSIGNED NOT NULL,
+       KEY idx_speaking_created (created_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS speaking_tries (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, session_id INT UNSIGNED NOT NULL, idx TINYINT UNSIGNED NOT NULL,
+       transcript TEXT NOT NULL, result MEDIUMTEXT NOT NULL, level VARCHAR(10) NOT NULL, created_at INT UNSIGNED NOT NULL,
+       KEY idx_tries_session (session_id), KEY idx_tries_created (created_at),
+       CONSTRAINT fk_tries_session FOREIGN KEY (session_id) REFERENCES speaking(id) ON DELETE CASCADE
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -559,9 +572,15 @@ function day_plan(string $day): array
     $doy = (int)date('z', $ts);
     $main = $hasEnglishClass ? 'ceng' : $cands[$doy % count($cands)];
     $t = $topic($main);
-    $items[] = ['key' => "quiz:{$main}", 'icon' => '🎯',
-                'title' => ($hasEnglishClass ? 'Khởi động trước lớp tiếng Anh: đố vui English' : 'Đố vui ' . SUBJECTS[$main]['name']) . ($t !== '' ? " – {$t}" : ''),
-                'minutes' => 10, 'action' => ['view' => 'quiz', 'subject' => $main, 'topic' => $t]];
+    if ($hasEnglishClass) {
+        // Ngày có lớp tiếng Anh: khởi động bằng luyện nói (trả lời câu hỏi)
+        $items[] = ['key' => 'speaking:ceng', 'icon' => '🗣️',
+                    'title' => 'Khởi động trước lớp tiếng Anh: luyện nói English' . ($t !== '' ? " – {$t}" : ''),
+                    'minutes' => 10, 'action' => ['view' => 'speak', 'subject' => 'ceng', 'type' => 'answer', 'topic' => $t]];
+    } else {
+        $items[] = ['key' => "quiz:{$main}", 'icon' => '🎯', 'title' => 'Đố vui ' . SUBJECTS[$main]['name'] . ($t !== '' ? " – {$t}" : ''),
+                    'minutes' => 10, 'action' => ['view' => 'quiz', 'subject' => $main, 'topic' => $t]];
+    }
 
     $budget = $weekend ? 20 : ($classes ? 30 : $sch['minutes']);
     $used = array_sum(array_column($items, 'minutes'));
@@ -596,7 +615,7 @@ function period_stats(string $from, string $to): array
 {
     $rows = q('SELECT day, type, subject, score, total FROM activity WHERE day >= ? AND day <= ?', [$from, $to])->fetchAll();
     $days = [];
-    $count = ['homework' => 0, 'quiz' => 0, 'review' => 0, 'chat' => 0];
+    $count = ['homework' => 0, 'quiz' => 0, 'review' => 0, 'chat' => 0, 'speaking' => 0];
     $acc = [];
     foreach ($rows as $r) {
         $days[$r['day']] = true;
@@ -662,4 +681,104 @@ Yêu cầu:
 Chỉ trả về JSON đúng dạng:
 {"weeks":[{"start":"YYYY-MM-DD","toan":"...","tv":"...","cmath":"...","ceng":"...","csci":"...","note":""}],"summary":"2–3 câu giải thích cách sắp xếp, nhắc ba mẹ đối chiếu với tiến độ của lớp"}
 TXT;
+}
+
+/* ---------------- Luyện nói tiếng Anh (Speaking) ---------------- */
+
+const SPEAK_TYPES = ['read' => 'Đọc to câu mẫu', 'answer' => 'Trả lời câu hỏi', 'tell' => 'Kể / miêu tả ngắn'];
+
+function speaking_gen_prompt(string $type, string $topic, string $focus): string
+{
+    $topicText = $topic !== '' ? $topic : 'chủ đề gần gũi với trẻ em (family, school, hobbies, food, animals, weather, daily routine)';
+    $focusText = $focus !== '' ? "\nGhi chú của ba mẹ: {$focus}" : '';
+    $scope = grade4_scope('ceng');
+    $spec = [
+        'read' => 'Tạo đúng 5 câu tiếng Anh để bé ĐỌC TO, mỗi câu 5–10 từ, độ khó tăng dần, có các âm hay khó với trẻ Việt (âm cuối -s/-ed, th, r/l, ch/sh). "vi" là nghĩa tiếng Việt ngắn. JSON: {"items":[{"text":"...","vi":"..."}]}',
+        'answer' => 'Tạo đúng 5 câu hỏi kiểu phần thi nói Cambridge (Movers/Flyers) để bé TRẢ LỜI bằng lời, ví dụ "What do you usually do after school?". "vi": nghĩa câu hỏi; "hints": 2–4 từ/cụm gợi ý; "sample": một câu trả lời mẫu ngắn (1–2 câu, đúng ngữ pháp Stage 4). JSON: {"items":[{"q":"...","vi":"...","hints":["..."],"sample":"..."}]}',
+        'tell' => 'Tạo đúng 2 đề để bé KỂ hoặc MIÊU TẢ ngắn (3–5 câu), ví dụ "Tell me about your best friend". "vi": nghĩa đề; "guide": 3 câu hỏi gợi ý bằng tiếng Anh đơn giản; "words": 4–6 từ hữu ích; "sample": đoạn mẫu 3–5 câu ngắn. JSON: {"items":[{"topic":"...","vi":"...","guide":["..."],"words":["..."],"sample":"..."}]}',
+    ][$type];
+    return <<<TXT
+Soạn bài luyện nói tiếng Anh cho học sinh lớp 4 ở Việt Nam (Cambridge Primary English Stage 4).
+Dạng bài: {$spec}
+Chủ đề: {$topicText}.{$focusText}
+{$scope}
+Nội dung phù hợp trẻ em, bối cảnh gần gũi; không hỏi thông tin cá nhân nhạy cảm (họ tên đầy đủ, địa chỉ, tên trường, số điện thoại).
+Chỉ trả về JSON đúng dạng trên.
+TXT;
+}
+
+function speaking_check_system(): string
+{
+    return "Bạn là \"Mây\", bạn học AI của một bạn nhỏ lớp 4 ở Việt Nam, đang luyện nói tiếng Anh.\n\n"
+        . grade4_scope('ceng') . "\n\n" . no_fabrication_rules() . <<<TXT
+
+Quan trọng về cách Mây "nghe":
+- Mây KHÔNG nghe được âm thanh. Mây chỉ nhận BẢN CHÉP LỜI do máy nhận dạng giọng nói trên iPad tạo ra. Máy có thể nghe nhầm, và thường tự sửa lỗi phát âm nhỏ nên Mây không thấy được.
+- Vì vậy KHÔNG khẳng định chắc chắn bé phát âm sai âm nào. Chỉ nói kiểu: "Mây chưa nghe rõ từ X, bạn đọc chậm lại và nói rõ âm cuối nhé". Có thể nêu mẹo phát âm phổ biến cho từ đó.
+- Không chấm lỗi chính tả hay viết hoa (đây là bài nói).
+Cách góp ý:
+- Khen trước, cụ thể. Sau đó tối đa 2 điều cần sửa (ngữ pháp, từ dùng sai, câu thiếu ý). Giọng vui, ngắn, lời góp ý bằng tiếng Việt, câu tiếng Anh giữ nguyên.
+- "say_it": một câu/đoạn tiếng Anh đúng, ngắn, gần với ý bé, để bé nói lại.
+Chỉ trả lời bằng JSON.
+TXT;
+}
+
+function speaking_check_prompt(string $type, array $item, string $transcript, ?array $diff): string
+{
+    $said = $transcript !== '' ? $transcript : '(máy không nghe được chữ nào)';
+    $task = match ($type) {
+        'read' => 'Bé đọc to câu mẫu: "' . $item['text'] . '"',
+        'answer' => 'Mây hỏi: "' . $item['q'] . '" (gợi ý: ' . implode(', ', $item['hints']) . ')',
+        default => 'Đề kể/miêu tả: "' . $item['topic'] . '" (câu hỏi gợi ý: ' . implode(' / ', $item['guide']) . ')',
+    };
+    $diffText = $diff ? "\nSo khớp từng từ (máy tính): khớp {$diff['matched']}/{$diff['total']} từ; các từ chưa nghe thấy: "
+        . ($diff['missed'] ? implode(', ', $diff['missed']) : 'không có') : '';
+    return <<<TXT
+{$task}
+Bản chép lời từ máy nhận dạng giọng nói: "{$said}"{$diffText}
+
+Trả về JSON đúng dạng:
+{"level":"great|good|try_again","praise":"1 câu khen cụ thể","fixes":[{"said":"phần bé nói","better":"cách nói đúng","why":"giải thích ngắn bằng tiếng Việt"}],"tip":"1 mẹo ngắn cho lần sau","say_it":"câu tiếng Anh đúng để bé nói lại"}
+"level": great = đúng và đủ ý; good = hiểu được nhưng còn lỗi nhỏ; try_again = sai nhiều, lạc đề hoặc gần như không nghe được. "fixes" tối đa 2 phần tử, có thể rỗng.
+TXT;
+}
+
+// So khớp từng từ giữa câu mẫu và chữ bé nói (dãy con chung dài nhất), dùng cho bài đọc to
+function speak_words(string $s): array
+{
+    $s = mb_strtolower($s);
+    $s = str_replace(['’', '‘'], "'", $s);
+    $map = ["i'm" => 'i am', "it's" => 'it is', "he's" => 'he is', "she's" => 'she is', "that's" => 'that is', "there's" => 'there is',
+            "don't" => 'do not', "doesn't" => 'does not', "didn't" => 'did not', "can't" => 'can not', "cannot" => 'can not',
+            "isn't" => 'is not', "aren't" => 'are not', "i've" => 'i have', "we're" => 'we are', "they're" => 'they are',
+            "you're" => 'you are', "let's" => 'let us', "what's" => 'what is', "won't" => 'will not', "i'll" => 'i will'];
+    $s = preg_replace_callback("/[a-z]+'[a-z]+/u", fn($m) => $map[$m[0]] ?? $m[0], $s) ?? $s;
+    $nums = ['0' => 'zero', '1' => 'one', '2' => 'two', '3' => 'three', '4' => 'four', '5' => 'five', '6' => 'six', '7' => 'seven',
+             '8' => 'eight', '9' => 'nine', '10' => 'ten', '11' => 'eleven', '12' => 'twelve', '20' => 'twenty', '100' => 'one hundred'];
+    $s = preg_replace_callback('/\b\d+\b/u', fn($m) => $nums[$m[0]] ?? $m[0], $s) ?? $s;
+    $s = preg_replace("/[^\\p{L}\\p{N}' ]+/u", ' ', $s) ?? '';
+    return array_values(array_filter(explode(' ', $s), fn($w) => $w !== '' && $w !== "'"));
+}
+
+function word_diff(string $target, string $said): array
+{
+    $origWords = array_values(array_filter(preg_split('/\s+/u', trim($target)) ?: []));
+    $t = speak_words($target);
+    $h = speak_words($said);
+    $n = count($t); $m = count($h);
+    $L = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
+    for ($i = $n - 1; $i >= 0; $i--) for ($j = $m - 1; $j >= 0; $j--)
+        $L[$i][$j] = $t[$i] === $h[$j] ? $L[$i + 1][$j + 1] + 1 : max($L[$i + 1][$j], $L[$i][$j + 1]);
+    $ok = array_fill(0, $n, false);
+    for ($i = 0, $j = 0; $i < $n && $j < $m;) {
+        if ($t[$i] === $h[$j]) { $ok[$i] = true; $i++; $j++; }
+        elseif ($L[$i + 1][$j] >= $L[$i][$j + 1]) $i++;
+        else $j++;
+    }
+    $words = [];
+    foreach ($t as $i => $w) $words[] = ['w' => $w, 'ok' => $ok[$i]];
+    $matched = count(array_filter($ok));
+    return ['words' => $words, 'matched' => $matched, 'total' => $n,
+            'missed' => array_values(array_map(fn($x) => $x['w'], array_filter($words, fn($x) => !$x['ok']))),
+            'score' => $n ? (int)round(100 * $matched / $n) : 0, 'original' => $origWords];
 }

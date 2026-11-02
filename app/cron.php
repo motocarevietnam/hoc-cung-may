@@ -27,6 +27,8 @@ $deletedConvs = $st->rowCount();
 $pdo->prepare('DELETE FROM daily_usage WHERE day < ?')->execute([date('Y-m-d', strtotime('-60 days'))]);
 $pdo->prepare('DELETE FROM quizzes WHERE created_at < ?')->execute([strtotime('-60 days')]);
 $pdo->prepare('DELETE FROM homework WHERE created_at < ?')->execute([strtotime('-60 days')]);
+// Luyện nói: chỉ có chữ do iPad nhận dạng (không có âm thanh), giữ 60 ngày
+$pdo->prepare('DELETE FROM speaking WHERE created_at < ?')->execute([strtotime('-60 days')]);
 
 // 3. Sao lưu bằng mysqldump: một file .sql.gz mỗi ngày, giữ N bản gần nhất.
 //    Mật khẩu đưa qua file tạm chỉ user "may" đọc được, không lộ trên dòng lệnh.
