@@ -51,7 +51,7 @@ SQL
   echo "!! Đã tạo app/config.php (đã có mật khẩu database). Nhớ điền API key và 2 mã PIN: sudo nano $APP_DIR/app/config.php"
 fi
 
-echo "==> Phân quyền: code chỉ đọc, chỉ data/ và backups/ được ghi"
+echo "==> Phân quyền: code chỉ đọc, chỉ backups/ được ghi"
 chown -R root:may "$APP_DIR"
 find "$APP_DIR" -type d -exec chmod 750 {} \;
 find "$APP_DIR" -type f -exec chmod 640 {} \;
@@ -70,10 +70,26 @@ php-fpm${PHP_VER} -t
 systemctl reload "php${PHP_VER}-fpm"
 
 echo "==> nginx"
-sed "s/may.TEN-MIEN-CUA-BAN.vn/${DOMAIN}/g" "$APP_DIR/deploy/nginx-hoc-cung-may.conf" > /etc/nginx/sites-available/hoc-cung-may
-ln -sf /etc/nginx/sites-available/hoc-cung-may /etc/nginx/sites-enabled/hoc-cung-may
-nginx -t
+SITE=/etc/nginx/sites-available/hoc-cung-may
+restore_site() {
+  echo "!! Cấu hình nginx mới bị lỗi, trả lại cấu hình cũ (các website khác không bị ảnh hưởng)"
+  if [[ -f "$SITE.bak" ]]; then mv "$SITE.bak" "$SITE"; else rm -f "$SITE" /etc/nginx/sites-enabled/hoc-cung-may; fi
+  nginx -t && systemctl reload nginx
+  exit 1
+}
+[[ -f "$SITE" ]] && cp "$SITE" "$SITE.bak"
+sed "s/may.TEN-MIEN-CUA-BAN.vn/${DOMAIN}/g" "$APP_DIR/deploy/nginx-hoc-cung-may.conf" > "$SITE"
+ln -sf "$SITE" /etc/nginx/sites-enabled/hoc-cung-may
+nginx -t || restore_site
+# Đã có chứng chỉ HTTPS từ lần cài trước: gắn lại vào cấu hình mới (file mẫu chỉ có HTTP)
+if [[ -d "/etc/letsencrypt/live/${DOMAIN}" ]] && command -v certbot >/dev/null; then
+  echo "==> Gắn lại chứng chỉ HTTPS có sẵn cho ${DOMAIN}"
+  certbot install --nginx --cert-name "$DOMAIN" -d "$DOMAIN" --redirect --non-interactive >/dev/null || restore_site
+  nginx -t || restore_site
+  HAS_CERT=1
+fi
 systemctl reload nginx
+rm -f "$SITE.bak"
 
 echo "==> Cron hằng đêm (xoá trò chuyện cũ + sao lưu bằng mysqldump)"
 echo "0 3 * * * may /usr/bin/php $APP_DIR/app/cron.php >> /var/log/hoc-cung-may/cron.log 2>&1" > /etc/cron.d/hoc-cung-may
@@ -82,5 +98,5 @@ chmod 644 /etc/cron.d/hoc-cung-may
 echo
 echo "Xong phần cài đặt. Bước tiếp theo:"
 echo "  1. Điền key và mã PIN:   sudo nano $APP_DIR/app/config.php"
-echo "  2. Bật HTTPS:            sudo certbot --nginx -d $DOMAIN"
+if [[ -z "${HAS_CERT:-}" ]]; then echo "  2. Bật HTTPS:            sudo certbot --nginx -d $DOMAIN"; else echo "  2. HTTPS:                đã bật sẵn"; fi
 echo "  3. Mở thử:               https://$DOMAIN"
