@@ -391,7 +391,7 @@ function renderHome(){
     </div>
     ${noSampleNotice()}
     ${me.today ? todayCard(me.today) : `<button class="hwbar" id="toHomework"><span class="ic">📸</span><span><b>Chấm bài về nhà</b>Làm xong bài cô giao thì chụp ảnh gửi Mây chấm nhé!</span></button>`}
-    ${me.today ? `<div class="quick"><button class="btn" id="toHomework">📸 Chấm bài về nhà</button><button class="btn" id="toPlan">📅 Lịch học</button></div>` : ""}
+    ${me.today ? `<div class="quick">${me.today.items.some(x=>x.key==="homework") ? "" : `<button class="btn" id="toHomework">📸 Chấm bài về nhà</button>`}<button class="btn" id="toPlan">📅 Lịch học</button></div>` : ""}
     ${!me.today && me.due>0 ? `<button class="reviewbar" id="toReview"><span class="ic">📒</span><span><b>Sổ ôn tập</b>${me.due} câu đến lúc ôn lại rồi, làm ngay nhé!</span></button>` : ""}
     <div class="labels">
       ${SUBJECTS.map(s=>`<button class="label" style="background:${s.color}" data-s="${s.id}">
@@ -399,7 +399,7 @@ function renderHome(){
     </div>`;
   app.querySelectorAll(".label").forEach(b=>b.onclick=()=>{ state.subject=b.dataset.s; state.topic=""; go("subject"); });
   const tr=document.getElementById("toReview"); if(tr) tr.onclick=startReview;
-  document.getElementById("toHomework").onclick=()=>openHomework();
+  const th=document.getElementById("toHomework"); if(th) th.onclick=()=>openHomework();
   const tp=document.getElementById("toPlan"); if(tp) tp.onclick=()=>openPlan("week");
   wireTasks(me.today);
 }

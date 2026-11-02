@@ -556,7 +556,7 @@ function day_plan(string $day): array
 
     $items = [];
     if (!$weekend) {
-        $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Làm bài cô giao rồi chụp gửi Mây chấm', 'minutes' => 15,
+        $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Chấm bài về nhà: làm bài cô giao rồi chụp gửi Mây', 'minutes' => 15,
                     'action' => ['view' => 'homework']];
     }
     $endOfDay = strtotime($day . ' 23:59:59');
