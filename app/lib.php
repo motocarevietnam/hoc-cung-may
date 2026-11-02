@@ -287,16 +287,22 @@ function lang_rule(string $id): string
     return 'Nói bằng tiếng Anh đơn giản theo đúng thuật ngữ Cambridge Primary Stage 4. Khi giới thiệu từ mới hoặc khi bé có vẻ chưa hiểu, thêm giải thích tiếng Việt ngắn trong ngoặc. Nếu bé nói tiếng Việt, có thể trả lời bằng tiếng Việt nhưng giữ thuật ngữ tiếng Anh.';
 }
 
-// Phạm vi kiến thức: chỉ lớp 4. Dùng chung cho trò chuyện, đố vui và chấm bài.
-function grade4_scope(string $id): string
+// Phạm vi kiến thức lớp 4 của một môn (một câu mô tả)
+function subject_scope(string $id): string
 {
-    $scope = [
+    return [
         'toan' => 'Toán lớp 4 theo chương trình GDPT 2018 (sách giáo khoa Việt Nam), ví dụ: số có nhiều chữ số, bốn phép tính với số tự nhiên, phân số và các phép tính với phân số, trung bình cộng, đơn vị đo (yến, tạ, tấn, giây, thế kỷ, diện tích), góc và đường thẳng song song/vuông góc, hình bình hành, hình thoi, biểu đồ, toán có lời văn. KHÔNG dùng kiến thức lớp trên như số thập phân, tỉ số phần trăm, số âm, phương trình hay cách giải đặt ẩn x của lớp trên.',
         'tv' => 'Tiếng Việt lớp 4 theo chương trình GDPT 2018 (sách giáo khoa Việt Nam), ví dụ: danh từ, động từ, tính từ, câu, chủ ngữ, vị ngữ, trạng ngữ, dấu câu, biện pháp nhân hoá, đọc hiểu, viết đoạn văn và bài văn miêu tả, kể chuyện, chính tả. Không dùng thuật ngữ ngữ pháp của lớp trên.',
         'cmath' => 'Cambridge Primary Mathematics Stage 4 (place value, times tables, fractions, simple decimals, measurement, 2D & 3D shapes, symmetry, data handling, word problems). Do not use content from later stages such as negative-number arithmetic, percentages, ratio or algebraic equations.',
         'ceng' => 'Cambridge Primary English Stage 4 (vocabulary, past simple, comparatives, spelling, phonics, reading, writing sentences, speaking). Dùng từ vựng và ngữ pháp vừa sức Stage 4.',
         'csci' => 'Cambridge Primary Science Stage 4 (living things & habitats, human body: skeleton & muscles, states of matter, electricity, sound, Earth & space, thinking like a scientist). Giải thích ở mức Stage 4, không đưa kiến thức chuyên sâu của lớp trên.',
     ][$id];
+}
+
+// Phạm vi kiến thức: chỉ lớp 4. Dùng chung cho trò chuyện, đố vui và chấm bài.
+function grade4_scope(string $id): string
+{
+    $scope = subject_scope($id);
     return <<<TXT
 Phạm vi kiến thức (BẮT BUỘC):
 - Chỉ dạy, hỏi và chấm trong phạm vi: {$scope}
@@ -468,6 +474,7 @@ function schedule(): array
     usort($classes, fn($a, $b) => [$a['day'], $a['time']] <=> [$b['day'], $b['time']]);
     return [
         'book' => (string)($s['book'] ?? ''),
+        'syllabus' => (string)($s['syllabus'] ?? ''),
         'minutes' => max(15, min(90, (int)($s['minutes'] ?? 40))),
         'timetable' => $tt,
         'classes' => $classes,
@@ -631,6 +638,10 @@ function plan_prompt(array $weeks, array $sch, string $focus, string $weak): str
     $clsText = $cls ? implode('; ', $cls) : '(không có)';
     $focusText = $focus !== '' ? $focus : '(không có)';
     $weakText = $weak !== '' ? $weak : '(chưa có dữ liệu)';
+    $scopes = implode("\n", array_map(fn($id) => '- ' . SUBJECTS[$id]['name'] . ': ' . subject_scope($id), array_keys(SUBJECTS)));
+    $syllabus = $sch['syllabus'] !== ''
+        ? "Mục lục sách / tiến độ của lớp do ba mẹ cung cấp (PHẢI theo đúng thứ tự và tên kiến thức trong này, không đảo thứ tự, không thêm bài không có):\n" . $sch['syllabus']
+        : 'Ba mẹ CHƯA cung cấp mục lục sách hay tiến độ của lớp: chỉ xếp theo trình tự phổ biến, và ghi vào "summary" rằng thứ tự có thể khác với lớp của bé.';
     return <<<TXT
 Soạn ĐỀ XUẤT kế hoạch ôn tập ở nhà theo từng tuần cho một học sinh lớp 4 ở Việt Nam, để ba mẹ kiểm tra và sửa trước khi áp dụng.
 - Môn sách giáo khoa Việt Nam (Toán, Tiếng Việt): bộ sách "{$book}", chương trình GDPT 2018 lớp 4, năm học bắt đầu tháng 9.
@@ -638,6 +649,9 @@ Soạn ĐỀ XUẤT kế hoạch ôn tập ở nhà theo từng tuần cho một
 - Thời khoá biểu ở trường: {$ttText}. Lớp học thêm: {$clsText}.
 - Ghi chú của ba mẹ: {$focusText}
 - Phần bé đang hay sai: {$weakText}
+Phạm vi kiến thức lớp 4 từng môn (chỉ chọn chủ đề trong phạm vi này, không lấy chủ đề của lớp/Stage khác):
+{$scopes}
+{$syllabus}
 - Các tuần cần lập kế hoạch (ngày thứ 2 đầu tuần): {$list}
 
 Yêu cầu:

@@ -520,12 +520,22 @@ function r_parent_schedule(array $b): never
         }
         set_setting('schedule', json_encode([
             'book' => clean($in['book'] ?? '', 60),
+            'syllabus' => clean_multiline($in['syllabus'] ?? '', 4000),
             'minutes' => max(15, min(90, (int)($in['minutes'] ?? 40))),
             'timetable' => $tt,
             'classes' => $classes,
         ], JSON_UNESCAPED_UNICODE));
     }
     out(['schedule' => schedule()]);
+}
+
+// Giữ xuống dòng (cho mục lục sách), bỏ ký tự điều khiển khác
+function clean_multiline(mixed $v, int $max): string
+{
+    $s = is_string($v) ? $v : '';
+    if (!mb_check_encoding($s, 'UTF-8')) $s = mb_convert_encoding($s, 'UTF-8', 'UTF-8');
+    $s = preg_replace('/[\x00-\x09\x0B\x0C\x0E-\x1F\x7F]/u', '', str_replace("\r", '', $s)) ?? '';
+    return trim(mb_substr($s, 0, $max));
 }
 
 function plan_row(?array $row): ?array

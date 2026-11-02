@@ -865,6 +865,8 @@ function renderSchedule(){
     <div class="card">
       <label for="book">Bộ sách giáo khoa (Toán, Tiếng Việt)</label>
       <input class="field" id="book" value="${esc(S.book)}" placeholder="Ví dụ: Kết nối tri thức với cuộc sống">
+      <label for="syl">Mục lục sách / tiến độ của lớp (không bắt buộc, nên có)</label>
+      <textarea class="field" id="syl" rows="6" placeholder="Chép mục lục sách Toán, Tiếng Việt (theo chủ đề), hoặc dán lịch dạy cô gửi. Mây sẽ theo đúng thứ tự này khi soạn kế hoạch, không tự đoán.">${esc(S.syllabus||"")}</textarea>
       <label for="mins">Thời gian học ở nhà mỗi ngày (phút)</label>
       <input class="field" id="mins" type="number" min="15" max="90" value="${S.minutes}">
     </div>
@@ -882,7 +884,7 @@ function renderSchedule(){
   wireCls();
   document.getElementById("saveSched").onclick=async()=>{
     const msg=document.getElementById("schMsg");
-    const save = {book:document.getElementById("book").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
+    const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
     DAY_OPTS.forEach(([d])=>save.timetable[d]=document.getElementById("tt"+d).value);
     app.querySelectorAll(".clsrow").forEach(r=>{ const g=f=>r.querySelector(`[data-f=${f}]`).value; save.classes.push({day:+g("day"), time:g("time"), minutes:+g("minutes")||0, name:g("name")}); });
     try{ state.sched = (await api("/api/parent/schedule",{save},true)).schedule; msg.textContent="Đã lưu ✅"; }
