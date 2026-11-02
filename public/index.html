@@ -225,10 +225,17 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .today{background:var(--surface);border:2.5px solid var(--ink);border-radius:20px;padding:14px 16px;margin:0 0 18px;box-shadow:4px 4px 0 var(--ink)}
 .today .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .today .head h3{font-size:24px}
-.task{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:var(--surface-2);border:2px solid var(--line);border-radius:14px;padding:10px 12px;margin:8px 0;font-size:16px}
+.task{background:var(--surface-2);border:2px solid var(--line);border-radius:14px;margin:8px 0}
+.task .tmain{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:0;padding:10px 12px;font-size:16px}
+.task .rs{display:block;font-size:13px;color:var(--ink-soft);margin-top:2px}
+.task .chip2{display:inline-block;font-size:12px;font-weight:600;border-radius:999px;padding:0 8px;margin-left:6px;background:var(--l1);color:var(--label-ink)}
+.task .chip2.needs_help{background:var(--coral-bg);color:var(--coral)}
+.task .tops{display:flex;gap:8px;padding:0 12px 10px 52px;flex-wrap:wrap}
+.task .tops button{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:4px 10px;font-size:14px}
+.task.started{border-color:var(--sun)}.task.needs_help{border-color:var(--coral)}
 .task .ck{width:28px;height:28px;border-radius:50%;border:2.5px solid var(--ink-soft);display:grid;place-items:center;flex:none;font-size:16px}
 .task.done{opacity:.7}.task.done .ck{background:var(--mint);border-color:var(--mint);color:#fff}
-.task.done .tt{text-decoration:line-through}
+.task.done .ttl{text-decoration:line-through}
 .task .tt{flex:1}.task .min{font-size:13px;color:var(--ink-soft);white-space:nowrap}
 .pnote{font-size:14px;color:var(--ink-soft);margin:4px 0}
 .quick{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 22px}
@@ -1059,9 +1066,18 @@ function renderSpeak(){
 /* ---------- kế hoạch học: hôm nay, tuần, tháng, quý ---------- */
 const MONTHS_VI = m => "Tháng " + (+m.slice(5,7)) + "/" + m.slice(0,4);
 const ddmm = d => d.slice(8,10)+"/"+d.slice(5,7);
+const TASK_ST = {started:"Đang làm", paused:"Tạm dừng", needs_help:"Cần giúp"};
 function taskList(day, clickable){
-  return day.items.map((it,i)=>`<button class="task${it.done?" done":""}" data-i="${i}" ${clickable?"":"disabled"}>
-    <span class="ck">${it.done?"✓":""}</span><span class="tt">${it.icon} ${esc(it.title)}</span><span class="min">${it.minutes} phút</span></button>`).join("");
+  return day.items.map((it,i)=>{
+    const st = it.done ? "completed" : (it.status||"planned");
+    return `<div class="task ${it.done?"done":""} ${st}">
+    <button class="tmain" data-i="${i}" ${clickable?"":"disabled"}><span class="ck">${it.done?"✓":""}</span>
+      <span class="tt"><span class="ttl">${it.icon} ${esc(it.title)}</span>${TASK_ST[st]?`<span class="chip2 ${st}">${TASK_ST[st]}</span>`:""}${it.reason?`<span class="rs">Vì sao: ${esc(it.reason)}</span>`:""}${st==="needs_help"&&it.help_note?`<span class="rs">🙋 ${esc(it.help_note)}</span>`:""}</span>
+      <span class="min">${it.minutes} phút</span></button>
+    ${clickable && ["started","paused","needs_help"].includes(st) ? `<div class="tops">
+      ${st!=="paused"?`<button data-op="pause" data-k="${esc(it.key)}">⏸ Tạm dừng</button>`:""}
+      ${st!=="needs_help"?`<button data-op="help" data-k="${esc(it.key)}">🙋 Cần ba mẹ giúp</button>`:""}</div>` : ""}
+    </div>`; }).join("");
 }
 function todayCard(day){
   const done = day.items.filter(x=>x.done).length;
@@ -1074,7 +1090,19 @@ function todayCard(day){
 }
 function wireTasks(day){
   if(!day) return;
-  app.querySelectorAll(".task[data-i]").forEach(b=>b.onclick=()=>runAction(day.items[+b.dataset.i].action));
+  // Bé tự chọn việc nào làm trước; bấm vào là "bắt đầu" (được sao tự bắt đầu, mỗi ngày một lần)
+  app.querySelectorAll(".tmain[data-i]").forEach(b=>b.onclick=async()=>{
+    const it = day.items[+b.dataset.i];
+    if(!it.done){ try{ const r = await api("/api/task",{key:it.key, op:"start"}); me.today = r.day; }catch(e){} }
+    runAction(it.action);
+  });
+  app.querySelectorAll(".tops button[data-op]").forEach(b=>b.onclick=async()=>{
+    let note = "";
+    if(b.dataset.op==="help"){ note = prompt("Bạn cần ba mẹ giúp gì? (không bắt buộc)") ?? null; if(note===null) return; }
+    try{ const r = await api("/api/task",{key:b.dataset.k, op:b.dataset.op, note}); me.today = r.day; }catch(e){ alert(copyFor(e&&e.code)); return; }
+    if(state.view==="plan" && state.plan?.view==="day") state.plan.day = me.today;
+    render();
+  });
 }
 function runAction(a){
   if(!a) return;
@@ -1476,6 +1504,11 @@ function reportHtml(R){
       <h3>Lưu ảnh bài tập lên Google Drive</h3>
       <p class="muted" style="margin:0">Đang tải…</p>
     </div>
+    ${R.today ? `<div class="card"><h3>Hôm nay của bé</h3>
+      ${R.today.items.map(it=>{ const st = it.done ? "completed" : (it.status||"planned");
+        return `<div class="fix"><b>${it.icon} ${esc(it.title)}</b> · <span class="${st==="needs_help"?"minus":""}">${{planned:"Chưa làm",started:"Đang làm",paused:"Tạm dừng",completed:"✅ Xong",needs_help:"🙋 Cần giúp"}[st]}</span>
+          ${it.reason?`<br><span class="muted">Vì sao: ${esc(it.reason)}</span>`:""}${st==="needs_help"&&it.help_note?`<br>🙋 Bé nhắn: “${esc(it.help_note)}”`:""}</div>`; }).join("")}
+    </div>` : ""}
     <div class="card">
       <h3>Lịch học và kế hoạch</h3>
       <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>

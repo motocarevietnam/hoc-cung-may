@@ -31,6 +31,7 @@ $routes = [
     'homework'            => 'r_homework',
     'homework_list'       => 'r_homework_list',
     'plan'                => 'r_plan',
+    'task'                => 'r_task',
     'speak_start'         => 'r_speak_start',
     'speak_check'         => 'r_speak_check',
     'tts'                 => 'r_tts',
@@ -574,6 +575,13 @@ function r_speak_check(array $b): never
     out(['result' => $result, 'stars' => stars()]);
 }
 
+function r_task(array $b): never
+{
+    $r = task_update(clean($b['key'] ?? '', 40), (string)($b['op'] ?? ''), clean($b['note'] ?? '', 255));
+    if (isset($r['error'])) out($r, 400);
+    out(['ok' => true, 'day' => day_plan(today()), 'stars' => stars()]);
+}
+
 /* ---------------- kế hoạch học: ngày, tuần, tháng, quý ---------------- */
 
 function r_plan(array $b): never
@@ -829,6 +837,7 @@ function r_parent_report(array $b): never
         'review' => $review,
         'conversations' => $convs,
         'homework' => $homework,
+        'today' => day_plan(today()),
         'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
