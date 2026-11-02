@@ -32,6 +32,8 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
 - **Nhiệm vụ hằng ngày** ✅: danh sách "Hôm nay" được chốt lần đầu mở trong ngày, mỗi việc ghi **lý do giao**
   (bài cô giao, câu sai đến hạn ôn, môn của ngày mai, kế hoạch tuần, ngày có lớp thêm). Bé tự chọn việc làm trước; trạng thái
   chưa làm / đang làm / tạm dừng / xong / cần giúp; tự bắt đầu được sao; "Cần ba mẹ giúp" hiện trong Cổng ba mẹ.
+- **Đổi quà** 🎁: ba mẹ tạo quà trong Cổng ba mẹ (giá sao, mỗi tuần tối đa, số lượng, bật/tắt). Bé gửi yêu cầu đổi:
+  sao được giữ ngay; **chỉ ba mẹ duyệt**; từ chối hoặc bé huỷ thì hoàn sao. Mọi bước ghi vào sổ sao, chống bấm hai lần/đồng thời.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
