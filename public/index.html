@@ -244,6 +244,15 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .wd{display:inline-block;padding:1px 6px;margin:2px;border-radius:8px;font-size:19px}
 .wd.ok{background:var(--mint-bg);color:var(--mint)}.wd.no{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
 .fix{margin:8px 0;padding:8px 10px;border-left:4px solid var(--sun);background:var(--surface);border-radius:8px;font-size:15px}
+#awardToast{position:fixed;left:50%;top:calc(70px + env(safe-area-inset-top,0px));transform:translate(-50%,-20px);opacity:0;pointer-events:none;z-index:30;
+  background:var(--sun);color:var(--label-ink);border:2.5px solid var(--ink);border-radius:16px;padding:10px 16px;font-family:var(--display);font-weight:700;font-size:18px;
+  box-shadow:3px 3px 0 var(--ink);transition:opacity .3s,transform .3s}
+#awardToast.show{opacity:1;transform:translate(-50%,0)}
+.rrow{display:grid;grid-template-columns:1fr 64px 64px 64px 40px;gap:6px;align-items:center;margin:6px 0;font-size:14px}
+.rrow input[type=number]{width:100%;background:var(--surface-2);border:2px solid var(--line);border-radius:8px;padding:5px;font-size:14px}
+.rrow.head{font-weight:600;color:var(--ink-soft);font-size:12px}
+.ledger div{display:flex;justify-content:space-between;gap:10px;font-size:14px;padding:5px 0;border-bottom:1px solid var(--line)}
+.ledger .plus{color:var(--mint);font-weight:700}.ledger .minus{color:var(--coral);font-weight:700}
 .prow{display:grid;grid-template-columns:130px 1fr;gap:8px;align-items:center;margin:6px 0}
 .prow span{font-size:14px;font-weight:500}
 .prow input{width:100%;background:var(--surface-2);border:2px solid var(--line);border-radius:10px;padding:7px 10px;font-size:15px}
@@ -320,7 +329,16 @@ async function api(path, body={}, asParent=false){
   catch(e){ throw {code:"offline"}; }
   let data = {}; try{ data = await res.json(); }catch(e){}
   if(!res.ok) throw {code: data.error || ("http_"+res.status)};
+  if(Array.isArray(data.awards) && data.awards.length){ setStars(data.stars); showAwards(data.awards); }
   return data;
+}
+// Báo cho bé biết vì sao được sao (ví dụ "⭐ +5 Hoàn thành nhiệm vụ")
+function showAwards(list){
+  let box = document.getElementById("awardToast");
+  if(!box){ box = document.createElement("div"); box.id="awardToast"; document.body.appendChild(box); }
+  box.innerHTML = list.map(a=>`<div>⭐ +${a.stars} ${esc(a.label)}</div>`).join("");
+  box.classList.remove("show"); void box.offsetWidth; box.classList.add("show");
+  clearTimeout(showAwards.t); showAwards.t = setTimeout(()=>box.classList.remove("show"), 3500);
 }
 function setStars(n){
   if(typeof n!=="number") return;
@@ -379,7 +397,7 @@ function go(view){
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   stopSpeakCapture(true);
   stopVoice();
-  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; } // rời Góc ba mẹ là khoá báo cáo
+  if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
 
@@ -417,7 +435,7 @@ function renderSubject(){
     ${noSampleNotice()}
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
-      <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 5 câu</h3><div class="muted">Trả lời đúng để nhận sao ⭐</div></button>
+      <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 5 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
@@ -663,7 +681,7 @@ function renderQuiz(){
     const wrong = Q.qs.filter((q,i)=>!Q.results[i]);
     let extra = "";
     if(review) extra = Q.mastered ? `Bạn đã thuộc hẳn ${Q.mastered} câu, Mây cất chúng khỏi sổ rồi ⭐` : "Câu đúng sẽ được hẹn ôn lại thưa dần, câu sai thì mai mình làm lại nhé.";
-    else extra = (Q.bonus ? "Thưởng thêm 2 sao! " : "") + (wrong.length ? "Câu sai đã được ghi vào Sổ ôn tập 📒, mai Mây sẽ đố lại nhé." : "");
+    else extra = (wrong.length ? "Câu sai đã được ghi vào Sổ ôn tập 📒, mai Mây sẽ đố lại nhé." : "");
     app.innerHTML = head + `<div class="qcard score">${mascot()}
       <div class="stars">${"⭐".repeat(ok)}${"☆".repeat(n-ok)}</div>
       <h2>${ok}/${n} câu đúng</h2><p>${msg}</p><p class="muted">${extra}</p>
@@ -1285,12 +1303,46 @@ async function loadDriveCard(){
   state.view = "parent";
 })();
 
+/* ---------- sao và luật thưởng (Góc ba mẹ) ---------- */
+function renderRewards(){
+  const W = state.rw;
+  const head = `<button class="back" id="back">‹ Báo cáo</button><h2 style="font-size:28px">Sao và luật thưởng</h2>`;
+  if(!W){ app.innerHTML = head + `<p class="muted">Đang mở…</p>`; }
+  else if(W.error){ app.innerHTML = head + `<div class="notice">${esc(W.error)}</div>`; }
+  else {
+    const capv = v => v===null||v===undefined ? "" : v;
+    app.innerHTML = head + `
+      <div class="card"><h3>Bé đang có ${W.balance} ⭐</h3>
+        <p class="muted" style="margin:0">Tuần này: kiếm ${W.week.earned} sao, hoàn thành ${W.week.tasks}/${W.weekly_goal} nhiệm vụ (mục tiêu tuần). Sai không bao giờ bị trừ sao.</p></div>
+      <div class="card"><h3>Luật thưởng</h3>
+        <p class="muted" style="margin:0 0 6px">Ô "Ngày"/"Tuần": mỗi luật được cộng tối đa bao nhiêu lần trong ngày/tuần (để trống = không giới hạn).</p>
+        <div class="rrow head"><span>Việc làm</span><span>Sao</span><span>Ngày</span><span>Tuần</span><span>Bật</span></div>
+        ${W.rules.map(r=>`<div class="rrow" data-code="${esc(r.code)}"><span>${esc(r.label)}</span>
+          <input type="number" min="0" max="100" data-f="stars" value="${r.stars}"><input type="number" min="0" max="100" data-f="daily_cap" value="${capv(r.daily_cap)}">
+          <input type="number" min="0" max="100" data-f="weekly_cap" value="${capv(r.weekly_cap)}"><input type="checkbox" data-f="enabled" ${r.enabled?"checked":""} style="width:22px;height:22px"></div>`).join("")}
+        <label for="rwMax">Tối đa sao kiếm được mỗi ngày</label><input class="field" id="rwMax" type="number" min="0" max="500" value="${W.daily_max}">
+        <label for="rwGoal">Mục tiêu tuần: số nhiệm vụ hoàn thành</label><input class="field" id="rwGoal" type="number" min="0" max="50" value="${W.weekly_goal}">
+        <div class="row"><button class="btn primary" id="rwSave">Lưu luật thưởng</button><span class="muted" id="rwMsg" style="align-self:center"></span></div></div>
+      <div class="card"><h3>Sổ sao</h3><p class="muted" style="margin:0 0 6px">Mỗi lần cộng/trừ sao đều được ghi lại, không sửa được.</p>
+        <div class="ledger">${W.ledger.map(l=>`<div><span>${fmtDate(l.created_at)} · ${esc(l.note)}</span><span class="${l.stars>=0?"plus":"minus"}">${l.stars>=0?"+":""}${l.stars} → ${l.balance_after}</span></div>`).join("") || `<p class="muted">Chưa có.</p>`}</div></div>`;
+    document.getElementById("rwSave").onclick=async()=>{
+      const msg=document.getElementById("rwMsg");
+      const rules=[...app.querySelectorAll(".rrow[data-code]")].map(r=>{ const g=f=>r.querySelector(`[data-f=${f}]`);
+        return {code:r.dataset.code, stars:+g("stars").value||0, daily_cap:g("daily_cap").value, weekly_cap:g("weekly_cap").value, enabled:g("enabled").checked}; });
+      try{ state.rw = await api("/api/parent/rewards_save",{rules, daily_max:+document.getElementById("rwMax").value, weekly_goal:+document.getElementById("rwGoal").value},true); render(); document.getElementById("rwMsg").textContent="Đã lưu ✅"; }
+      catch(e){ msg.textContent=copyFor(e&&e.code); }
+    };
+  }
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; state.rw=null; render(); };
+}
+
 /* ---------- góc ba mẹ ---------- */
 function renderParent(){
   if(state.transcript) return renderTranscript();
   if(state.hwDetail) return renderParentHomework();
   if(state.parentPage==="schedule") return renderSchedule();
   if(state.parentPage==="plan") return renderParentPlan();
+  if(state.parentPage==="rewards") return renderRewards();
   const R = state.report;
   app.innerHTML = `
     <button class="back" id="back">‹ Về trang của bé</button>
@@ -1377,7 +1429,7 @@ function reportHtml(R){
     <div class="card">
       <h3>Lịch học và kế hoạch</h3>
       <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
-      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button></div>
+      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button><button class="btn" id="toRewards">⭐ Sao và luật thưởng</button></div>
     </div>
     <div class="card">
       <h3>Bài tập về nhà đã chấm</h3>
@@ -1419,6 +1471,11 @@ function wireReport(R){
     catch(e){ alert(copyFor(e&&e.code)); }
   });
   loadDriveCard();
+  document.getElementById("toRewards").onclick=async()=>{
+    state.parentPage="rewards"; state.rw=null; render();
+    try{ state.rw = await api("/api/parent/rewards",{},true); }catch(e){ state.rw={error:copyFor(e&&e.code)}; }
+    render();
+  };
   document.getElementById("toSched").onclick=async()=>{
     state.parentPage="schedule"; state.sched=null; render();
     try{ state.sched=(await api("/api/parent/schedule",{},true)).schedule; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }

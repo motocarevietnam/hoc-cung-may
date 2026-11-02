@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -97,6 +97,29 @@ const SCHEMA = [
        deleted_at INT UNSIGNED NULL,
        KEY idx_drive_homework (homework_id), KEY idx_drive_created (deleted_at, created_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Luật thưởng sao do ba mẹ chỉnh (mức sao, số lần tối đa mỗi ngày/tuần, bật/tắt)
+    "CREATE TABLE IF NOT EXISTS reward_rules (
+       code VARCHAR(32) NOT NULL PRIMARY KEY, label VARCHAR(100) NOT NULL, stars INT NOT NULL,
+       daily_cap INT NULL, weekly_cap INT NULL, enabled TINYINT(1) NOT NULL DEFAULT 1, sort INT NOT NULL DEFAULT 0,
+       updated_at INT UNSIGNED NOT NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Sổ sao: chỉ thêm dòng, không sửa/xoá. Số sao hiện có = tổng cột stars. ref chống cộng trùng.
+    "CREATE TABLE IF NOT EXISTS star_ledger (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, created_at INT UNSIGNED NOT NULL, day CHAR(10) NOT NULL,
+       week CHAR(10) NOT NULL, rule_code VARCHAR(32) NOT NULL, stars INT NOT NULL, ref VARCHAR(120) NOT NULL,
+       note VARCHAR(255) NOT NULL DEFAULT '', balance_after INT NOT NULL,
+       UNIQUE KEY uq_ledger_ref (ref), KEY idx_ledger_rule_day (rule_code, day), KEY idx_ledger_rule_week (rule_code, week)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+];
+
+// Luật sao mặc định (theo issue #5). Ba mẹ chỉnh trong Góc ba mẹ; đây chỉ là giá trị khởi tạo.
+const DEFAULT_REWARD_RULES = [
+    ['self_start', 'Tự bắt đầu học', 2, 1, null, 1],
+    ['task_complete', 'Hoàn thành nhiệm vụ', 5, 4, null, 2],
+    ['self_fix', 'Tự sửa sai', 3, 5, null, 3],
+    ['explain', 'Giải thích đúng cách làm', 3, 5, null, 4],
+    ['progress', 'Tiến bộ có bằng chứng', 5, 3, null, 5],
+    ['weekly_goal', 'Đạt mục tiêu tuần', 10, null, 1, 6],
 ];
 
 class UpstreamError extends RuntimeException {}
@@ -108,6 +131,11 @@ function cfg(string $key, mixed $default = null): mixed
 
 function out(array $data, int $code = 200): never
 {
+    // Báo kèm các lần được cộng sao trong yêu cầu này
+    if ($code === 200 && !empty($GLOBALS['AWARDS'])) {
+        $data['awards'] = $GLOBALS['AWARDS'];
+        $data['stars'] = stars();
+    }
     http_response_code($code);
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
@@ -140,6 +168,16 @@ function ensure_schema(PDO $pdo): void
         // chưa có bảng settings: tạo mới bên dưới
     }
     foreach (SCHEMA as $sql) $pdo->exec($sql);
+    // Luật sao mặc định (không ghi đè luật ba mẹ đã chỉnh)
+    $ins = $pdo->prepare('INSERT IGNORE INTO reward_rules (code, label, stars, daily_cap, weekly_cap, sort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    foreach (DEFAULT_REWARD_RULES as [$code, $label, $n, $d, $w, $sort]) $ins->execute([$code, $label, $n, $d, $w, $sort, time()]);
+    // Chuyển số sao cũ (một con số trong settings) thành dòng mở đầu của sổ sao, chỉ một lần
+    $old = $pdo->query("SELECT v FROM settings WHERE k = 'stars'")->fetchColumn();
+    if ((int)$old > 0) {
+        $pdo->prepare("INSERT IGNORE INTO star_ledger (created_at, day, week, rule_code, stars, ref, note, balance_after)
+                       VALUES (?, ?, ?, 'opening', ?, 'opening', 'Số sao trước khi có sổ sao', ?)")
+            ->execute([time(), date('Y-m-d'), date('Y-m-d', strtotime('monday this week')), (int)$old, (int)$old]);
+    }
     $pdo->prepare('INSERT INTO settings (k, v) VALUES (\'schema_version\', ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
         ->execute([(string)SCHEMA_VERSION]);
 }
@@ -205,22 +243,69 @@ function spend(int $n): void
     q('INSERT INTO daily_usage (day, n) VALUES (?, ?) ON DUPLICATE KEY UPDATE n = n + VALUES(n)', [today(), $n]);
 }
 
+/* ---------------- Sổ sao và luật thưởng ---------------- */
+
+// Các lần được cộng sao trong yêu cầu này (để báo cho bé biết vì sao được sao)
+$GLOBALS['AWARDS'] = [];
+
 function stars(): int
 {
-    return (int)setting('stars', '0');
+    return (int)q('SELECT COALESCE(SUM(stars), 0) FROM star_ledger')->fetchColumn();
 }
 
-function add_stars(int $n): int
+function week_start(?string $day = null): string
 {
-    $s = stars() + $n;
-    set_setting('stars', (string)$s);
-    return $s;
+    return date('Y-m-d', strtotime('monday this week', strtotime($day ?? today())));
+}
+
+// Ghi một dòng vào sổ sao (dùng khoá MariaDB để hai yêu cầu cùng lúc không tính sai số dư).
+// Trả về false nếu ref đã có (chống cộng trùng).
+function ledger_add(string $code, int $n, string $ref, string $note = ''): bool
+{
+    $got = (int)q("SELECT GET_LOCK('hoc_cung_may_stars', 10)")->fetchColumn();
+    try {
+        if (q('SELECT 1 FROM star_ledger WHERE ref = ?', [$ref])->fetchColumn()) return false;
+        $balance = stars() + $n;
+        q('INSERT INTO star_ledger (created_at, day, week, rule_code, stars, ref, note, balance_after) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [time(), today(), week_start(), $code, $n, $ref, mb_substr($note, 0, 255), $balance]);
+        return true;
+    } finally {
+        if ($got) q("SELECT RELEASE_LOCK('hoc_cung_may_stars')");
+    }
+}
+
+// Cộng sao theo luật: kiểm tra luật đang bật, giới hạn số lần theo ngày/tuần, mức sao tối đa mỗi ngày, ref chưa dùng.
+function award(string $rule, string $ref, string $note = ''): bool
+{
+    $r = q('SELECT * FROM reward_rules WHERE code = ? AND enabled = 1', [$rule])->fetch();
+    if (!$r || (int)$r['stars'] <= 0) return false;
+    if ($r['daily_cap'] !== null && (int)q('SELECT COUNT(*) FROM star_ledger WHERE rule_code = ? AND day = ?', [$rule, today()])->fetchColumn() >= (int)$r['daily_cap']) return false;
+    if ($r['weekly_cap'] !== null && (int)q('SELECT COUNT(*) FROM star_ledger WHERE rule_code = ? AND week = ?', [$rule, week_start()])->fetchColumn() >= (int)$r['weekly_cap']) return false;
+    $earnedToday = (int)q("SELECT COALESCE(SUM(stars), 0) FROM star_ledger WHERE day = ? AND stars > 0 AND rule_code NOT IN ('opening', 'refund')", [today()])->fetchColumn();
+    $n = min((int)$r['stars'], max(0, (int)setting('stars_daily_max', '40') - $earnedToday));
+    if ($n <= 0) return false;
+    if (!ledger_add($rule, $n, $ref, $note !== '' ? $note : $r['label'])) return false;
+    $GLOBALS['AWARDS'][] = ['stars' => $n, 'label' => $r['label']];
+    return true;
+}
+
+// Việc trong "Hôm nay" vừa xong thì cộng sao hoàn thành (mỗi việc một lần), đủ số việc trong tuần thì thưởng mục tiêu tuần
+function award_done_tasks(): void
+{
+    $p = day_plan(today());
+    foreach ($p['items'] as $it) {
+        if ($it['done']) award('task_complete', 'task:' . today() . ':' . $it['key'], 'Hoàn thành: ' . $it['title']);
+    }
+    $goal = (int)setting('weekly_goal_tasks', '12');
+    $done = (int)q("SELECT COUNT(*) FROM star_ledger WHERE rule_code = 'task_complete' AND week = ?", [week_start()])->fetchColumn();
+    if ($goal > 0 && $done >= $goal) award('weekly_goal', 'week:' . week_start(), "Hoàn thành {$done} nhiệm vụ trong tuần");
 }
 
 function log_activity(string $subject, string $topic, string $type, ?int $score = null, ?int $total = null): void
 {
     q('INSERT INTO activity (day, subject, topic, type, score, total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [today(), $subject, $topic, $type, $score, $total, time()]);
+    award_done_tasks();
 }
 
 function due_count(): int

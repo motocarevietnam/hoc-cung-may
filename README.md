@@ -22,6 +22,10 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   kể/miêu tả ngắn. Bé nghe mẫu (có đọc chậm), bấm 🎤 để nói; iPad chuyển giọng thành chữ, Mây so từng từ với câu mẫu
   và góp ý ngữ pháp, từ vựng, câu mẫu để nói lại. Bé nghe lại giọng mình ngay trên iPad (không gửi âm thanh lên máy chủ).
   Mây chỉ có phần chữ máy chép lại nên không chấm chi tiết từng âm; chấm phát âm chuyên sâu (Microsoft Azure) sẽ thêm sau.
+- **Sao và luật thưởng** ⭐: sao ghi vào **sổ sao** (chỉ thêm dòng, không sửa/xoá; số dư = tổng sổ). Luật mặc định:
+  tự bắt đầu +2, hoàn thành nhiệm vụ trong "Hôm nay" +5, tự sửa sai +3, giải thích đúng +3, tiến bộ có bằng chứng +5,
+  đạt mục tiêu tuần +10; sai không bao giờ bị trừ. Ba mẹ chỉnh mức sao, số lần tối đa mỗi ngày/tuần, mức sao tối đa mỗi ngày
+  và mục tiêu tuần trong Góc ba mẹ → Sao và luật thưởng. Mỗi lần cộng có mã riêng nên không cộng trùng.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
 - **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
