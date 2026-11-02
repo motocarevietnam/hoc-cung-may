@@ -398,6 +398,9 @@ function copyFor(code){
     reward_out: "Món quà này đã hết rồi.",
     reward_week_limit: "Tuần này bạn đã đổi món quà này đủ số lần rồi.",
     reward_unavailable: "Món quà này hiện không đổi được.",
+    check_too_early: "Bạn hỏi Mây thêm vài câu rồi hẵng kiểm tra nhé.",
+    explain_too_short: "Bạn giải thích dài hơn một chút nhé.",
+    explain_limit: "Bạn đã giải thích 3 lần rồi, giờ làm bài kiểm tra nhé.",
     already_decided: "Yêu cầu này ba mẹ đã xử lý rồi.",
     cancelled: ""
   };
@@ -419,6 +422,7 @@ function render(){
   else if(state.view==="plan") renderPlan();
   else if(state.view==="speak") renderSpeak();
   else if(state.view==="shop") renderShop();
+  else if(state.view==="check") renderCheck();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
@@ -500,6 +504,7 @@ function renderChat(){
     ${noSampleNotice()}
     <div class="chat" id="chat"></div>
     <div class="chips" id="sugg">${sugg.map(x=>`<button class="chip">${esc(x)}</button>`).join("")}</div>
+    <div id="ckWrap"></div>
     <div class="voicebar"><label><input type="checkbox" id="autoRead" ${autoRead?"checked":""}> 🔊 Mây tự đọc to câu trả lời</label></div>
     <div class="composer">
       ${SR?`<button class="langbtn" id="langBtn" title="Ngôn ngữ khi nói: bấm để đổi">${micLang==="vi"?"VI":"EN"}</button><button class="mic" id="micBtn" aria-label="Bấm để nói">🎤</button>`:""}
@@ -529,6 +534,11 @@ function updateComposer(){
   const b=document.getElementById("sendBtn"); if(!b) return;
   b.textContent = state.busy ? "Dừng" : "Gửi";
   b.disabled = !ready();
+  // Sau ít nhất 2 lượt hỏi Mây: bé tự giải thích lại và làm bài kiểm tra ngắn
+  const w=document.getElementById("ckWrap");
+  if(w){ const n=state.turns.filter(t=>t.role==="user").length;
+    w.innerHTML = state.convId && n>=2 && !state.busy ? `<button class="btn primary" id="toCheck" style="margin:4px 0 10px">✅ Mình hiểu rồi – kiểm tra nhé</button>` : "";
+    const tc=document.getElementById("toCheck"); if(tc) tc.onclick=()=>startCheck("chat", state.convId); }
 }
 function drawMessages(){
   const s = subjById(state.subject); const el=document.getElementById("chat"); if(!el) return;
@@ -895,6 +905,7 @@ function renderHomeworkResult(H, head){
     <div class="row">
       ${toFix ? `<button class="btn primary" id="hwRecheck">📸 Chụp bài đã sửa để chấm lại</button>` : ""}
       ${toFix ? `<button class="btn" id="hwAsk">Hỏi Mây câu chưa hiểu</button>` : ""}
+      ${toFix || R.items.some(x=>x.fixed) ? `<button class="btn" id="hwCheck">✅ Mình hiểu rồi – kiểm tra nhé</button>` : ""}
       <button class="btn${toFix?"":" primary"}" id="hwNew">Chấm bài khác</button>
     </div>
     <p class="muted" style="margin-top:16px">Mây là AI nên đôi khi cũng chấm nhầm. Nếu thấy lạ, bạn hỏi lại ba mẹ hoặc cô giáo nhé.</p>`;
@@ -903,6 +914,7 @@ function renderHomeworkResult(H, head){
   const sp=document.getElementById("hwSpeak"); if(sp) sp.onclick=()=>speak(R.praise||"", "vi");
   const rc=document.getElementById("hwRecheck");
   if(rc) rc.onclick=()=>{ Object.assign(H,{recheckOf:H.id, result:null, photos:[], error:"", past:null}); render(); window.scrollTo(0,0); };
+  const hc=document.getElementById("hwCheck"); if(hc) hc.onclick=()=>startCheck("homework", H.id);
   const ak=document.getElementById("hwAsk");
   if(ak) ak.onclick=()=>{
     const x = R.items.find(y=>y.status==="wrong"||y.status==="partial");
@@ -1354,6 +1366,90 @@ async function loadDriveCard(){
   state.view = "parent";
 })();
 
+/* ---------- "Mình hiểu rồi": tự giải thích + kiểm tra lại ---------- */
+const VERDICT = {correct:"🌟 Giải thích đúng rồi!", partial:"👍 Gần đúng rồi!", incorrect:"💪 Chưa đúng, mình thử lại nhé"};
+async function startCheck(source, ref){
+  state.ck = {phase:"loading"}; go("check");
+  try{ const d = await api("/api/check_start",{source, ref}); state.ck = {id:d.id, subject:d.subject, skill:d.skill, phase:"explain", text:"", tries:3}; }
+  catch(e){ state.ck = {phase:"error", error:copyFor(e&&e.code)}; }
+  if(state.view==="check") render();
+}
+let ckRec = null;
+function renderCheck(){
+  const C = state.ck, s = subjById(C.subject||"toan");
+  const head = `<button class="back" id="back">‹ Quay lại</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l2)">✅</div><div><h2>Mình hiểu rồi!</h2><div class="muted">${C.skill?esc(s?.name||"")+" – "+esc(C.skill):""}</div></div></div>`;
+  let body="";
+  if(C.phase==="loading") body = `<p class="muted">Đang chuẩn bị…</p>`;
+  else if(C.phase==="error") body = `<div class="notice">${esc(C.error)}</div>`;
+  else if(C.phase==="explain" || C.phase==="judging" || C.phase==="explained"){
+    const r = C.result;
+    body = `<div class="sp-card"><div class="muted">Bước 1/2</div>
+      <div class="sp-big" style="font-size:20px">Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao?</div>
+      ${C.phase!=="explained" || (r && r.verdict!=="correct" && C.tries>0) ? `
+        <textarea class="field" id="ckText" rows="4" placeholder="Ví dụ: Đầu tiên mình quy đồng mẫu số, rồi…">${esc(C.text||"")}</textarea>
+        <div class="row">${SR?`<button class="btn" id="ckMic">${ckRec?"⏹️ Dừng":"🎤 Nói"}</button>`:""}
+          <button class="btn primary" id="ckSend" ${C.phase==="judging"?"disabled":""}>${C.phase==="judging"?"Mây đang đọc…":"Gửi Mây"}</button></div>` : ""}
+      ${r ? `<div class="sp-res"><div class="lv ${r.verdict==="correct"?"great":r.verdict==="incorrect"?"try_again":""}">${VERDICT[r.verdict]}</div>
+        ${r.praise?`<p style="margin:6px 0">${esc(r.praise)}</p>`:""}${r.missing?`<div class="fix">${esc(r.missing)}</div>`:""}${r.tip?`<p class="muted" style="margin:6px 0 0">💡 ${esc(r.tip)}</p>`:""}</div>` : ""}
+      ${C.phase==="explained" ? `<div class="row"><button class="btn primary" id="ckGoQ">Bước 2: làm 3 câu kiểm tra ›</button></div>` : ""}
+    </div>`;
+  }
+  else if(C.phase==="loadingQ") body = `<div class="greet">${mascot()}<div class="say">Mây đang soạn 3 câu kiểm tra… <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
+  else if(C.phase==="q"){
+    const q = C.qs[C.i], done = C.picked!==null && C.picked!==undefined;
+    body = `<div class="dots">${C.qs.map((_,i)=>`<span class="${i<C.results.length?(C.results[i]?"ok":"no"):(i===C.i?"now":"")}"></span>`).join("")}</div>
+      <div class="qcard"><div class="muted">Bước 2/2 · Câu ${C.i+1}/${C.qs.length}</div><div class="q">${fmt(q.q)}</div>
+        <div class="opts">${q.options.map((o,i)=>{ let c=""; if(done){ if(i===C.ans) c="right"; else if(i===C.picked) c="wrong"; }
+          return `<button class="opt ${c}" data-i="${i}" ${done?"disabled":""}>${"ABCD"[i]}. ${fmt(o)}</button>`; }).join("")}</div>
+        ${done?`<div class="explain"><b>${C.picked===C.ans?"Chính xác! 🎉":"Chưa đúng, xem nè:"}</b><br>${fmt(C.exp||"")}</div>`:""}
+        ${done?`<div class="row"><button class="btn primary" id="ckNext">${C.i+1<C.qs.length?"Câu tiếp theo":"Xem kết quả"}</button></div>`:""}</div>`;
+  }
+  else if(C.phase==="done"){
+    const F = C.final;
+    body = `<div class="qcard score">${mascot()}<h2>${F.score}/${F.total} câu đúng</h2>
+      <p>${F.passed ? "Bạn đã chứng minh mình hiểu bài rồi! 🎉" : "Không sao cả, câu sai đã vào Sổ ôn tập 📒, mai mình ôn lại nhé."}</p>
+      <p class="muted">Kỹ năng “${esc(C.skill)}”: <b>${esc(F.level_label)}</b></p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="ckHome">Về trang chính</button></div></div>`;
+  }
+  app.innerHTML = head + body;
+  document.getElementById("back").onclick=()=>{ if(ckRec){ try{ckRec.abort()}catch(e){} ckRec=null; } go("home"); refreshState(); };
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  const ta=document.getElementById("ckText"); if(ta) ta.oninput=e=>{ C.text=e.target.value; };
+  on("ckMic",()=>{
+    if(ckRec){ try{ckRec.stop()}catch(e){} return; }
+    try{ ckRec = new SR(); ckRec.lang = s?.lang==="en" ? "en-US" : "vi-VN"; ckRec.interimResults=true; ckRec.continuous=true; }catch(e){ ckRec=null; return; }
+    const base = (C.text||"").trim();
+    ckRec.onresult = ev=>{ let t=""; for(let i=0;i<ev.results.length;i++) t+=ev.results[i][0].transcript; C.text=(base?base+" ":"")+t.trim(); const el=document.getElementById("ckText"); if(el) el.value=C.text; };
+    ckRec.onend = ()=>{ ckRec=null; if(state.view==="check") render(); };
+    try{ ckRec.start(); }catch(e){ ckRec=null; }
+    render();
+  });
+  on("ckSend", async()=>{
+    if(ckRec){ try{ckRec.stop()}catch(e){} }
+    const text=(C.text||"").trim(); if(!text) return;
+    C.phase="judging"; render();
+    try{ const d = await api("/api/check_explain",{id:C.id, text}); C.result=d.result; C.tries=d.tries_left; C.phase="explained"; }
+    catch(e){ C.phase="explain"; alert(copyFor(e&&e.code)); }
+    if(state.view==="check") render();
+  });
+  on("ckGoQ", async()=>{
+    C.phase="loadingQ"; render();
+    try{ const d = await api("/api/check_questions",{id:C.id}); Object.assign(C,{qs:d.questions, i:0, results:[], picked:null, phase:"q"}); }
+    catch(e){ C.phase="explained"; alert(copyFor(e&&e.code)); }
+    if(state.view==="check") render();
+  });
+  app.querySelectorAll(".qcard .opt").forEach(b=>b.onclick=async()=>{
+    if(C.picked!==null && C.picked!==undefined) return;
+    const picked=+b.dataset.i; app.querySelectorAll(".opt").forEach(x=>x.disabled=true);
+    try{ const r = await api("/api/check_answer",{id:C.id, index:C.i, picked}); C.picked=picked; C.ans=r.answer; C.exp=r.explain; C.results.push(!!r.right); if(r.done) C.final=r; setStars(r.stars); }
+    catch(e){ alert(copyFor(e&&e.code)); }
+    render();
+  });
+  on("ckNext",()=>{ if(C.i+1<C.qs.length){ C.i++; C.picked=null; render(); } else { C.phase="done"; render(); } });
+  on("ckHome",()=>{ go("home"); refreshState(); });
+}
+
 /* ---------- đổi quà (bé) ---------- */
 const REQ_ST = {pending:"Chờ ba mẹ duyệt", approved:"Đã được duyệt 🎉", rejected:"Ba mẹ chưa duyệt", cancelled:"Đã huỷ"};
 async function openShop(){
@@ -1608,6 +1704,12 @@ function reportHtml(R){
     <div class="card" id="driveCard">
       <h3>Lưu ảnh bài tập lên Google Drive</h3>
       <p class="muted" style="margin:0">Đang tải…</p>
+    </div>
+    <div class="card"><h3>Tiến bộ theo kỹ năng</h3>
+      <p class="muted" style="margin:0 0 6px">Dựa trên các lần bé tự giải thích và làm bài kiểm tra lại. Thành thạo = đạt 2 lần liên tiếp. Không so sánh với bạn khác.</p>
+      ${(R.skills||[]).map(k=>`<div class="req"><span><b>${esc(subjById(k.subject)?.name||k.subject)}: ${esc(k.skill)}</b><br>
+        <span class="muted">Kiểm tra ${k.checks} lần, đạt ${k.passed}${k.last_score?` (lần gần nhất ${esc(k.last_score)})`:""} · giải thích đúng ${k.explained} lần</span></span>
+        <span class="st ${k.level==="mastered"?"approved":k.level==="improving"?"pending":""}">${{learning:"Đang học",improving:"Đang tiến bộ",mastered:"Thành thạo"}[k.level]||k.level}</span></div>`).join("") || `<p class="muted" style="margin:0">Chưa có. Bé bấm “✅ Mình hiểu rồi” sau khi hỏi bài hoặc chấm bài để bắt đầu.</p>`}
     </div>
     ${R.today ? `<div class="card"><h3>Hôm nay của bé</h3>
       ${R.today.items.map(it=>{ const st = it.done ? "completed" : (it.status||"planned");

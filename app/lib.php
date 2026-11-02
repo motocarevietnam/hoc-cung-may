@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -143,6 +143,22 @@ const SCHEMA = [
        kid_note VARCHAR(255) NOT NULL DEFAULT '', parent_note VARCHAR(255) NOT NULL DEFAULT '',
        requested_at INT UNSIGNED NOT NULL, decided_at INT UNSIGNED NULL, week CHAR(10) NOT NULL,
        UNIQUE KEY uq_redeem_nonce (nonce), KEY idx_redeem_status (status), KEY idx_redeem_reward_week (reward_id, week)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // "Mình hiểu rồi": bé tự giải thích cách làm, rồi làm 2–3 câu kiểm tra mới cùng kỹ năng
+    "CREATE TABLE IF NOT EXISTS checks (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, skill VARCHAR(120) NOT NULL,
+       source VARCHAR(40) NOT NULL, context MEDIUMTEXT NOT NULL, explain_text TEXT NULL, explain_result TEXT NULL,
+       explain_tries INT NOT NULL DEFAULT 0, questions MEDIUMTEXT NULL, answers TEXT NULL, score INT NULL, total INT NULL,
+       created_at INT UNSIGNED NOT NULL, finished_at INT UNSIGNED NULL,
+       KEY idx_checks_skill (subject, skill), KEY idx_checks_created (created_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Tiến bộ theo kỹ năng (môn + chủ đề): chỉ dựa trên các lần kiểm tra lại, không so sánh với ai
+    "CREATE TABLE IF NOT EXISTS skill_mastery (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, skill VARCHAR(120) NOT NULL,
+       checks INT NOT NULL DEFAULT 0, passed INT NOT NULL DEFAULT 0, streak INT NOT NULL DEFAULT 0,
+       explained INT NOT NULL DEFAULT 0, last_score VARCHAR(10) NOT NULL DEFAULT '', level VARCHAR(12) NOT NULL DEFAULT 'learning',
+       updated_at INT UNSIGNED NOT NULL,
+       UNIQUE KEY uq_skill (subject, skill)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -379,7 +395,8 @@ function award(string $rule, string $ref, string $note = ''): bool
     if (!$r || (int)$r['stars'] <= 0) return false;
     if ($r['daily_cap'] !== null && (int)q('SELECT COUNT(*) FROM star_ledger WHERE rule_code = ? AND day = ?', [$rule, today()])->fetchColumn() >= (int)$r['daily_cap']) return false;
     if ($r['weekly_cap'] !== null && (int)q('SELECT COUNT(*) FROM star_ledger WHERE rule_code = ? AND week = ?', [$rule, week_start()])->fetchColumn() >= (int)$r['weekly_cap']) return false;
-    $earnedToday = (int)q("SELECT COALESCE(SUM(stars), 0) FROM star_ledger WHERE day = ? AND stars > 0 AND rule_code NOT IN ('opening', 'refund')", [today()])->fetchColumn();
+    // Chỉ tính sao kiếm được theo luật thưởng (không tính số dư mở đầu, hoàn sao, ba mẹ điều chỉnh)
+    $earnedToday = (int)q('SELECT COALESCE(SUM(stars), 0) FROM star_ledger WHERE day = ? AND stars > 0 AND rule_code IN (SELECT code FROM reward_rules)', [today()])->fetchColumn();
     $n = min((int)$r['stars'], max(0, (int)setting('stars_daily_max', '40') - $earnedToday));
     if ($n <= 0) return false;
     if (!ledger_add($rule, $n, $ref, $note !== '' ? $note : $r['label'])) return false;
@@ -1329,4 +1346,61 @@ function rewards_for_kid(): array
     unset($r);
     $mine = q('SELECT id, reward_name, cost, status, parent_note, requested_at, decided_at FROM redemptions ORDER BY id DESC LIMIT 20')->fetchAll();
     return ['balance' => stars(), 'rewards' => $list, 'requests' => $mine];
+}
+
+/* ---------------- "Mình hiểu rồi": tự giải thích + kiểm tra lại, tiến bộ theo kỹ năng ---------------- */
+
+const SKILL_LEVELS = ['learning' => 'Đang học', 'improving' => 'Đang tiến bộ', 'mastered' => 'Thành thạo'];
+
+function skill_key(string $topic): string
+{
+    $t = trim(preg_replace('/\s+/u', ' ', $topic) ?? '');
+    return mb_substr($t !== '' ? $t : 'Tổng hợp', 0, 120);
+}
+
+function explain_judge_prompt(string $subject, string $skill, string $context, string $text): string
+{
+    $s = SUBJECTS[$subject];
+    return <<<TXT
+Môn: {$s['name']} ({$s['sub']}). Kỹ năng: {$skill}.
+Bối cảnh bài bé vừa học (trích cuộc trò chuyện/bài làm):
+{$context}
+
+Bé tự giải thích lại cách làm bằng lời của mình (máy có thể chép giọng nói chưa chuẩn, đừng chấm chính tả):
+"{$text}"
+
+Hãy đánh giá bé đã hiểu CÁCH LÀM chưa (không cần dùng đúng thuật ngữ, chỉ cần đúng ý các bước chính, theo cách làm lớp 4).
+Trả về JSON: {"verdict":"correct|partial|incorrect","praise":"1 câu khen cụ thể","missing":"bước/ý bé còn thiếu hoặc nhầm (bỏ trống nếu correct)","tip":"1 gợi ý ngắn"}
+correct = nêu đúng các bước chính; partial = đúng hướng nhưng thiếu/nhầm một bước; incorrect = sai hoặc không liên quan.
+TXT;
+}
+
+function check_questions_prompt(string $subject, string $skill, string $context): string
+{
+    $s = SUBJECTS[$subject];
+    $lang = $s['lang'] === 'vi' ? 'Viết bằng tiếng Việt.' : 'Write in simple English (Cambridge Primary Stage 4); "explain" adds a short Vietnamese translation in brackets.';
+    $scope = grade4_scope($subject);
+    return <<<TXT
+Bé vừa học xong kỹ năng sau và cần 3 câu KIỂM TRA LẠI để chứng minh đã hiểu.
+Môn: {$s['name']} ({$s['sub']}). Kỹ năng: {$skill}.
+Bối cảnh bài bé vừa học:
+{$context}
+{$scope}
+{$lang}
+Yêu cầu: 3 câu trắc nghiệm MỚI, cùng kỹ năng, TƯƠNG TỰ nhưng KHÁC số liệu/ví dụ với bài đã học (không lặp lại đúng câu cũ), độ khó vừa phải bằng hoặc hơi khó hơn bài đã học. Mỗi câu 3–4 lựa chọn, đúng một đáp án, vị trí đáp án thay đổi. Tự giải lại từng câu để chắc chắn đáp án đúng.
+Chỉ trả về JSON: {"questions":[{"q":"...","options":["...","..."],"answer":0,"explain":"giải thích dưới 30 từ","hint":"gợi ý không lộ đáp án"}]}
+TXT;
+}
+
+// Ghi kết quả một lần kiểm tra vào tiến bộ kỹ năng. Thành thạo = đạt 2 lần liên tiếp; đạt 1 lần = đang tiến bộ.
+function skill_record(string $subject, string $skill, int $score, int $total, bool $passed): string
+{
+    q('INSERT INTO skill_mastery (subject, skill, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = VALUES(updated_at)',
+        [$subject, $skill, time()]);
+    $m = q('SELECT * FROM skill_mastery WHERE subject = ? AND skill = ?', [$subject, $skill])->fetch();
+    $streak = $passed ? (int)$m['streak'] + 1 : 0;
+    $level = $streak >= 2 ? 'mastered' : ($passed ? 'improving' : ((int)$m['passed'] > 0 ? 'improving' : 'learning'));
+    q('UPDATE skill_mastery SET checks = checks + 1, passed = passed + ?, streak = ?, last_score = ?, level = ?, updated_at = ? WHERE id = ?',
+        [$passed ? 1 : 0, $streak, "{$score}/{$total}", $level, time(), $m['id']]);
+    return $level;
 }
