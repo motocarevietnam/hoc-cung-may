@@ -790,3 +790,75 @@ function word_diff(string $target, string $said): array
             'missed' => array_values(array_map(fn($x) => $x['w'], array_filter($words, fn($x) => !$x['ok']))),
             'score' => $n ? (int)round(100 * $matched / $n) : 0, 'original' => $origWords];
 }
+
+/* ---------------- Giọng đọc tự nhiên: Microsoft Azure Speech (neural TTS) ---------------- */
+
+// Các giọng ba mẹ chọn được. Ana và Maisie là giọng bé gái; tiếng Việt chỉ có giọng người lớn nên nâng nhẹ cao độ.
+const TTS_VOICES = [
+    'vi' => ['vi-VN-HoaiMyNeural' => 'Hoài My (nữ)', 'vi-VN-NamMinhNeural' => 'Nam Minh (nam)'],
+    'en' => ['en-US-AnaNeural' => 'Ana (bé gái, giọng Mỹ)', 'en-GB-MaisieNeural' => 'Maisie (bé gái, giọng Anh)',
+             'en-US-JennyNeural' => 'Jenny (nữ, giọng Mỹ)', 'en-GB-SoniaNeural' => 'Sonia (nữ, giọng Anh)'],
+];
+const TTS_PITCH = ['vi-VN-HoaiMyNeural' => '+12%', 'vi-VN-NamMinhNeural' => '+15%'];
+
+function tts_enabled(): bool
+{
+    return trim((string)cfg('azure_speech_key', '')) !== '';
+}
+
+function tts_voice(string $lang, string $want): string
+{
+    if (isset(TTS_VOICES[$lang][$want])) return $want;
+    return array_key_first(TTS_VOICES[$lang]);
+}
+
+function tts_ssml(array $chunks, array $voices, float $rate): string
+{
+    $ratePct = (int)round(($rate - 1) * 100);
+    $parts = '';
+    foreach ($chunks as $c) {
+        $voice = $voices[$c['l']];
+        $pitch = TTS_PITCH[$voice] ?? '+0%';
+        $text = htmlspecialchars($c['t'], ENT_XML1 | ENT_QUOTES, 'UTF-8');
+        $parts .= "<voice name=\"{$voice}\"><prosody pitch=\"{$pitch}\" rate=\"{$ratePct}%\">{$text}</prosody></voice>";
+    }
+    return "<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"vi-VN\">{$parts}</speak>";
+}
+
+// Gọi Azure, lưu tạm file mp3 theo nội dung để câu lặp lại không tính tiền lần nữa (dọn sau 30 ngày)
+function tts_mp3(array $chunks, array $voices, float $rate): string
+{
+    $ssml = tts_ssml($chunks, $voices, $rate);
+    $dir = __DIR__ . '/cache/tts';
+    $file = $dir . '/' . sha1($ssml) . '.mp3';
+    if (is_file($file)) {
+        @touch($file);
+        return (string)file_get_contents($file);
+    }
+    $region = preg_replace('/[^a-z0-9]/', '', strtolower((string)cfg('azure_speech_region', 'southeastasia')));
+    $url = (string)cfg('azure_tts_endpoint', "https://{$region}.tts.speech.microsoft.com/cognitiveservices/v1");
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'Ocp-Apim-Subscription-Key: ' . trim((string)cfg('azure_speech_key', '')),
+            'Content-Type: application/ssml+xml',
+            'X-Microsoft-OutputFormat: audio-24khz-48kbitrate-mono-mp3',
+            'User-Agent: hoc-cung-may',
+        ],
+        CURLOPT_POSTFIELDS => $ssml,
+    ]);
+    $mp3 = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    if ($mp3 === false || $code !== 200 || strlen((string)$mp3) < 100) {
+        throw new UpstreamError('Azure TTS ' . $code . ' ' . $err . ' ' . substr((string)$mp3, 0, 300));
+    }
+    if (!is_dir($dir)) @mkdir($dir, 0750, true);
+    @file_put_contents($file, $mp3);
+    return (string)$mp3;
+}

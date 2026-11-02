@@ -30,6 +30,11 @@ $pdo->prepare('DELETE FROM homework WHERE created_at < ?')->execute([strtotime('
 // Luyện nói: chỉ có chữ do iPad nhận dạng (không có âm thanh), giữ 60 ngày
 $pdo->prepare('DELETE FROM speaking WHERE created_at < ?')->execute([strtotime('-60 days')]);
 
+// Dọn file giọng đọc lưu tạm (Azure) không dùng tới trong 30 ngày
+foreach (glob(__DIR__ . '/cache/tts/*.mp3') ?: [] as $f) {
+    if (filemtime($f) < strtotime('-30 days')) @unlink($f);
+}
+
 // 3. Sao lưu bằng mysqldump: một file .sql.gz mỗi ngày, giữ N bản gần nhất.
 //    Mật khẩu đưa qua file tạm chỉ user "may" đọc được, không lộ trên dòng lệnh.
 $dir = __DIR__ . '/backups';

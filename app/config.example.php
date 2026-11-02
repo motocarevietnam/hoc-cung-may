@@ -28,6 +28,11 @@ return [
     'quiz_effort' => 'medium',
     'homework_effort' => 'medium',
 
+    // Giọng đọc tự nhiên (Microsoft Azure Speech). Để trống key thì Mây dùng giọng có sẵn của iPad.
+    // Lấy key: portal.azure.com → tạo tài nguyên "Speech" → Keys and Endpoint → Key 1 và Location/Region.
+    'azure_speech_key' => '',
+    'azure_speech_region' => 'southeastasia',
+
     // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3, 1 lần chấm bài tập = 5)
     'daily_limit' => 150,
 

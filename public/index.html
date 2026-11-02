@@ -299,7 +299,7 @@ const LS = {
 let pin = LS.get("pin","");
 let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
 let autoRead = LS.get("autoRead", true);
-const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null};
+const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null, tts: LS.get("ttsOn", false), ttsVoices: null};
 const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null,
   plan:null, planTab:"day", parentPage:null, sched:null, pplan:null};
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -333,6 +333,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
+    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts);
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -376,7 +377,7 @@ function go(view){
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   stopSpeakCapture(true);
-  try{ speechSynthesis.cancel(); }catch(e){}
+  stopVoice();
   if(view!=="parent"){ parentPin=""; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
 }
@@ -464,7 +465,7 @@ function renderChat(){
   document.getElementById("sendBtn").onclick=onSend;
   app.querySelectorAll("#sugg .chip").forEach(c=>c.onclick=()=>sendChat(c.textContent));
   const ar=document.getElementById("autoRead");
-  ar.onchange=()=>{ autoRead=ar.checked; LS.set("autoRead",autoRead); if(!autoRead){ try{speechSynthesis.cancel()}catch(e){} } };
+  ar.onchange=()=>{ autoRead=ar.checked; LS.set("autoRead",autoRead); if(!autoRead) stopVoice(); };
   const lb=document.getElementById("langBtn");
   if(lb) lb.onclick=()=>{ micLang = micLang==="vi"?"en":"vi"; lb.textContent = micLang==="vi"?"VI":"EN"; };
   const mb=document.getElementById("micBtn"); if(mb) mb.onclick=toggleMic;
@@ -494,7 +495,7 @@ function toggleMic(){
   const mb=document.getElementById("micBtn"), note=document.getElementById("micNote"), box=document.getElementById("box");
   if(rec){ try{rec.stop()}catch(e){} return; }
   if(state.busy || !ready()) return;
-  try{ speechSynthesis.cancel(); }catch(e){}
+  stopVoice();
   try{
     rec = new SR(); rec.lang = micLang==="vi" ? "vi-VN" : "en-US";
     rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
@@ -551,13 +552,43 @@ function langChunks(text, fallback){
   }
   return out;
 }
+// Giọng tự nhiên (Azure) khi máy chủ có key và ba mẹ không tắt; lỗi thì tự quay về giọng của máy.
+// Phát bằng Web Audio: iPad chỉ cho phát âm thanh sau một lần chạm, nên "mở khoá" AudioContext ở lần chạm đầu tiên.
+let actx = null, asrc = null, ttsSeq = 0;
+function audioCtx(){ if(!actx){ const C = window.AudioContext || window.webkitAudioContext; if(C) actx = new C(); } return actx; }
+function unlockAudio(){
+  const c = audioCtx(); if(!c) return;
+  if(c.state==="suspended") c.resume().catch(()=>{});
+  try{ const b=c.createBuffer(1,1,22050), s=c.createBufferSource(); s.buffer=b; s.connect(c.destination); s.start(0); }catch(e){}
+}
+["touchend","click"].forEach(ev=>document.addEventListener(ev, unlockAudio, {passive:true}));
+function stopVoice(){ ttsSeq++; if(asrc){ try{ asrc.stop(); }catch(e){} asrc=null; } try{ speechSynthesis.cancel(); }catch(e){} }
+const cloudOn = () => me.tts && LS.get("cloudVoice", true);
+async function cloudSpeak(chunks, rate){
+  const seq = ++ttsSeq;
+  const res = await fetch("/api/tts",{method:"POST", headers:{"content-type":"application/json","x-app-pin":pin},
+    body:JSON.stringify({chunks, rate:(rate||.95)/.95, vi:LS.get("cloudVi",""), en:LS.get("cloudEn","")})});
+  if(!res.ok) throw new Error("tts "+res.status);
+  const data = await res.arrayBuffer();
+  if(seq!==ttsSeq) return;               // đã có câu khác chen vào
+  const c = audioCtx(); if(!c) throw new Error("no audio");
+  if(c.state==="suspended") await c.resume();
+  const buf = await new Promise((ok,no)=>c.decodeAudioData(data, ok, no));
+  if(seq!==ttsSeq) return;
+  asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination); asrc.start(0);
+}
 function speak(text, lang, rate){
+  const chunks = lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
+               : lang==="vi-only" ? [{l:"vi", t:String(text).replace(/\*\*/g,"")}]
+               : langChunks(text, lang);
+  stopVoice();
+  if(cloudOn()){ cloudSpeak(chunks.map(c=>({l:c.l, t:c.t.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"")})), rate).catch(()=>deviceSpeak(chunks, rate)); return; }
+  deviceSpeak(chunks, rate);
+}
+function deviceSpeak(chunks, rate){
   try{
     speechSynthesis.cancel();
     const c = voiceCfg();
-    const chunks = lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
-                 : lang==="vi-only" ? [{l:"vi", t:String(text).replace(/\*\*/g,"")}]
-                 : langChunks(text, lang);
     for(const ch of chunks){
       const u = new SpeechSynthesisUtterance(ch.t);
       const v = pickVoice(ch.l);
@@ -866,7 +897,7 @@ function stopSpeakCapture(abort){
 }
 async function startSpeakCapture(){
   const S=state.sp; const idx=S.i;
-  try{ speechSynthesis.cancel(); }catch(e){}
+  stopVoice();
   S.live=""; S.note=""; S.res[idx]=null; S.listening=true; render();
   // Ghi âm để nghe lại (tuỳ chọn; nếu máy không cho thì bỏ qua)
   spChunks=[];
@@ -1164,7 +1195,13 @@ function voiceCardHtml(){
   const opts = l => { const cur = pickVoice(l); const list = voicesFor(l);
     return list.length ? list.map(v=>`<option value="${esc(v.name)}" ${cur&&v.name===cur.name?"selected":""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
       : `<option value="">(máy chưa có giọng ${l==="vi"?"tiếng Việt":"tiếng Anh"})</option>`; };
-  return `<div class="card"><h3>Giọng của Mây (trên máy này)</h3>
+  const tv = me.ttsVoices;
+  const cloud = me.tts ? `<div class="notice" style="margin-top:8px"><label style="display:flex;gap:10px;align-items:center;margin:0"><input type="checkbox" id="vCloud" ${LS.get("cloudVoice",true)?"checked":""} style="width:22px;height:22px"> <b>Dùng giọng tự nhiên (Microsoft)</b></label>
+      ${tv?`<label for="cVi">Giọng tiếng Việt</label><select class="field" id="cVi">${Object.entries(tv.vi).map(([k,n])=>`<option value="${k}" ${LS.get("cloudVi","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>
+      <label for="cEn">Giọng tiếng Anh</label><select class="field" id="cEn">${Object.entries(tv.en).map(([k,n])=>`<option value="${k}" ${LS.get("cloudEn","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>`:""}
+      <p class="muted" style="margin:6px 0 0">Khi tắt, hoặc khi mạng lỗi, Mây dùng giọng của máy bên dưới.</p></div>`
+    : `<p class="muted" style="margin:8px 0 0">Muốn giọng tự nhiên như người thật (có giọng bé gái cho tiếng Anh): điền key Microsoft Azure Speech vào config.php trên VPS.</p>`;
+  return `<div class="card"><h3>Giọng của Mây (trên máy này)</h3>${cloud}
     <p class="muted" style="margin:0">Mây dùng giọng đọc có sẵn của máy. Nâng <b>cao độ</b> để giọng trẻ như bạn nhỏ 8–10 tuổi. Nghe thử rồi chỉnh, máy tự lưu.</p>
     <label for="vVi">Giọng tiếng Việt</label><select class="field" id="vVi">${opts("vi")}</select>
     <label for="vEn">Giọng tiếng Anh</label><select class="field" id="vEn">${opts("en")}</select>
@@ -1179,12 +1216,15 @@ function voiceCardHtml(){
 function wireVoiceCard(){
   const g=id=>document.getElementById(id); if(!g("vPitch")) return;
   g("vVi").onchange=e=>LS.set("voiceVi", e.target.value);
+  if(g("vCloud")) g("vCloud").onchange=e=>LS.set("cloudVoice", e.target.checked);
+  if(g("cVi")) g("cVi").onchange=e=>LS.set("cloudVi", e.target.value);
+  if(g("cEn")) g("cEn").onchange=e=>LS.set("cloudEn", e.target.value);
   g("vEn").onchange=e=>LS.set("voiceEn", e.target.value);
   g("vPitch").oninput=e=>{ LS.set("pitch", +e.target.value); g("vPitchV").textContent=(+e.target.value).toFixed(1); };
   g("vSpeed").oninput=e=>{ LS.set("speed", +e.target.value); g("vSpeedV").textContent=(+e.target.value).toFixed(1); };
   g("vTestVi").onclick=()=>speak(`Chào ${nick()}! Mình là Mây nè. Hôm nay mình cùng học vui nhé!`, "vi-only");
   g("vTestEn").onclick=()=>speak("Hi! I'm Mây. Let's practise English together!", "en-only");
-  g("vReset").onclick=()=>{ ["voiceVi","voiceEn","pitch","speed"].forEach(k=>{ try{ localStorage.removeItem("may_"+k); }catch(e){} }); render(); };
+  g("vReset").onclick=()=>{ ["voiceVi","voiceEn","pitch","speed","cloudVoice","cloudVi","cloudEn"].forEach(k=>{ try{ localStorage.removeItem("may_"+k); }catch(e){} }); render(); };
 }
 // Danh sách giọng trên iPad có khi nạp chậm: vẽ lại Góc ba mẹ khi có
 try{ speechSynthesis.addEventListener("voiceschanged", ()=>{

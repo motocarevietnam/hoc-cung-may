@@ -29,9 +29,9 @@ id may >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/no
 echo "==> Chép code vào $APP_DIR"
 mkdir -p "$APP_DIR"
 if [[ "$SRC_DIR" != "$APP_DIR" ]]; then
-  rsync -a --delete --exclude 'app/config.php' --exclude 'app/backups/*.sql.gz' --exclude '.git' "$SRC_DIR"/ "$APP_DIR"/
+  rsync -a --delete --exclude 'app/config.php' --exclude 'app/backups/*.sql.gz' --exclude 'app/cache/' --exclude '.git' "$SRC_DIR"/ "$APP_DIR"/
 fi
-mkdir -p "$APP_DIR/app/backups" /var/log/hoc-cung-may
+mkdir -p "$APP_DIR/app/backups" "$APP_DIR/app/cache/tts" /var/log/hoc-cung-may
 
 if [[ ! -f "$APP_DIR/app/config.php" ]]; then
   echo "==> Tạo database và user MariaDB riêng cho Mây (không đụng tới database khác)"
@@ -57,8 +57,8 @@ find "$APP_DIR" -type d -exec chmod 750 {} \;
 find "$APP_DIR" -type f -exec chmod 640 {} \;
 chmod 755 "$APP_DIR" "$APP_DIR/public" "$APP_DIR/public/icons"
 find "$APP_DIR/public" -type f -exec chmod 644 {} \;
-chown -R may:may "$APP_DIR/app/backups" /var/log/hoc-cung-may
-chmod 750 "$APP_DIR/app/backups"
+chown -R may:may "$APP_DIR/app/backups" "$APP_DIR/app/cache" /var/log/hoc-cung-may
+chmod 750 "$APP_DIR/app/backups" "$APP_DIR/app/cache" "$APP_DIR/app/cache/tts"
 chmod 640 "$APP_DIR/app/config.php"
 
 echo "==> Kiểm tra kết nối database và tạo bảng"

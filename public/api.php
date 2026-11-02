@@ -30,6 +30,7 @@ $routes = [
     'plan'                => 'r_plan',
     'speak_start'         => 'r_speak_start',
     'speak_check'         => 'r_speak_check',
+    'tts'                 => 'r_tts',
     'parent/check'        => 'r_parent_check',
     'parent/report'       => 'r_parent_report',
     'parent/conversation' => 'r_parent_conversation',
@@ -59,7 +60,7 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count()]);
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => TTS_VOICES]);
 }
 
 function subject_or_fail(array $b): string
@@ -435,6 +436,33 @@ function r_homework_list(array $b): never
                              'result' => homework_for_kid(json_decode($row['result'], true) ?: [], homework_answers_open((int)$row['id']))];
     }
     out(['list' => $list, 'detail' => $detail]);
+}
+
+/* ---------------- giọng đọc tự nhiên (Azure) ---------------- */
+
+// Đọc một đoạn đã tách theo ngôn ngữ thành một file mp3 (mỗi phần một giọng). Trả về âm thanh, không phải JSON.
+function r_tts(array $b): never
+{
+    if (!tts_enabled()) out(['error' => 'tts_off'], 404);
+    $chunks = [];
+    $total = 0;
+    foreach (is_array($b['chunks'] ?? null) ? array_slice($b['chunks'], 0, 30) : [] as $c) {
+        if (!is_array($c)) continue;
+        $t = clean($c['t'] ?? '', 1500);
+        $l = ($c['l'] ?? '') === 'en' ? 'en' : 'vi';
+        if ($t === '') continue;
+        $total += mb_strlen($t);
+        $chunks[] = ['l' => $l, 't' => $t];
+    }
+    if (!$chunks || $total > 2500) out(['error' => 'bad_request'], 400);
+    $voices = ['vi' => tts_voice('vi', (string)($b['vi'] ?? '')), 'en' => tts_voice('en', (string)($b['en'] ?? ''))];
+    $rate = max(0.5, min(1.5, (float)($b['rate'] ?? 1)));
+    $mp3 = tts_mp3($chunks, $voices, $rate);
+    header('Content-Type: audio/mpeg');
+    header('Cache-Control: private, max-age=86400');
+    header('Content-Length: ' . strlen($mp3));
+    echo $mp3;
+    exit;
 }
 
 /* ---------------- luyện nói tiếng Anh ---------------- */

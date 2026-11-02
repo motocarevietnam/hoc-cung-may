@@ -2,3 +2,4 @@ app/config.php
 app/backups/*
 !app/backups/.gitignore
 .DS_Store
+app/cache/
