@@ -511,16 +511,32 @@ function guessLang(text, fallback){
   const words = text.split(/\s+/).length || 1;
   return vi/words > 0.15 ? "vi" : (fallback==="vi" && vi>0 ? "vi" : (vi/words > 0.08 && fallback==="vi" ? "vi" : fallback==="vi" ? "vi" : "en"));
 }
+// Giọng của Mây: dùng giọng đọc có sẵn trên máy. Mặc định nâng cao độ (pitch) để nghe như bạn nhỏ 8–10 tuổi.
+// Ba mẹ chỉnh giọng, cao độ, tốc độ trong Góc ba mẹ; lưu riêng trên từng máy (mỗi máy có bộ giọng khác nhau).
+const VOICE_PREF = {vi:["Linh","Google Tiếng Việt","HoaiMy","An"], en:["Samantha","Karen","Kate","Serena","Stephanie","Martha","Moira","Tessa","Google UK English Female","Google US English","Aria","Jenny","Ana"]};
+const voiceCfg = () => ({vi:LS.get("voiceVi",""), en:LS.get("voiceEn",""), pitch:LS.get("pitch",1.4), speed:LS.get("speed",1)});
+function voicesFor(l){ try{ return speechSynthesis.getVoices().filter(v=>v.lang && v.lang.toLowerCase().replace("_","-").startsWith(l)); }catch(e){ return []; } }
+function pickVoice(l){
+  const list = voicesFor(l), want = voiceCfg()[l];
+  return list.find(v=>v.name===want)
+    || VOICE_PREF[l].map(n=>list.find(v=>v.name.includes(n))).find(Boolean)
+    || list.find(v=>/female|nữ/i.test(v.name)) || list[0] || null;
+}
 function speak(text, lang, rate){
   try{
     speechSynthesis.cancel();
     const u=new SpeechSynthesisUtterance(text.replace(/\*\*/g,"").replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu,""));
-    u.lang = lang==="en-only" ? "en-GB" : guessLang(text, lang)==="vi" ? "vi-VN" : "en-GB"; u.rate=rate||.95;
-    const v = speechSynthesis.getVoices().find(v=>v.lang && v.lang.toLowerCase().startsWith(u.lang.slice(0,2)));
+    const l = lang==="en-only" ? "en" : guessLang(text, lang)==="vi" ? "vi" : "en";
+    const c = voiceCfg();
+    const v = pickVoice(l);
+    u.lang = v ? v.lang : (l==="vi" ? "vi-VN" : "en-GB");
     if(v) u.voice=v;
+    u.pitch = Math.min(2, Math.max(0.5, +c.pitch||1.4));
+    u.rate = Math.min(1.6, Math.max(0.5, (rate||.95) * (+c.speed||1)));
     speechSynthesis.speak(u);
   }catch(e){}
 }
+try{ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>{}; }catch(e){}
 
 async function sendChat(text){
   text = (text||"").trim();
@@ -1108,6 +1124,42 @@ function renderParentPlan(){
   on("planApprove",()=>save(true));
 }
 
+/* ---------- giọng của Mây (trên máy này) ---------- */
+function voiceCardHtml(){
+  if(!("speechSynthesis" in window)) return "";
+  const c = voiceCfg();
+  const opts = l => { const cur = pickVoice(l); const list = voicesFor(l);
+    return list.length ? list.map(v=>`<option value="${esc(v.name)}" ${cur&&v.name===cur.name?"selected":""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
+      : `<option value="">(máy chưa có giọng ${l==="vi"?"tiếng Việt":"tiếng Anh"})</option>`; };
+  return `<div class="card"><h3>Giọng của Mây (trên máy này)</h3>
+    <p class="muted" style="margin:0">Mây dùng giọng đọc có sẵn của máy. Nâng <b>cao độ</b> để giọng trẻ như bạn nhỏ 8–10 tuổi. Nghe thử rồi chỉnh, máy tự lưu.</p>
+    <label for="vVi">Giọng tiếng Việt</label><select class="field" id="vVi">${opts("vi")}</select>
+    <label for="vEn">Giọng tiếng Anh</label><select class="field" id="vEn">${opts("en")}</select>
+    <label for="vPitch">Cao độ: <b id="vPitchV">${(+c.pitch).toFixed(1)}</b> (1.0 = giọng gốc, cao hơn = trẻ hơn)</label>
+    <input type="range" id="vPitch" min="0.8" max="2" step="0.1" value="${c.pitch}" style="width:100%">
+    <label for="vSpeed">Tốc độ: <b id="vSpeedV">${(+c.speed).toFixed(1)}</b></label>
+    <input type="range" id="vSpeed" min="0.7" max="1.3" step="0.1" value="${c.speed}" style="width:100%">
+    <div class="row"><button class="btn" id="vTestVi">🔊 Nghe thử tiếng Việt</button><button class="btn" id="vTestEn">🔊 Nghe thử tiếng Anh</button><button class="btn" id="vReset">Mặc định</button></div>
+    <p class="muted" style="margin:8px 0 0">Mẹo iPad: Cài đặt → Trợ năng → Nội dung được đọc → Giọng nói → tải thêm giọng (bản "Nâng cao") cho Tiếng Việt và English, rồi chọn lại ở đây.</p>
+  </div>`;
+}
+function wireVoiceCard(){
+  const g=id=>document.getElementById(id); if(!g("vPitch")) return;
+  g("vVi").onchange=e=>LS.set("voiceVi", e.target.value);
+  g("vEn").onchange=e=>LS.set("voiceEn", e.target.value);
+  g("vPitch").oninput=e=>{ LS.set("pitch", +e.target.value); g("vPitchV").textContent=(+e.target.value).toFixed(1); };
+  g("vSpeed").oninput=e=>{ LS.set("speed", +e.target.value); g("vSpeedV").textContent=(+e.target.value).toFixed(1); };
+  g("vTestVi").onclick=()=>speak(`Chào ${nick()}! Mình là Mây nè. Hôm nay mình cùng học vui nhé!`, "vi");
+  g("vTestEn").onclick=()=>speak("Hi! I'm Mây. Let's practise English together!", "en-only");
+  g("vReset").onclick=()=>{ ["voiceVi","voiceEn","pitch","speed"].forEach(k=>{ try{ localStorage.removeItem("may_"+k); }catch(e){} }); render(); };
+}
+// Danh sách giọng trên iPad có khi nạp chậm: vẽ lại Góc ba mẹ khi có
+try{ speechSynthesis.addEventListener("voiceschanged", ()=>{
+  const card = document.getElementById("vVi")?.closest(".card"); if(!card) return;
+  const fresh = document.createElement("div"); fresh.innerHTML = voiceCardHtml();
+  ["vVi","vEn"].forEach(id=>{ const n=fresh.querySelector("#"+id); if(n) document.getElementById(id).innerHTML = n.innerHTML; });
+}); }catch(e){}
+
 /* ---------- góc ba mẹ ---------- */
 function renderParent(){
   if(state.transcript) return renderTranscript();
@@ -1124,6 +1176,7 @@ function renderParent(){
       <input class="field" id="pinIn" type="password" inputmode="numeric" autocomplete="off" value="${esc(pin)}">
       <div class="row"><button class="btn primary" id="savePin">Lưu mã PIN</button><span class="muted" id="pinMsg" style="align-self:center"></span></div>
     </div>
+    ${voiceCardHtml()}
     ${R ? reportHtml(R) : `
     <div class="card">
       <h3>Báo cáo học tập</h3>
@@ -1136,6 +1189,7 @@ function renderParent(){
       <p class="muted" style="margin:0">Mây được dặn gợi ý từng bước thay vì cho đáp án ngay, không hỏi thông tin cá nhân, và khuyên bé kể với ba mẹ khi có chuyện buồn. Dữ liệu học lưu trên VPS của gia đình; lịch sử trò chuyện tự xoá sau một thời gian. Báo cáo tự khoá khi rời Góc ba mẹ. AI đôi khi vẫn có thể sai, nên ba mẹ thỉnh thoảng ngồi cùng bé để kiểm tra nhé.</p>
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
+  wireVoiceCard();
   document.getElementById("savePin").onclick=async()=>{
     const msg=document.getElementById("pinMsg"); const v=document.getElementById("pinIn").value.trim();
     msg.textContent="Đang kiểm tra…"; const old=pin; pin=v;
