@@ -1,5 +1,5 @@
 <?php
-// Thư viện chung của Học cùng Mây (bản chạy trên VPS: PHP 8.1+ và SQLite).
+// Thư viện chung của Học cùng Mây (bản chạy trên VPS: PHP 8.1+ và MariaDB/MySQL).
 // Thư mục app/ nằm NGOÀI thư mục web, nên trình duyệt không truy cập được file nào ở đây.
 declare(strict_types=1);
 
@@ -24,37 +24,53 @@ const SUBJECTS = [
 // Các mức chấm một câu trong bài tập về nhà
 const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
-const SCHEMA = <<<SQL
-CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '');
-CREATE TABLE IF NOT EXISTS conversations (
-  id INTEGER PRIMARY KEY, subject TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
-  started_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS messages (
-  id INTEGER PRIMARY KEY, conv_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
-  role TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conv_id);
-CREATE TABLE IF NOT EXISTS quizzes (
-  id INTEGER PRIMARY KEY, subject TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
-  questions TEXT NOT NULL, answers TEXT NOT NULL DEFAULT '{}',
-  score INTEGER, total INTEGER NOT NULL, created_at INTEGER NOT NULL, finished_at INTEGER);
-CREATE TABLE IF NOT EXISTS mistakes (
-  id INTEGER PRIMARY KEY, subject TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
-  q TEXT NOT NULL, options TEXT NOT NULL, answer INTEGER NOT NULL,
-  explain TEXT NOT NULL DEFAULT '', hint TEXT NOT NULL DEFAULT '',
-  box INTEGER NOT NULL DEFAULT 0, due_at INTEGER NOT NULL, times_wrong INTEGER NOT NULL DEFAULT 1,
-  created_at INTEGER NOT NULL, mastered_at INTEGER);
-CREATE INDEX IF NOT EXISTS idx_mistakes_due ON mistakes(mastered_at, due_at);
-CREATE TABLE IF NOT EXISTS activity (
-  id INTEGER PRIMARY KEY, day TEXT NOT NULL, subject TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '',
-  type TEXT NOT NULL, score INTEGER, total INTEGER, created_at INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS idx_activity_day ON activity(day);
-CREATE TABLE IF NOT EXISTS usage (day TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS homework (
-  id INTEGER PRIMARY KEY, subject TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
-  photos INTEGER NOT NULL DEFAULT 1, result TEXT NOT NULL, right_n INTEGER NOT NULL DEFAULT 0,
-  graded_n INTEGER NOT NULL DEFAULT 0, recheck_of INTEGER, created_at INTEGER NOT NULL);
-CREATE INDEX IF NOT EXISTS idx_homework_created ON homework(created_at);
-SQL;
+// Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
+// Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
+const SCHEMA_VERSION = 1;
+const SCHEMA = [
+    "CREATE TABLE IF NOT EXISTS settings (
+       k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS conversations (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
+       started_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL,
+       KEY idx_conv_updated (updated_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS messages (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, conv_id INT UNSIGNED NOT NULL,
+       role VARCHAR(16) NOT NULL, content MEDIUMTEXT NOT NULL, created_at INT UNSIGNED NOT NULL,
+       KEY idx_messages_conv (conv_id),
+       CONSTRAINT fk_messages_conv FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS quizzes (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
+       questions MEDIUMTEXT NOT NULL, answers TEXT NOT NULL,
+       score INT NULL, total INT NOT NULL, created_at INT UNSIGNED NOT NULL, finished_at INT UNSIGNED NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS mistakes (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
+       q TEXT NOT NULL, options TEXT NOT NULL, answer INT NOT NULL,
+       `explain` TEXT NOT NULL, hint TEXT NOT NULL,
+       box INT NOT NULL DEFAULT 0, due_at INT UNSIGNED NOT NULL, times_wrong INT NOT NULL DEFAULT 1,
+       created_at INT UNSIGNED NOT NULL, mastered_at INT UNSIGNED NULL,
+       KEY idx_mistakes_due (mastered_at, due_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS activity (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, day CHAR(10) NOT NULL, subject VARCHAR(10) NOT NULL,
+       topic VARCHAR(255) NOT NULL DEFAULT '', type VARCHAR(16) NOT NULL, score INT NULL, total INT NULL,
+       created_at INT UNSIGNED NOT NULL,
+       KEY idx_activity_day (day)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS daily_usage (
+       day CHAR(10) NOT NULL PRIMARY KEY, n INT NOT NULL DEFAULT 0
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS homework (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, note VARCHAR(400) NOT NULL DEFAULT '',
+       photos TINYINT UNSIGNED NOT NULL DEFAULT 1, result MEDIUMTEXT NOT NULL, right_n INT NOT NULL DEFAULT 0,
+       graded_n INT NOT NULL DEFAULT 0, recheck_of INT UNSIGNED NULL, created_at INT UNSIGNED NOT NULL,
+       KEY idx_homework_created (created_at), KEY idx_homework_recheck (recheck_of)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+];
 
 class UpstreamError extends RuntimeException {}
 
@@ -74,12 +90,31 @@ function db(): PDO
 {
     static $pdo = null;
     if ($pdo instanceof PDO) return $pdo;
-    $pdo = new PDO('sqlite:' . __DIR__ . '/data/may.sqlite');
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-    $pdo->exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;');
-    $pdo->exec(SCHEMA);
+    $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
+        (string)cfg('db_host', '127.0.0.1'), (int)cfg('db_port', 3306), (string)cfg('db_name', 'hoc_cung_may'));
+    $pdo = new PDO($dsn, (string)cfg('db_user', 'hoc_cung_may'), (string)cfg('db_pass', ''), [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,   // số trả về đúng kiểu int, không thành chuỗi
+        PDO::ATTR_STRINGIFY_FETCHES => false,
+    ]);
+    $pdo->exec("SET time_zone = '+00:00', sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'");
+    ensure_schema($pdo);
     return $pdo;
+}
+
+// Tạo bảng khi chạy lần đầu (hoặc khi SCHEMA_VERSION tăng). Chỉ tốn một câu truy vấn nhỏ mỗi lần.
+function ensure_schema(PDO $pdo): void
+{
+    try {
+        $v = $pdo->query("SELECT v FROM settings WHERE k = 'schema_version'")->fetchColumn();
+        if ($v !== false && (int)$v >= SCHEMA_VERSION) return;
+    } catch (PDOException $e) {
+        // chưa có bảng settings: tạo mới bên dưới
+    }
+    foreach (SCHEMA as $sql) $pdo->exec($sql);
+    $pdo->prepare('INSERT INTO settings (k, v) VALUES (\'schema_version\', ?) ON DUPLICATE KEY UPDATE v = VALUES(v)')
+        ->execute([(string)SCHEMA_VERSION]);
 }
 
 function q(string $sql, array $params = []): PDOStatement
@@ -105,7 +140,7 @@ function setting(string $k, string $default = ''): string
 
 function set_setting(string $k, string $v): void
 {
-    q('INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v', [$k, $v]);
+    q('INSERT INTO settings (k, v) VALUES (?, ?) ON DUPLICATE KEY UPDATE v = VALUES(v)', [$k, $v]);
 }
 
 function today(): string
@@ -138,9 +173,9 @@ function require_parent_pin(): void
 function spend(int $n): void
 {
     $max = (int)cfg('daily_limit', 150);
-    $used = (int)(q('SELECT n FROM usage WHERE day = ?', [today()])->fetchColumn() ?: 0);
+    $used = (int)(q('SELECT n FROM daily_usage WHERE day = ?', [today()])->fetchColumn() ?: 0);
     if ($used + $n > $max) out(['error' => 'daily_limit'], 429);
-    q('INSERT INTO usage (day, n) VALUES (?, ?) ON CONFLICT(day) DO UPDATE SET n = n + excluded.n', [today(), $n]);
+    q('INSERT INTO daily_usage (day, n) VALUES (?, ?) ON DUPLICATE KEY UPDATE n = n + VALUES(n)', [today(), $n]);
 }
 
 function stars(): int

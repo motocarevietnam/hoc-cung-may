@@ -1,6 +1,13 @@
 <?php
 // Sao chép file này thành config.php rồi điền thông tin. KHÔNG đưa config.php lên GitHub.
 return [
+    // Cơ sở dữ liệu MariaDB/MySQL. install.sh tự tạo database, user và mật khẩu rồi điền vào đây.
+    'db_host' => '127.0.0.1',
+    'db_port' => 3306,
+    'db_name' => 'hoc_cung_may',
+    'db_user' => 'hoc_cung_may',
+    'db_pass' => 'DOI_MAT_KHAU_NAY',
+
     // Claude API key, lấy tại console.anthropic.com
     'anthropic_api_key' => 'sk-ant-...',
 

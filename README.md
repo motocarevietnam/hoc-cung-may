@@ -1,8 +1,8 @@
 # Học cùng Mây ☁️ (bản chạy trên VPS)
 
 Bạn học AI cho học sinh lớp 4, học song song sách giáo khoa Việt Nam và Cambridge Primary.
-Chạy bằng **PHP 8.1+ và SQLite** trên nginx + PHP-FPM có sẵn, **tách riêng hoàn toàn** khỏi các website khác trên VPS
-(tên miền phụ riêng, user `may` riêng, pool PHP-FPM riêng, cơ sở dữ liệu riêng).
+Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FPM), **tách riêng hoàn toàn** khỏi các website khác trên VPS
+(tên miền phụ riêng, user `may` riêng, pool PHP-FPM riêng, database và user MariaDB riêng `hoc_cung_may`).
 
 ## Có gì trong bản này
 - Trò chuyện với Mây (nói bằng giọng hoặc gõ), đố vui 5 câu, Mây đọc to câu trả lời.
@@ -24,10 +24,9 @@ public/            Thư mục web (nginx trỏ vào đây)
   api.php          Cổng API duy nhất
 app/               NGOÀI thư mục web, trình duyệt không truy cập được
   lib.php          Cơ sở dữ liệu, mã PIN, gọi Claude, nguyên tắc của Mây
-  cron.php         Chạy mỗi đêm: xoá trò chuyện cũ, sao lưu
+  cron.php         Chạy mỗi đêm: xoá trò chuyện cũ, sao lưu (--check: kiểm tra kết nối database)
   config.example.php → chép thành config.php
-  data/            File cơ sở dữ liệu may.sqlite
-  backups/         Bản sao lưu hằng đêm
+  backups/         Bản sao lưu hằng đêm (mysqldump, nén .sql.gz)
 deploy/            File cấu hình nginx, PHP-FPM và script cài đặt
 ```
 
@@ -61,8 +60,8 @@ unzip hoc-cung-may-vps.zip && mv may-vps hoc-cung-may
 cd ~/hoc-cung-may
 sudo bash deploy/install.sh may.ten-mien-cua-ban.vn
 ```
-Script sẽ: cài tiện ích PHP (sqlite, curl, mbstring), tạo user `may`, chép code vào `/var/www/hoc-cung-may`,
-phân quyền, tạo pool PHP-FPM và trang nginx riêng, đặt lịch chạy mỗi đêm.
+Script sẽ: kiểm tra tiện ích PHP (pdo_mysql, curl, mbstring; chỉ cài thêm nếu thiếu), tạo user `may`, chép code vào `/var/www/hoc-cung-may`,
+tạo database `hoc_cung_may` và user MariaDB riêng với mật khẩu ngẫu nhiên (tự điền vào `config.php`), tạo bảng, phân quyền, tạo pool PHP-FPM và trang nginx riêng, đặt lịch chạy mỗi đêm.
 Script **chỉ thêm file mới**, không sửa cấu hình của website khác. Trước khi tải lại, nó kiểm tra
 cấu hình bằng `nginx -t`, nếu có lỗi sẽ dừng lại và không ảnh hưởng gì.
 
@@ -70,7 +69,7 @@ cấu hình bằng `nginx -t`, nếu có lỗi sẽ dừng lại và không ản
 ```
 sudo nano /var/www/hoc-cung-may/app/config.php
 ```
-Điền `anthropic_api_key`, `app_pin`, `parent_pin` (hai mã phải khác nhau, nên từ 6 số trở lên). Lưu bằng Ctrl+O, Enter, Ctrl+X.
+Phần database đã được điền sẵn. Chỉ cần điền `anthropic_api_key`, `app_pin`, `parent_pin` (hai mã phải khác nhau, nên từ 6 số trở lên). Lưu bằng Ctrl+O, Enter, Ctrl+X.
 
 ### Bước 5: Bật HTTPS
 ```
@@ -94,8 +93,11 @@ Script giữ nguyên `config.php`, cơ sở dữ liệu và bản sao lưu.
 
 ## Sao lưu và khôi phục
 - Bản sao lưu nằm ở `/var/www/hoc-cung-may/app/backups/`, mỗi ngày một file.
-- Thỉnh thoảng nên tải một bản về máy tính: `scp user@IP-VPS:/var/www/hoc-cung-may/app/backups/may-*.sqlite .`
-- Khôi phục: chép file sao lưu đè lên `app/data/may.sqlite` (rồi `sudo chown may:may` file đó).
+- Thỉnh thoảng nên tải một bản về máy tính: `scp user@IP-VPS:/var/www/hoc-cung-may/app/backups/may-*.sql.gz .`
+- Khôi phục một bản (ghi đè dữ liệu hiện tại):
+  ```
+  zcat /var/www/hoc-cung-may/app/backups/may-NGAY.sql.gz | sudo mysql --default-character-set=utf8mb4 hoc_cung_may
+  ```
 
 ## Khi có lỗi, xem ở đâu
 | Hiện tượng | Xem |
@@ -103,6 +105,7 @@ Script giữ nguyên `config.php`, cơ sở dữ liệu và bản sao lưu.
 | App báo “Mây chưa kết nối được tới Claude” | `sudo tail -50 /var/log/hoc-cung-may/php-error.log` (thường do sai API key hoặc hết tiền) |
 | Trang trắng, lỗi 502 | `sudo tail -50 /var/log/nginx/hoc-cung-may.error.log` và `systemctl status php8.X-fpm` |
 | Sao lưu, xoá lịch sử | `sudo tail /var/log/hoc-cung-may/cron.log` |
+| Lỗi kết nối database | `sudo -u may php /var/www/hoc-cung-may/app/cron.php --check` |
 
 ## Mẹo cho iPad
 - **Nút 🎤**: bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả. Nếu nút 🎤 không chạy khi mở từ màn hình chính, bé bấm micro trên bàn phím để nói.

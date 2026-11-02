@@ -140,7 +140,7 @@ function r_quiz(array $b): never
     }
     if (count($questions) < 3) out(['error' => 'bad_quiz'], 502);
 
-    q('INSERT INTO quizzes (subject, topic, questions, total, created_at) VALUES (?, ?, ?, ?, ?)',
+    q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
         [$subject, $topic, json_encode($questions, JSON_UNESCAPED_UNICODE), count($questions), time()]);
     $id = (int)db()->lastInsertId();
 
@@ -155,7 +155,7 @@ function remember_mistake(string $subject, string $topic, array $x): void
     if ($existing !== false) {
         q('UPDATE mistakes SET box = 0, due_at = ?, times_wrong = times_wrong + 1, mastered_at = NULL WHERE id = ?', [$tomorrow, $existing]);
     } else {
-        q('INSERT INTO mistakes (subject, topic, q, options, answer, explain, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        q('INSERT INTO mistakes (subject, topic, q, options, answer, `explain`, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [$subject, $topic, $x['q'], json_encode($x['options'], JSON_UNESCAPED_UNICODE), $x['answer'], $x['explain'], $x['hint'], $tomorrow, time()]);
     }
 }
@@ -449,6 +449,8 @@ function r_parent_report(array $b): never
 
     $subjects = q('SELECT subject, COUNT(*) AS quizzes, SUM(score) AS correct, SUM(total) AS total
                    FROM activity WHERE type = \'quiz\' GROUP BY subject')->fetchAll();
+    $subjects = array_map(fn($r) => ['subject' => $r['subject'], 'quizzes' => (int)$r['quizzes'],
+                                     'correct' => (int)$r['correct'], 'total' => (int)$r['total']], $subjects);
     $weak = q('SELECT subject, topic, COUNT(*) AS n FROM mistakes WHERE mastered_at IS NULL
                GROUP BY subject, topic ORDER BY n DESC LIMIT 8')->fetchAll();
     $review = [
@@ -511,14 +513,14 @@ function r_parent_clear(array $b): never
 {
     $what = (string)($b['what'] ?? '');
     $pdo = db();
-    if ($what === 'chats') {
-        $pdo->exec('DELETE FROM messages; DELETE FROM conversations;');
-    } elseif ($what === 'all') {
-        $pdo->exec('DELETE FROM messages; DELETE FROM conversations; DELETE FROM quizzes; DELETE FROM mistakes; DELETE FROM activity; DELETE FROM homework;');
-        set_setting('stars', '0');
-    } else {
-        out(['error' => 'bad_request'], 400);
-    }
-    $pdo->exec('VACUUM');
+    $tables = match ($what) {
+        'chats' => ['messages', 'conversations'],
+        'all' => ['messages', 'conversations', 'quizzes', 'mistakes', 'activity', 'homework'],
+        default => out(['error' => 'bad_request'], 400),
+    };
+    $pdo->beginTransaction();
+    foreach ($tables as $t) $pdo->exec("DELETE FROM {$t}");
+    if ($what === 'all') set_setting('stars', '0');
+    $pdo->commit();
     out(['ok' => true]);
 }
