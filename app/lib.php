@@ -627,7 +627,7 @@ function quiz_context(string $id): string
     return $lines ? "Bối cảnh chương trình của bé (bám sát phần này):\n- " . implode("\n- ", $lines) : '';
 }
 
-function quiz_prompt(string $id, string $topic, string $focus, string $context = ''): string
+function quiz_prompt(string $id, string $topic, string $focus, string $context = '', int $count = 12): string
 {
     $s = SUBJECTS[$id];
     $lang = $s['lang'] === 'vi'
@@ -638,12 +638,12 @@ function quiz_prompt(string $id, string $topic, string $focus, string $context =
     $focusText = $focus !== '' ? "\nGhi chú của ba mẹ: " . $focus : '';
     $scope = grade4_scope($id);
     return <<<TXT
-Tạo đúng 10 câu hỏi trắc nghiệm vui, vừa sức học sinh lớp 4.
+Tạo đúng {$count} câu hỏi trắc nghiệm vui, vừa sức học sinh lớp 4.
 Môn: {$s['name']} ({$s['sub']}). Chủ đề: {$topicText}.{$focusText}{$ctx}
 {$lang}
 {$scope}
 Nếu chủ đề bé chọn vượt lớp 4, hãy chọn phần gần nhất thuộc chương trình lớp 4 để ra câu hỏi.
-Yêu cầu: câu hỏi ngắn, bối cảnh gần gũi với trẻ em Việt Nam, nội dung phù hợp trẻ em; mỗi câu có 3 hoặc 4 lựa chọn, chỉ một đáp án đúng; vị trí đáp án đúng thay đổi giữa các câu; độ khó tăng dần (khoảng 3 câu dễ, 4 câu vừa, 3 câu khó); trải đều các dạng bài trong chủ đề, giống dạng bài trong sách và đề kiểm tra lớp 4, không lặp một dạng quá 3 câu. Kiểm tra kỹ từng đáp án cho chính xác tuyệt đối.
+Yêu cầu: câu hỏi ngắn, bối cảnh gần gũi với trẻ em Việt Nam, nội dung phù hợp trẻ em; mỗi câu có 3 hoặc 4 lựa chọn, chỉ một đáp án đúng; vị trí đáp án đúng thay đổi giữa các câu; độ khó tăng dần (khoảng một phần ba dễ, một phần ba vừa, một phần ba khó); trải đều các dạng bài trong chủ đề, giống dạng bài trong sách và đề kiểm tra lớp 4, không lặp một dạng quá 3 câu. Kiểm tra kỹ từng đáp án cho chính xác tuyệt đối.
 "explain": giải thích ngắn (dưới 30 từ) vì sao đáp án đúng. "hint": gợi ý không lộ đáp án.
 Chỉ trả về JSON, không thêm chữ nào khác, đúng dạng: {"questions":[{"q":"...","options":["...","..."],"answer":0,"explain":"...","hint":"..."}]} trong đó "answer" là chỉ số (bắt đầu từ 0) của lựa chọn đúng.
 TXT;
@@ -652,6 +652,22 @@ TXT;
 // Chấm bài tập về nhà từ ảnh chụp. Mây chấm từng câu, chỉ chỗ sai, gợi ý để bé tự sửa;
 // đáp án đúng ("fix") chỉ hiện khi bé bấm xem, sau khi đã thử sửa.
 // Lời dặn chung khi soạn đố vui (system prompt)
+// Kiểm tra lại đề: một lượt riêng tự giải từng câu, trả về chỉ số các câu có đáp án sai / mơ hồ / ngoài chương trình
+function quiz_verify_prompt(string $id, array $questions): string
+{
+    $list = [];
+    foreach ($questions as $i => $q) $list[] = ['i' => $i, 'q' => $q['q'], 'options' => $q['options'], 'marked_answer' => $q['answer']];
+    $json = json_encode($list, JSON_UNESCAPED_UNICODE);
+    $name = SUBJECTS[$id]['name'];
+    return <<<TXT
+Bạn là giáo viên lớp 4 kiểm tra một đề trắc nghiệm môn {$name} trước khi đưa cho học sinh.
+Với TỪNG câu: tự giải lại cẩn thận từ đầu (không tin đáp án đã đánh dấu), rồi so với "marked_answer" (chỉ số, bắt đầu từ 0).
+Đánh dấu câu là LỖI nếu: đáp án đánh dấu sai; có nhiều hơn một lựa chọn đúng; không có lựa chọn nào đúng; đề mơ hồ, thiếu dữ kiện; hoặc kiến thức ngoài lớp 4.
+Đề: {$json}
+Chỉ trả về JSON đúng dạng: {"bad":[các chỉ số i của câu LỖI],"notes":"ghi chú rất ngắn"}
+TXT;
+}
+
 function quiz_system(): string
 {
     return "Bạn soạn câu hỏi ôn tập cho học sinh lớp 4. Nội dung luôn phù hợp trẻ em và chính xác tuyệt đối.\n\n"
