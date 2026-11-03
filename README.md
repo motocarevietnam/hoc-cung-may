@@ -137,7 +137,7 @@ Script giữ nguyên `config.php`, cơ sở dữ liệu và bản sao lưu.
 - **Nút 🎤**: bật Cài đặt → Cài đặt chung → Bàn phím → Bật Đọc chính tả. Nếu nút 🎤 không chạy khi mở từ màn hình chính, bé bấm micro trên bàn phím để nói.
 - **Giọng tiếng Việt hay hơn**: Cài đặt → Trợ năng → Nội dung được đọc → Giọng nói → Tiếng Việt → tải giọng Nâng cao.
 - **Giọng tự nhiên như người thật**: điền `google_tts_key` (Google Cloud Text-to-Speech) vào `app/config.php`. Mây đọc
-  bằng giọng Chirp 3 HD tiếng Việt và giọng Anh-Anh; đổi giọng ở ⚙️ Cài đặt máy → Giọng của Mây. Câu đã đọc được lưu
+  bằng giọng Neural2 A tiếng Việt và giọng Chirp 3 HD Anh-Anh; đổi giọng ở ⚙️ Cài đặt máy → Giọng của Mây. Câu đã đọc được lưu
   tạm trên VPS 30 ngày nên đọc lại không tốn thêm. Mạng hay Google lỗi thì Mây tự quay về giọng của iPad.
 
 ## Sửa nội dung

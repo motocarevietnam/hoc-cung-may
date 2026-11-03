@@ -1042,8 +1042,9 @@ const TTS_PITCH = ['vi-VN-HoaiMyNeural' => '+12%', 'vi-VN-NamMinhNeural' => '+15
 // Google: không có giọng trẻ em. Chirp 3 HD tự nhiên nhất nhưng không chỉnh cao độ được;
 // Neural2/WaveNet nâng cao độ (nửa cung) cho giọng trẻ hơn.
 const TTS_VOICES_GOOGLE = [
-    'vi' => ['vi-VN-Chirp3-HD-Leda' => 'Leda (nữ trẻ, tự nhiên nhất)', 'vi-VN-Chirp3-HD-Aoede' => 'Aoede (nữ)',
-             'vi-VN-Chirp3-HD-Puck' => 'Puck (nam)', 'vi-VN-Neural2-A' => 'Neural2 A (nữ, giọng cao hơn)',
+    // Giọng đứng đầu là mặc định (ba mẹ chọn Neural2 A)
+    'vi' => ['vi-VN-Neural2-A' => 'Neural2 A (nữ, giọng cao hơn)', 'vi-VN-Chirp3-HD-Leda' => 'Leda (nữ trẻ, tự nhiên nhất)',
+             'vi-VN-Chirp3-HD-Aoede' => 'Aoede (nữ)', 'vi-VN-Chirp3-HD-Puck' => 'Puck (nam)',
              'vi-VN-Wavenet-A' => 'WaveNet A (nữ, giọng cao hơn)'],
     'en' => ['en-GB-Chirp3-HD-Leda' => 'Leda (nữ trẻ, giọng Anh)', 'en-GB-Chirp3-HD-Aoede' => 'Aoede (nữ, giọng Anh)',
              'en-GB-Neural2-C' => 'Neural2 C (nữ, giọng Anh, cao hơn)', 'en-US-Chirp3-HD-Leda' => 'Leda (nữ trẻ, giọng Mỹ)'],
