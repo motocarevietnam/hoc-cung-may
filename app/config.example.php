@@ -40,7 +40,7 @@ return [
     // Google không dùng giọng của bé để huấn luyện). Lấy key: aistudio.google.com/apikey → Create API key → chọn project.
     'gemini_api_key' => '',
     'gemini_model' => 'gemini-flash-latest',
-    'gemini_fallback_model' => 'gemini-2.5-flash',   // dùng khi model chính báo quá tải
+    'gemini_fallback_models' => ['gemini-3.5-flash', 'gemini-flash-lite-latest'],   // dùng khi model chính báo quá tải
 
     // Hoặc Microsoft Azure Speech (có giọng bé gái cho tiếng Anh).
     // Lấy key: portal.azure.com → tạo tài nguyên "Speech" → Keys and Endpoint → Key 1 và Location/Region.

@@ -1258,19 +1258,18 @@ function gemini_enabled(): bool
     return trim((string)cfg('gemini_api_key', '')) !== '';
 }
 
-// Google hay báo quá tải (503/429): thử lại một lần, rồi chuyển sang model dự phòng
+// Google hay báo quá tải (503/429): thử lại model chính một lần, rồi lần lượt các model dự phòng
 function gemini_json(string $system, array $parts, int $timeout = 35): array
 {
-    $models = array_values(array_unique(array_filter([
-        (string)cfg('gemini_model', 'gemini-flash-latest'), (string)cfg('gemini_fallback_model', 'gemini-2.5-flash'),
-    ])));
+    $fallback = cfg('gemini_fallback_models', ['gemini-3.5-flash', 'gemini-flash-lite-latest']);
+    $models = array_values(array_unique(array_filter(array_map('strval',
+        array_merge([cfg('gemini_model', 'gemini-flash-latest')], is_array($fallback) ? $fallback : explode(',', (string)$fallback))))));
     $body = json_encode([
         'system_instruction' => ['parts' => [['text' => $system]]],
         'contents' => [['role' => 'user', 'parts' => $parts]],
         'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.2, 'maxOutputTokens' => 8000],
     ], JSON_UNESCAPED_UNICODE);
-    $tries = [];
-    foreach ($models as $m) { $tries[] = $m; $tries[] = $m; }
+    $tries = array_merge([$models[0]], $models);   // model chính thử 2 lần, mỗi model dự phòng 1 lần
     $err = '';
     foreach ($tries as $n => $model) {
         $model = preg_replace('/[^a-z0-9.\-]/', '', strtolower($model));
@@ -1293,7 +1292,7 @@ function gemini_json(string $system, array $parts, int $timeout = 35): array
         }
         $err = "{$model} {$code} " . substr(json_encode($d['error']['message'] ?? substr((string)$raw, 0, 200), JSON_UNESCAPED_UNICODE), 0, 250);
         if (!in_array($code, [0, 429, 500, 502, 503, 504], true)) break;   // lỗi key, yêu cầu sai: thử lại cũng vô ích
-        if ($n % 2 === 0) usleep(800000);
+        usleep(500000);
     }
     throw new UpstreamError('Gemini ' . $err);
 }
