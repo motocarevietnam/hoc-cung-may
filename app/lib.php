@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -159,6 +159,14 @@ const SCHEMA = [
        explained INT NOT NULL DEFAULT 0, last_score VARCHAR(10) NOT NULL DEFAULT '', level VARCHAR(12) NOT NULL DEFAULT 'learning',
        updated_at INT UNSIGNED NOT NULL,
        UNIQUE KEY uq_skill (subject, skill)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Viết đoạn văn (Tiếng Việt, English): đề, câu hỏi gợi ý, câu trả lời của bé, dàn ý, các lần nộp ảnh và nhận xét
+    "CREATE TABLE IF NOT EXISTS writings (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, prompt VARCHAR(400) NOT NULL,
+       questions TEXT NULL, answers TEXT NULL, outline TEXT NULL, started_at INT UNSIGNED NULL,
+       result MEDIUMTEXT NULL, first_result MEDIUMTEXT NULL, submits INT NOT NULL DEFAULT 0,
+       created_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL,
+       KEY idx_writings_created (created_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -704,6 +712,95 @@ Cách chấm:
 - Giọng vui vẻ, ấm áp, câu ngắn, khen trước rồi mới góp ý. Không chê bai. Không dùng ký hiệu khó đọc to.
 - Chỉ nhận xét về bài học. Không nhắc tới tên thật, tên trường hay thông tin cá nhân nếu thấy trong ảnh.
 Chỉ trả lời bằng JSON.
+TXT;
+}
+
+/* ---------------- Viết đoạn văn (Tiếng Việt, English) ---------------- */
+// Bé viết TAY ra vở trong 35 phút. Mây chỉ: hỏi gợi ý để bé tự nghĩ ý → ghép dàn ý từ chính ý của bé → nhận xét ảnh bài viết.
+// Mây không bao giờ viết đoạn văn hộ bé.
+const WRITING_MINUTES = 35;
+
+function writing_lang(string $id): string
+{
+    return $id === 'ceng'
+        ? 'Bài viết tiếng Anh theo Cambridge Primary Stage 4 / Our World 4. Câu hỏi gợi ý viết bằng tiếng Anh thật đơn giản, kèm nghĩa tiếng Việt ngắn trong ngoặc. Lời nhận xét viết bằng tiếng Việt dễ hiểu, nhưng khi sửa câu thì nói lại câu đúng bằng tiếng Anh.'
+        : 'Bài viết Tiếng Việt lớp 4 (sách Kết nối tri thức, chương trình GDPT 2018). Dùng đúng thuật ngữ của sách (mở bài, thân bài, kết bài; câu, từ ngữ, dấu câu).';
+}
+
+function writing_questions_prompt(string $id, string $prompt): string
+{
+    $lang = writing_lang($id);
+    return <<<TXT
+Bé lớp 4 sắp tự viết một bài/đoạn văn với đề: "{$prompt}".
+{$lang}
+Hãy soạn 5–6 câu hỏi gợi ý NGẮN để bé tự nghĩ ra ý, theo đúng thứ tự mở bài → thân bài → kết bài của dạng đề này.
+- Câu hỏi hỏi về trải nghiệm, quan sát, cảm xúc THẬT của chính bé (ví dụ đề thuật lại hoạt động: hoạt động gì, ở đâu, khi nào, với ai, diễn ra thế nào, em cảm thấy gì).
+- Nếu đề yêu cầu kể việc "em đã tham gia/em đã làm", có một câu nhắc bé chọn việc chính bé đã làm, không kể lại truyện đã đọc.
+- Mỗi câu hỏi dưới 20 từ, bé trả lời được bằng vài chữ.
+- Kèm "tip": một lời nhắc ngắn quan trọng nhất về dạng đề này (dưới 25 từ).
+Chỉ trả về JSON: {"type":"tên dạng bài ngắn","questions":["...","..."],"tip":"..."}
+TXT;
+}
+
+function writing_outline_prompt(string $id, string $prompt, array $qa): string
+{
+    $lang = writing_lang($id);
+    $lines = [];
+    foreach ($qa as $x) $lines[] = '- Hỏi: ' . $x['q'] . "\n  Bé trả lời: " . ($x['a'] !== '' ? $x['a'] : '(bỏ trống)');
+    $qaText = implode("\n", $lines);
+    return <<<TXT
+Đề: "{$prompt}".
+{$lang}
+Đây là câu trả lời của bé cho các câu hỏi gợi ý:
+{$qaText}
+
+Hãy xếp các ý CỦA BÉ thành DÀN Ý ngắn để bé nhìn và tự viết.
+- Mỗi ý là cụm từ ngắn (dưới 12 từ), KHÔNG viết thành câu văn hoàn chỉnh, không viết hộ đoạn văn.
+- Chỉ dùng ý bé đã nói; được sắp xếp lại và sửa chính tả. Phần nào bé bỏ trống thì ghi "(em tự nghĩ thêm: …gợi ý ngắn…)".
+- Nếu ý của bé lạc đề (ví dụ đề hỏi việc em đã tham gia mà bé định kể lại truyện đã đọc), ghi vào "warning" một câu nhắc nhẹ nhàng.
+Chỉ trả về JSON: {"mo_bai":["..."],"than_bai":["...","..."],"ket_bai":["..."],"words":["3–5 từ ngữ hay bé có thể dùng"],"warning":""}
+TXT;
+}
+
+function writing_review_system(string $id, string $nick): string
+{
+    $lang = writing_lang($id);
+    $nickText = $nick !== '' ? $nick : 'bạn';
+    $honest = no_fabrication_rules();
+    return <<<TXT
+Bạn là "Mây", bạn học AI của một bạn nhỏ lớp 4 ở Việt Nam (gọi bé là: {$nickText}). Bé vừa VIẾT TAY một bài/đoạn văn và chụp ảnh gửi Mây nhận xét.
+{$lang}
+{$honest}
+Nguyên tắc:
+- Chỉ nhận xét những gì thật sự đọc được trong ảnh. Chữ nào không đọc chắc thì không bắt lỗi chữ đó. Ảnh không đọc được thì "readable": false.
+- Nhận xét theo tiêu chí cô giáo dùng: đúng yêu cầu đề (quan trọng nhất), bố cục mở bài – thân bài – kết bài, ý theo trình tự và có chi tiết, câu đủ ý, từ ngữ, xưng hô, chính tả, viết hoa, dấu câu.
+- Khen trước: 2 điểm hay CỤ THỂ (trích ngắn câu/từ bé viết). Sau đó tối đa 3 điều cần sửa quan trọng nhất, mỗi điều trích ngắn chỗ bé viết và gợi ý cách sửa, KHÔNG viết lại cả câu hay cả đoạn hộ bé (chính tả thì được nêu từ đúng).
+- TUYỆT ĐỐI không viết bài mẫu, không viết lại đoạn văn hoàn chỉnh.
+- Giọng ấm áp, câu ngắn, dễ hiểu với bé 9–10 tuổi. Không nhắc tên thật, tên trường nếu thấy trong ảnh.
+Chỉ trả lời bằng JSON.
+TXT;
+}
+
+function writing_review_prompt(string $prompt, ?array $outline, ?array $previous, int $minutesUsed): string
+{
+    $ol = $outline ? "\nDàn ý bé đã lập cùng Mây: " . json_encode($outline, JSON_UNESCAPED_UNICODE) : '';
+    $prev = $previous ? "\nĐây là bài bé SỬA LẠI. Lần trước Mây góp ý: " . json_encode(array_map(fn($f) => $f['issue'] ?? '', $previous['fixes'] ?? []), JSON_UNESCAPED_UNICODE)
+        . ". Hãy ghi rõ trong \"fixed\" những góp ý nào bé đã sửa được." : '';
+    $time = $minutesUsed > 0 ? "\nBé viết trong khoảng {$minutesUsed} phút (giới hạn " . WRITING_MINUTES . " phút)." : '';
+    return <<<TXT
+Đề bài: "{$prompt}".{$ol}{$prev}{$time}
+Trả về JSON đúng dạng:
+{"readable":true,
+ "on_topic":true,
+ "topic_note":"(nếu lạc đề hoặc lệch đề) giải thích ngắn bé cần viết về điều gì",
+ "structure":{"mo_bai":"ok|thiếu|cần thêm","than_bai":"ok|thiếu|cần thêm","ket_bai":"ok|thiếu|cần thêm","note":"nhận xét ngắn về bố cục"},
+ "strengths":["điểm hay 1 (trích ngắn)","điểm hay 2"],
+ "fixes":[{"quote":"đoạn ngắn bé viết","issue":"vấn đề","hint":"gợi ý sửa, không viết lại cả câu"}],
+ "spelling":[{"wrong":"từ viết sai","right":"từ đúng"}],
+ "fixed":["(chỉ khi là bài sửa lại) góp ý lần trước bé đã sửa được"],
+ "overall":"great|good|try_again",
+ "encourage":"một câu động viên ngắn"}
+"fixes" tối đa 3; "spelling" tối đa 6.
 TXT;
 }
 
