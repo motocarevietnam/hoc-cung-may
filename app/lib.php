@@ -1258,31 +1258,44 @@ function gemini_enabled(): bool
     return trim((string)cfg('gemini_api_key', '')) !== '';
 }
 
-function gemini_json(string $system, array $parts, int $timeout = 60): array
+// Google hay báo quá tải (503/429): thử lại một lần, rồi chuyển sang model dự phòng
+function gemini_json(string $system, array $parts, int $timeout = 35): array
 {
-    $model = preg_replace('/[^a-z0-9.\-]/', '', strtolower((string)cfg('gemini_model', 'gemini-flash-latest')));
-    $url = (string)cfg('gemini_api_base', 'https://generativelanguage.googleapis.com') . "/v1beta/models/{$model}:generateContent";
+    $models = array_values(array_unique(array_filter([
+        (string)cfg('gemini_model', 'gemini-flash-latest'), (string)cfg('gemini_fallback_model', 'gemini-2.5-flash'),
+    ])));
     $body = json_encode([
         'system_instruction' => ['parts' => [['text' => $system]]],
         'contents' => [['role' => 'user', 'parts' => $parts]],
         'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.2, 'maxOutputTokens' => 8000],
     ], JSON_UNESCAPED_UNICODE);
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_TIMEOUT => $timeout,
-        CURLOPT_HTTPHEADER => ['x-goog-api-key: ' . trim((string)cfg('gemini_api_key', '')), 'Content-Type: application/json'],
-        CURLOPT_POSTFIELDS => $body]);
-    $raw = curl_exec($ch);
-    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    $d = json_decode((string)$raw, true);
-    if ($code !== 200 || !is_array($d)) {
-        throw new UpstreamError('Gemini ' . $code . ' ' . substr(json_encode($d['error']['message'] ?? substr((string)$raw, 0, 200), JSON_UNESCAPED_UNICODE), 0, 300));
+    $tries = [];
+    foreach ($models as $m) { $tries[] = $m; $tries[] = $m; }
+    $err = '';
+    foreach ($tries as $n => $model) {
+        $model = preg_replace('/[^a-z0-9.\-]/', '', strtolower($model));
+        $url = (string)cfg('gemini_api_base', 'https://generativelanguage.googleapis.com') . "/v1beta/models/{$model}:generateContent";
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_TIMEOUT => $timeout,
+            CURLOPT_HTTPHEADER => ['x-goog-api-key: ' . trim((string)cfg('gemini_api_key', '')), 'Content-Type: application/json'],
+            CURLOPT_POSTFIELDS => $body]);
+        $raw = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        $d = json_decode((string)$raw, true);
+        if ($code === 200 && is_array($d)) {
+            $text = '';
+            foreach ($d['candidates'][0]['content']['parts'] ?? [] as $p) if (empty($p['thought'])) $text .= (string)($p['text'] ?? '');
+            $j = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $text) ?? $text), true);
+            if (is_array($j)) return $j;
+            $err = "{$model} trả về không phải JSON: " . substr($text, 0, 150) . ' / ' . ($d['candidates'][0]['finishReason'] ?? '');
+            continue;
+        }
+        $err = "{$model} {$code} " . substr(json_encode($d['error']['message'] ?? substr((string)$raw, 0, 200), JSON_UNESCAPED_UNICODE), 0, 250);
+        if (!in_array($code, [0, 429, 500, 502, 503, 504], true)) break;   // lỗi key, yêu cầu sai: thử lại cũng vô ích
+        if ($n % 2 === 0) usleep(800000);
     }
-    $text = '';
-    foreach ($d['candidates'][0]['content']['parts'] ?? [] as $p) if (empty($p['thought'])) $text .= (string)($p['text'] ?? '');
-    $j = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $text) ?? $text), true);
-    if (!is_array($j)) throw new UpstreamError('Gemini trả về không phải JSON: ' . substr($text, 0, 200) . ' / ' . ($d['candidates'][0]['finishReason'] ?? ''));
-    return $j;
+    throw new UpstreamError('Gemini ' . $err);
 }
 
 function pron_system(): string
