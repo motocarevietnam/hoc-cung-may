@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "id": "vn-kntt-vietnamese-grade4-volume1",
+  "publisher": "Nhà xuất bản Giáo dục Việt Nam",
+  "series": "Kết nối tri thức với cuộc sống",
+  "subject": "tv",
+  "grade": 4,
+  "volume": 1,
+  "language": "vi",
+  "source_urls": [
+    "https://sbt-pro.smartlms.edu.vn/sach/dynamic-4-tieng-viet-tap-1",
+    "https://vietjack.com/tieng-viet-4-kn/tieng-viet-lop-4-tap-1.jsp"
+  ],
+  "notes": "32 bài đọc thuộc 4 chủ điểm, có ôn tập giữa và cuối học kì I. Các phân môn đọc, viết, luyện từ và câu, nói và nghe cần được mở rộng ở cấp tiết học sau.",
+  "topics": [
+    {
+      "id": "topic-1",
+      "number": 1,
+      "title": "Mỗi người một vẻ",
+      "lessons": [
+        {
+          "id": "lesson-1",
+          "number": 1,
+          "title": "Điều kì diệu"
+        },
+        {
+          "id": "lesson-2",
+          "number": 2,
+          "title": "Thi nhạc"
+        },
+        {
+          "id": "lesson-3",
+          "number": 3,
+          "title": "Anh em sinh đôi"
+        },
+        {
+          "id": "lesson-4",
+          "number": 4,
+          "title": "Công chúa và người dẫn chuyện"
+        },
+        {
+          "id": "lesson-5",
+          "number": 5,
+          "title": "Thằn lằn xanh và tắc kè"
+        },
+        {
+          "id": "lesson-6",
+          "number": 6,
+          "title": "Nghệ sĩ trống"
+        },
+        {
+          "id": "lesson-7",
+          "number": 7,
+          "title": "Những bức chân dung"
+        },
+        {
+          "id": "lesson-8",
+          "number": 8,
+          "title": "Đò ngang"
+        }
+      ]
+    },
+    {
+      "id": "topic-2",
+      "number": 2,
+      "title": "Trải nghiệm và khám phá",
+      "lessons": [
+        {
+          "id": "lesson-9",
+          "number": 9,
+          "title": "Bầu trời trong quả trứng"
+        },
+        {
+          "id": "lesson-10",
+          "number": 10,
+          "title": "Tiếng nói của cỏ cây"
+        },
+        {
+          "id": "lesson-11",
+          "number": 11,
+          "title": "Tập làm văn"
+        },
+        {
+          "id": "lesson-12",
+          "number": 12,
+          "title": "Nhà phát minh 6 tuổi"
+        },
+        {
+          "id": "lesson-13",
+          "number": 13,
+          "title": "Con vẹt xanh"
+        },
+        {
+          "id": "lesson-14",
+          "number": 14,
+          "title": "Chân trời cuối phố"
+        },
+        {
+          "id": "lesson-15",
+          "number": 15,
+          "title": "Gặt chữ trên non"
+        },
+        {
+          "id": "lesson-16",
+          "number": 16,
+          "title": "Trước ngày xa quê"
+        }
+      ]
+    },
+    {
+      "id": "topic-3",
+      "number": 3,
+      "title": "Niềm vui sáng tạo",
+      "lessons": [
+        {
+          "id": "lesson-17",
+          "number": 17,
+          "title": "Vẽ màu"
+        },
+        {
+          "id": "lesson-18",
+          "number": 18,
+          "title": "Đồng cỏ nở hoa"
+        },
+        {
+          "id": "lesson-19",
+          "number": 19,
+          "title": "Thanh âm của núi"
+        },
+        {
+          "id": "lesson-20",
+          "number": 20,
+          "title": "Bầu trời mùa thu"
+        },
+        {
+          "id": "lesson-21",
+          "number": 21,
+          "title": "Làm thỏ con bằng giấy"
+        },
+        {
+          "id": "lesson-22",
+          "number": 22,
+          "title": "Bức tường có nhiều phép lạ"
+        },
+        {
+          "id": "lesson-23",
+          "number": 23,
+          "title": "Bét-tô-ven và bản xô-nát Ánh trăng"
+        },
+        {
+          "id": "lesson-24",
+          "number": 24,
+          "title": "Người tìm đường lên các vì sao"
+        }
+      ]
+    },
+    {
+      "id": "topic-4",
+      "number": 4,
+      "title": "Chắp cánh ước mơ",
+      "lessons": [
+        {
+          "id": "lesson-25",
+          "number": 25,
+          "title": "Bay cùng ước mơ"
+        },
+        {
+          "id": "lesson-26",
+          "number": 26,
+          "title": "Con trai người làm vườn"
+        },
+        {
+          "id": "lesson-27",
+          "number": 27,
+          "title": "Nếu em có một khu vườn"
+        },
+        {
+          "id": "lesson-28",
+          "number": 28,
+          "title": "Bốn mùa mơ ước"
+        },
+        {
+          "id": "lesson-29",
+          "number": 29,
+          "title": "Ở Vương quốc Tương Lai"
+        },
+        {
+          "id": "lesson-30",
+          "number": 30,
+          "title": "Cánh chim nhỏ"
+        },
+        {
+          "id": "lesson-31",
+          "number": 31,
+          "title": "Nếu chúng mình có phép lạ"
+        },
+        {
+          "id": "lesson-32",
+          "number": 32,
+          "title": "Anh Ba"
+        }
+      ]
+    }
+  ],
+  "reviews": [
+    {
+      "id": "midterm-1",
+      "after_lesson": 16,
+      "title": "Ôn tập giữa học kì I"
+    },
+    {
+      "id": "final-1",
+      "after_lesson": 32,
+      "title": "Ôn tập cuối học kì I"
+    }
+  ]
+}
