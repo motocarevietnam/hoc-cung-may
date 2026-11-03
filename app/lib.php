@@ -883,7 +883,7 @@ function day_plan(string $day): array
     $used = array_sum(array_column($items, 'minutes'));
     if (!$classes && !$weekend) {
         foreach ($todaySubs as $more) {
-            if ($budget - $used < 20) break;
+            if ($budget - $used < ($tomorrowSubs ? 20 : 10)) break;   // ngày mai nghỉ thì không cần chừa giờ xem trước
             if (in_array($more, $usedSubs, true)) continue;
             $t = $topic($more);
             $items[] = ['key' => "quiz:{$more}", 'icon' => '🎯', 'title' => 'Ôn bài hôm nay: đố vui ' . SUBJECTS[$more]['name'] . ($t !== '' ? " – {$t}" : ''),
