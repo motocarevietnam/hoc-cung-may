@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "id": "vn-kntt-math-grade4-volume1",
+  "publisher": "Nhà xuất bản Giáo dục Việt Nam",
+  "series": "Kết nối tri thức với cuộc sống",
+  "subject": "toan",
+  "grade": 4,
+  "volume": 1,
+  "language": "vi",
+  "source_urls": [
+    "https://sgkvn.com/lop-4-7/ket-noi-tri-thuc-voi-cuoc-song-3/toan-4-tap-mot-1573.html",
+    "https://tailieumoi.vn/bai-viet/74086/giai-sgk-toan-lop-4-ket-noi-tri-thuc-giai-bai-tap-toan-lop-4-ket-noi-tri-thuc-tap-1-tap-2-hay-chi-tiet"
+  ],
+  "notes": "Mục lục gồm 7 chủ đề và 37 bài. Không chứa nội dung sách có bản quyền. Chưa gán trang do nguồn tham khảo có độ lệch số trang.",
+  "topics": [
+    {
+      "id": "topic-1",
+      "number": 1,
+      "title": "Ôn tập và bổ sung",
+      "lessons": [
+        {
+          "id": "lesson-1",
+          "number": 1,
+          "title": "Ôn tập các số đến 100 000"
+        },
+        {
+          "id": "lesson-2",
+          "number": 2,
+          "title": "Ôn tập các phép tính trong phạm vi 100 000"
+        },
+        {
+          "id": "lesson-3",
+          "number": 3,
+          "title": "Số chẵn, số lẻ"
+        },
+        {
+          "id": "lesson-4",
+          "number": 4,
+          "title": "Biểu thức chứa chữ"
+        },
+        {
+          "id": "lesson-5",
+          "number": 5,
+          "title": "Giải bài toán có ba bước tính"
+        },
+        {
+          "id": "lesson-6",
+          "number": 6,
+          "title": "Luyện tập chung"
+        }
+      ]
+    },
+    {
+      "id": "topic-2",
+      "number": 2,
+      "title": "Góc và đơn vị đo góc",
+      "lessons": [
+        {
+          "id": "lesson-7",
+          "number": 7,
+          "title": "Đo góc, đơn vị đo góc"
+        },
+        {
+          "id": "lesson-8",
+          "number": 8,
+          "title": "Góc nhọn, góc tù, góc bẹt"
+        },
+        {
+          "id": "lesson-9",
+          "number": 9,
+          "title": "Luyện tập chung"
+        }
+      ]
+    },
+    {
+      "id": "topic-3",
+      "number": 3,
+      "title": "Số có nhiều chữ số",
+      "lessons": [
+        {
+          "id": "lesson-10",
+          "number": 10,
+          "title": "Số có sáu chữ số. Số 1 000 000"
+        },
+        {
+          "id": "lesson-11",
+          "number": 11,
+          "title": "Hàng và lớp"
+        },
+        {
+          "id": "lesson-12",
+          "number": 12,
+          "title": "Các số trong phạm vi lớp triệu"
+        },
+        {
+          "id": "lesson-13",
+          "number": 13,
+          "title": "Làm tròn số đến hàng trăm nghìn"
+        },
+        {
+          "id": "lesson-14",
+          "number": 14,
+          "title": "So sánh các số có nhiều chữ số"
+        },
+        {
+          "id": "lesson-15",
+          "number": 15,
+          "title": "Làm quen với dãy số tự nhiên"
+        },
+        {
+          "id": "lesson-16",
+          "number": 16,
+          "title": "Luyện tập chung"
+        }
+      ]
+    },
+    {
+      "id": "topic-4",
+      "number": 4,
+      "title": "Một số đơn vị đo đại lượng",
+      "lessons": [
+        {
+          "id": "lesson-17",
+          "number": 17,
+          "title": "Yến, tạ, tấn"
+        },
+        {
+          "id": "lesson-18",
+          "number": 18,
+          "title": "Đề-xi-mét vuông, mét vuông, mi-li-mét vuông"
+        },
+        {
+          "id": "lesson-19",
+          "number": 19,
+          "title": "Giây, thế kỉ"
+        },
+        {
+          "id": "lesson-20",
+          "number": 20,
+          "title": "Thực hành và trải nghiệm sử dụng một số đơn vị đo đại lượng"
+        }
+      ]
+    },
+    {
+      "id": "topic-5",
+      "number": 5,
+      "title": "Phép cộng và phép trừ",
+      "lessons": [
+        {
+          "id": "lesson-21",
+          "number": 21,
+          "title": "Luyện tập chung"
+        },
+        {
+          "id": "lesson-22",
+          "number": 22,
+          "title": "Phép cộng các số có nhiều chữ số"
+        },
+        {
+          "id": "lesson-23",
+          "number": 23,
+          "title": "Phép trừ các số có nhiều chữ số"
+        },
+        {
+          "id": "lesson-24",
+          "number": 24,
+          "title": "Tính chất giao hoán và kết hợp của phép cộng"
+        },
+        {
+          "id": "lesson-25",
+          "number": 25,
+          "title": "Tìm hai số khi biết tổng và hiệu của hai số đó"
+        },
+        {
+          "id": "lesson-26",
+          "number": 26,
+          "title": "Luyện tập chung"
+        }
+      ]
+    },
+    {
+      "id": "topic-6",
+      "number": 6,
+      "title": "Đường vuông góc. Đường thẳng song song",
+      "lessons": [
+        {
+          "id": "lesson-27",
+          "number": 27,
+          "title": "Hai đường thẳng vuông góc"
+        },
+        {
+          "id": "lesson-28",
+          "number": 28,
+          "title": "Thực hành và trải nghiệm vẽ hai đường thẳng vuông góc"
+        },
+        {
+          "id": "lesson-29",
+          "number": 29,
+          "title": "Hai đường thẳng song song"
+        },
+        {
+          "id": "lesson-30",
+          "number": 30,
+          "title": "Thực hành và trải nghiệm vẽ hai đường thẳng song song"
+        },
+        {
+          "id": "lesson-31",
+          "number": 31,
+          "title": "Hình bình hành, hình thoi"
+        },
+        {
+          "id": "lesson-32",
+          "number": 32,
+          "title": "Luyện tập chung"
+        }
+      ]
+    },
+    {
+      "id": "topic-7",
+      "number": 7,
+      "title": "Ôn tập học kì 1",
+      "lessons": [
+        {
+          "id": "lesson-33",
+          "number": 33,
+          "title": "Ôn tập các số đến lớp triệu"
+        },
+        {
+          "id": "lesson-34",
+          "number": 34,
+          "title": "Ôn tập phép cộng, phép trừ"
+        },
+        {
+          "id": "lesson-35",
+          "number": 35,
+          "title": "Ôn tập hình học"
+        },
+        {
+          "id": "lesson-36",
+          "number": 36,
+          "title": "Ôn tập đo lường"
+        },
+        {
+          "id": "lesson-37",
+          "number": 37,
+          "title": "Ôn tập chung"
+        }
+      ]
+    }
+  ]
+}
