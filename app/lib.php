@@ -1249,6 +1249,66 @@ function mp3_strip_id3(string $mp3): string
     return (string)substr($mp3, 10 + $size + ((ord($mp3[5]) & 0x10) ? 10 : 0));
 }
 
+/* ---------------- Mây nghe phát âm (Google Gemini nghe đoạn ghi âm) ---------------- */
+// Giọng của bé chỉ gửi tới Gemini để chấm rồi bỏ, không lưu trên VPS. Dùng project Google Cloud có thanh toán
+// (gói trả phí) để Google không dùng dữ liệu này huấn luyện mô hình.
+
+function gemini_enabled(): bool
+{
+    return trim((string)cfg('gemini_api_key', '')) !== '';
+}
+
+function gemini_json(string $system, array $parts, int $timeout = 60): array
+{
+    $model = preg_replace('/[^a-z0-9.\-]/', '', strtolower((string)cfg('gemini_model', 'gemini-flash-latest')));
+    $url = (string)cfg('gemini_api_base', 'https://generativelanguage.googleapis.com') . "/v1beta/models/{$model}:generateContent";
+    $body = json_encode([
+        'system_instruction' => ['parts' => [['text' => $system]]],
+        'contents' => [['role' => 'user', 'parts' => $parts]],
+        'generationConfig' => ['responseMimeType' => 'application/json', 'temperature' => 0.2, 'maxOutputTokens' => 8000],
+    ], JSON_UNESCAPED_UNICODE);
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_HTTPHEADER => ['x-goog-api-key: ' . trim((string)cfg('gemini_api_key', '')), 'Content-Type: application/json'],
+        CURLOPT_POSTFIELDS => $body]);
+    $raw = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $d = json_decode((string)$raw, true);
+    if ($code !== 200 || !is_array($d)) {
+        throw new UpstreamError('Gemini ' . $code . ' ' . substr(json_encode($d['error']['message'] ?? substr((string)$raw, 0, 200), JSON_UNESCAPED_UNICODE), 0, 300));
+    }
+    $text = '';
+    foreach ($d['candidates'][0]['content']['parts'] ?? [] as $p) if (empty($p['thought'])) $text .= (string)($p['text'] ?? '');
+    $j = json_decode(trim(preg_replace('/^```(?:json)?|```$/m', '', $text) ?? $text), true);
+    if (!is_array($j)) throw new UpstreamError('Gemini trả về không phải JSON: ' . substr($text, 0, 200) . ' / ' . ($d['candidates'][0]['finishReason'] ?? ''));
+    return $j;
+}
+
+function pron_system(): string
+{
+    return <<<TXT
+Bạn là cô giáo phát âm tiếng Anh (giọng Anh – British English, en-GB) cho một bé lớp 4 người Việt, 9–10 tuổi.
+Bạn được nghe một đoạn ghi âm bé đọc/nói tiếng Anh và câu bé định nói. Hãy nghe thật kỹ và nhận xét PHÁT ÂM.
+
+Nguyên tắc:
+- Chỉ nhận xét điều thật sự nghe được trong đoạn ghi âm. Không đoán, không bịa. Nếu ghi âm im lặng, quá nhỏ hoặc không nghe rõ: overall = "unclear".
+- Không chê giọng (accent) Việt nếu từ vẫn nghe rõ, dễ hiểu. Chỉ đánh dấu lỗi làm từ khó hiểu hoặc sai rõ ràng, nhất là:
+  âm cuối (/s/, /z/, /t/, /d/, /k/, /ks/), /θ/ /ð/ (th), /ʃ/ (sh), /tʃ/, /v/ – /w/, /r/ – /l/, nguyên âm dài – ngắn (ship/sheep), trọng âm sai, bỏ từ.
+- Mức từng từ: "good" = rõ, chuẩn; "ok" = hiểu được nhưng nên chỉnh nhẹ; "bad" = sai rõ hoặc thiếu hẳn.
+- Lời nhắn bằng tiếng Việt, ngắn, vui, khích lệ, dễ hiểu với bé 9 tuổi (cách đặt lưỡi, môi; ví dụ so sánh âm tiếng Việt nếu giúp được).
+- Không dùng điểm số, không so sánh với bạn khác.
+
+Chỉ trả về JSON đúng dạng:
+{"overall":"great|good|try_again|unclear",
+ "words":[{"w":"từ trong câu, đúng thứ tự","s":"good|ok|bad","tip":"(chỉ khi ok/bad) cách sửa, tối đa 15 từ"}],
+ "sounds":[{"sound":"/θ/","words":["three"],"tip":"cách phát âm, tối đa 25 từ"}],
+ "praise":"một câu khen cụ thể điều bé làm tốt",
+ "next":"một việc nhỏ nên luyện tiếp"}
+"words" liệt kê lần lượt mọi từ trong câu bé định nói. "sounds" tối đa 3 âm cần luyện nhất (có thể rỗng).
+TXT;
+}
+
 /* ---------------- Google Drive: lưu ảnh bài tập (cách A: ảnh đã nén trên iPad) ---------------- */
 // Quyền tối thiểu drive.file: app chỉ thấy các file do chính app tạo, không đọc được file khác trong Drive gia đình.
 

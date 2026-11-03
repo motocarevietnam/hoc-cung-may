@@ -15,8 +15,8 @@ $route = preg_replace('#^/api/#', '', $path) ?? '';
 if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') google_callback();
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
-// Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
-$maxBody = $route === 'homework' ? 9 * 1024 * 1024 : 65536;
+// Ảnh bài tập (tối đa 4 ảnh đã thu nhỏ) và ghi âm luyện phát âm cần nhiều chỗ hơn; mọi yêu cầu khác giới hạn 64 KB
+$maxBody = $route === 'homework' ? 9 * 1024 * 1024 : ($route === 'speak_pron' ? 3 * 1024 * 1024 : 65536);
 $raw = file_get_contents('php://input', false, null, 0, $maxBody);
 $body = json_decode($raw !== false && $raw !== '' ? $raw : '{}', true);
 if (!is_array($body)) $body = [];
@@ -41,6 +41,7 @@ $routes = [
     'shop_cancel'         => 'r_shop_cancel',
     'speak_start'         => 'r_speak_start',
     'speak_check'         => 'r_speak_check',
+    'speak_pron'          => 'r_speak_pron',
     'tts'                 => 'r_tts',
     'parent/check'        => 'r_parent_check',
     'parent/login'        => 'r_parent_login',
@@ -82,7 +83,7 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'pron' => gemini_enabled(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
         'tts_by' => ['google' => 'Google', 'azure' => 'Microsoft', '' => ''][tts_provider()],
          'drive' => drive_connected()]);
 }
@@ -584,6 +585,45 @@ function r_speak_check(array $b): never
         [$sess['id'], $idx, $transcript, json_encode($result, JSON_UNESCAPED_UNICODE), $level, time()]);
     if ($first) log_activity('ceng', $sess['topic'], 'speaking', $level === 'try_again' ? 0 : 1, 1);
     out(['result' => $result, 'stars' => stars()]);
+}
+
+// Mây nghe phát âm: gửi đoạn ghi âm (WAV 16 kHz, mono, iPad tự chuyển) tới Gemini. Không lưu âm thanh.
+function r_speak_pron(array $b): never
+{
+    if (!gemini_enabled()) out(['error' => 'pron_off'], 404);
+    $sess = q('SELECT * FROM speaking WHERE id = ?', [(int)($b['session_id'] ?? 0)])->fetch();
+    $idx = (int)($b['index'] ?? -1);
+    $items = $sess ? json_decode($sess['items'], true) : [];
+    if (!$sess || !isset($items[$idx])) out(['error' => 'bad_request'], 400);
+    $audio = base64_decode((string)($b['audio'] ?? ''), true);
+    if ($audio === false || strlen($audio) < 2000 || strlen($audio) > 2 * 1024 * 1024 || substr($audio, 0, 4) !== 'RIFF' || substr($audio, 8, 4) !== 'WAVE') {
+        out(['error' => 'bad_audio'], 400);
+    }
+    // Bài đọc: so với câu mẫu. Trả lời/kể: so với câu bé đã nói (chữ iPad chép lại)
+    $target = $sess['type'] === 'read' ? (string)$items[$idx]['text'] : clean($b['transcript'] ?? '', 600);
+    if (trim($target) === '') out(['error' => 'bad_request'], 400);
+    spend(2);
+    $data = gemini_json(pron_system(), [
+        ['inline_data' => ['mime_type' => 'audio/wav', 'data' => base64_encode($audio)]],
+        ['text' => "Câu bé định nói: \"{$target}\"\nHãy nghe đoạn ghi âm ở trên và nhận xét phát âm theo đúng dạng JSON."],
+    ]);
+    unset($audio, $b);
+    $words = [];
+    foreach (is_array($data['words'] ?? null) ? array_slice($data['words'], 0, 80) : [] as $w) {
+        if (!is_array($w) || clean($w['w'] ?? '', 40) === '') continue;
+        $st = in_array($w['s'] ?? '', ['good', 'ok', 'bad'], true) ? $w['s'] : 'good';
+        $words[] = ['w' => clean($w['w'], 40), 's' => $st, 'tip' => $st === 'good' ? '' : clean($w['tip'] ?? '', 160)];
+    }
+    $sounds = [];
+    foreach (is_array($data['sounds'] ?? null) ? array_slice($data['sounds'], 0, 3) : [] as $x) {
+        if (!is_array($x) || clean($x['tip'] ?? '', 200) === '') continue;
+        $sounds[] = ['sound' => clean($x['sound'] ?? '', 20), 'words' => array_slice(array_map(fn($v) => clean($v, 40), is_array($x['words'] ?? null) ? $x['words'] : []), 0, 4),
+                     'tip' => clean($x['tip'], 200)];
+    }
+    $overall = in_array($data['overall'] ?? '', ['great', 'good', 'try_again', 'unclear'], true) ? $data['overall'] : 'good';
+    if (!$words) $overall = 'unclear';
+    out(['pron' => ['overall' => $overall, 'words' => $words, 'sounds' => $sounds,
+                    'praise' => clean($data['praise'] ?? '', 300), 'next' => clean($data['next'] ?? '', 300)]]);
 }
 
 function r_task(array $b): never

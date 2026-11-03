@@ -256,6 +256,9 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .sp-res .lv{font-family:var(--display);font-size:24px;font-weight:800}
 .sp-res .lv.great{color:var(--mint)}.sp-res .lv.try_again{color:var(--coral)}
 .wd{display:inline-block;padding:1px 6px;margin:2px;border-radius:8px;font-size:19px}
+.pron{margin-top:12px;padding-top:10px;border-top:2px dashed var(--line)}
+.wd.pw{border:0;cursor:pointer;font:inherit;font-size:19px}
+.wd.good{background:var(--mint-bg);color:var(--mint)}.wd.ok.pw{background:#FFF3C4;color:#8A6200}.wd.bad{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
 .wd.ok{background:var(--mint-bg);color:var(--mint)}.wd.no{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
 .fix{margin:8px 0;padding:8px 10px;border-left:4px solid var(--sun);background:var(--surface);border-radius:8px;font-size:15px}
 #awardToast{position:fixed;left:50%;top:calc(70px + env(safe-area-inset-top,0px));transform:translate(-50%,-20px);opacity:0;pointer-events:none;z-index:30;
@@ -388,7 +391,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
-    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
+    me.pron = !!s.pron; me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -955,7 +958,7 @@ async function startSpeakSession(type){
   try{
     const d = await api("/api/speak_start",{type, topic:S.topic});
     if(state.sp!==S) return;
-    Object.assign(S, {sid:d.session_id, items:d.items, i:0, phase:"item", res:{}, tries:{}, live:"", showVi:false, audio:{}});
+    Object.assign(S, {sid:d.session_id, items:d.items, i:0, phase:"item", res:{}, tries:{}, live:"", showVi:false, audio:{}, blob:{}, pron:{}});
     sayPrompt();
   }catch(e){ S.phase="setup"; S.err=copyFor(e&&e.code); }
   if(state.view==="speak") render();
@@ -1011,10 +1014,51 @@ async function startRecordAlong(S, idx){
     if(!S.listening){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; return; }
     spMedia = new MediaRecorder(spStream);
     spMedia.ondataavailable = e=>{ if(e.data && e.data.size) spChunks.push(e.data); };
-    spMedia.onstop = ()=>{ if(spChunks.length){ const old=S.audio[idx]; if(old) URL.revokeObjectURL(old); S.audio[idx]=URL.createObjectURL(new Blob(spChunks,{type:spMedia.mimeType||"audio/mp4"})); }
+    spMedia.onstop = ()=>{ if(spChunks.length){ const old=S.audio[idx]; if(old) URL.revokeObjectURL(old); const blob=new Blob(spChunks,{type:spMedia.mimeType||"audio/mp4"});
+        S.audio[idx]=URL.createObjectURL(blob); S.blob[idx]=blob; S.pron[idx]=null; }
       if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } if(state.view==="speak") render(); };
     spMedia.start();
   }catch(e){ spMedia=null; if(spStream){ spStream.getTracks().forEach(t=>t.stop()); spStream=null; } }
+}
+// Chuyển ghi âm của máy (mp4/webm) thành WAV 16 kHz mono để gửi Mây nghe phát âm (tối đa 50 giây)
+async function toWav16k(blob){
+  const C = window.AudioContext || window.webkitAudioContext;
+  const ctx = audioCtx() || new C();
+  const data = await blob.arrayBuffer();
+  const src = await new Promise((ok,no)=>ctx.decodeAudioData(data, ok, no));
+  const secs = Math.min(src.duration, 50), rate = 16000;
+  const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(secs*rate)), rate);
+  const node = off.createBufferSource(); node.buffer = src; node.connect(off.destination); node.start(0);
+  const pcm = (await off.startRendering()).getChannelData(0);
+  const buf = new ArrayBuffer(44 + pcm.length*2), v = new DataView(buf);
+  const w = (o,str)=>{ for(let i=0;i<str.length;i++) v.setUint8(o+i, str.charCodeAt(i)); };
+  w(0,"RIFF"); v.setUint32(4, 36+pcm.length*2, true); w(8,"WAVE"); w(12,"fmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,rate,true); v.setUint32(28,rate*2,true); v.setUint16(32,2,true); v.setUint16(34,16,true); w(36,"data"); v.setUint32(40,pcm.length*2,true);
+  for(let i=0;i<pcm.length;i++){ const x=Math.max(-1,Math.min(1,pcm[i])); v.setInt16(44+i*2, x<0?x*0x8000:x*0x7fff, true); }
+  let bin=""; const u8=new Uint8Array(buf); for(let i=0;i<u8.length;i+=0x8000) bin+=String.fromCharCode.apply(null, u8.subarray(i,i+0x8000));
+  return btoa(bin);
+}
+async function checkPron(){
+  const S=state.sp, idx=S.i, blob=S.blob[idx]; if(!blob) return;
+  S.pronBusy=true; S.note=""; render();
+  try{
+    const audio = await toWav16k(blob);
+    const d = await api("/api/speak_pron",{session_id:S.sid, index:idx, audio, transcript:S.live||""});
+    S.pron[idx]=d.pron;
+  }catch(e){ S.note = e&&e.code==="bad_audio" ? "Đoạn ghi âm ngắn quá hoặc bị lỗi. Bấm 🎤 nói lại nhé." : (e&&e.code==="upstream" ? "Mây chưa nghe được lúc này. Thử lại sau ít phút nhé." : copyFor(e&&e.code)); }
+  S.pronBusy=false; if(state.view==="speak" && state.sp===S) render();
+}
+const PRON_LV = {great:"🌟 Phát âm rất chuẩn!", good:"👍 Phát âm khá tốt", try_again:"💪 Luyện thêm vài âm nhé", unclear:"🤔 Mây nghe chưa rõ"};
+function pronHtml(p){
+  if(!p) return "";
+  return `<div class="pron"><div class="lv ${p.overall==="unclear"?"try_again":p.overall}">${PRON_LV[p.overall]||""}</div>
+    ${p.overall==="unclear"?`<p class="muted">Ghi âm nhỏ hoặc có tiếng ồn. Bạn nói to, rõ, gần iPad hơn rồi thử lại nhé.</p>`:`
+    <div style="margin:6px 0">${p.words.map((w,i)=>`<button class="wd pw ${w.s}" data-pw="${i}" title="${esc(w.tip||"")}">${esc(w.w)}</button>`).join(" ")}</div>
+    <div class="muted" style="font-size:13px">Xanh: chuẩn · Vàng: chỉnh nhẹ · Đỏ: cần luyện. Chạm vào từ để nghe mẫu.</div>
+    ${p.words.filter(w=>w.s!=="good"&&w.tip).slice(0,4).map(w=>`<div class="fix"><b>${esc(w.w)}</b>: ${esc(w.tip)}</div>`).join("")}
+    ${p.sounds.map(x=>`<div class="fix">🔤 <b>${esc(x.sound)}</b>${x.words.length?` (${x.words.map(esc).join(", ")})`:""}: ${esc(x.tip)}</div>`).join("")}
+    ${p.praise?`<p style="margin:8px 0 4px">${esc(p.praise)}</p>`:""}
+    ${p.next?`<p class="muted" style="margin:4px 0">💡 ${esc(p.next)}</p>`:""}`}</div>`;
 }
 async function checkSpeak(text){
   const S=state.sp, idx=S.i;
@@ -1078,6 +1122,8 @@ function renderSpeak(){
           ${r.say_it && S.type!=="read"?`<p style="margin:8px 0 0">Nói lại thử: <b>${esc(r.say_it)}</b> <button class="speak" id="spSayIt">🔊</button></p>`:""}
           ${modelText && S.type!=="read"?`<p class="muted" style="margin:8px 0 0">Câu mẫu: ${esc(modelText)} <button class="speak" id="spSample">🔊</button></p>`:""}
           ${S.audio[S.i]?`<div style="margin-top:10px"><div class="muted">🎧 Giọng của bạn:</div><audio controls src="${S.audio[S.i]}" style="width:100%"></audio></div>`:""}
+          ${me.pron && S.blob[S.i] && !S.pron[S.i] ? `<div class="row"><button class="btn primary" id="spPron" ${S.pronBusy?"disabled":""}>${S.pronBusy?"Mây đang nghe phát âm…":"👂 Mây nghe phát âm"}</button></div>` : ""}
+          ${pronHtml(S.pron[S.i])}
         </div>` : ""}
         <div class="row">
           ${r?`<button class="btn" id="spRetry">🔁 Nói lại</button>`:""}
@@ -1095,6 +1141,8 @@ function renderSpeak(){
   on("spMic",()=>{ if(S.listening) stopSpeakCapture(false); else startSpeakCapture(); });
   on("spSend",()=>{ const v=document.getElementById("spText").value.trim(); if(v) checkSpeak(v); });
   on("spSayIt",()=>speak(S.res[S.i].say_it,"en-only",.9)); on("spSample",()=>speak(it.sample,"en-only",.9));
+  on("spPron",checkPron);
+  app.querySelectorAll("[data-pw]").forEach(b=>b.onclick=()=>speak(S.pron[S.i].words[+b.dataset.pw].w,"en-only",.75));
   on("spRetry",()=>{ S.res[S.i]=null; S.live=""; S.note=""; render(); });
   on("spNext",()=>{ stopSpeakCapture(true); if(S.i+1<S.items.length){ S.i++; S.live=""; S.note=""; S.showVi=false; render(); sayPrompt(); } else { S.phase="done"; render(); } });
   on("spAgain",()=>{ S.phase="setup"; render(); });

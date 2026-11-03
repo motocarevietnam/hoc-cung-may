@@ -36,6 +36,11 @@ return [
     // Có cả key Google và Azure thì chọn 'google' hoặc 'azure' (mặc định Google)
     'tts_provider' => '',
 
+    // Mây nghe phát âm (Luyện nói): Gemini API trong project Google Cloud CÓ GẮN THANH TOÁN (gói trả phí:
+    // Google không dùng giọng của bé để huấn luyện). Lấy key: aistudio.google.com/apikey → Create API key → chọn project.
+    'gemini_api_key' => '',
+    'gemini_model' => 'gemini-flash-latest',
+
     // Hoặc Microsoft Azure Speech (có giọng bé gái cho tiếng Anh).
     // Lấy key: portal.azure.com → tạo tài nguyên "Speech" → Keys and Endpoint → Key 1 và Location/Region.
     'azure_speech_key' => '',

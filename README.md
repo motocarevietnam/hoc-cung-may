@@ -20,8 +20,11 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   kèm tổng kết kết quả. **Kế hoạch quý** (13 tuần × 5 môn): Mây soạn nháp theo chương trình lớp 4 và bộ sách, ba mẹ sửa rồi duyệt mới áp dụng.
 - **Luyện nói tiếng Anh (Speaking)** 🗣️: môn English → Luyện nói, 3 dạng: đọc to câu mẫu, trả lời câu hỏi (kiểu thi nói Cambridge),
   kể/miêu tả ngắn. Bé nghe mẫu (có đọc chậm), bấm 🎤 để nói; iPad chuyển giọng thành chữ, Mây so từng từ với câu mẫu
-  và góp ý ngữ pháp, từ vựng, câu mẫu để nói lại. Bé nghe lại giọng mình ngay trên iPad (không gửi âm thanh lên máy chủ).
-  Mây chỉ có phần chữ máy chép lại nên không chấm chi tiết từng âm; chấm phát âm chuyên sâu (Microsoft Azure) sẽ thêm sau.
+  và góp ý ngữ pháp, từ vựng, câu mẫu để nói lại. Bé nghe lại giọng mình ngay trên iPad.
+  **👂 Mây nghe phát âm** (khi có `gemini_api_key`): iPad gửi đoạn ghi âm (WAV 16 kHz) qua VPS tới Google Gemini để nhận xét
+  phát âm từng từ (xanh/vàng/đỏ) và tối đa 3 âm cần luyện (âm cuối, /θ/, /ʃ/…), chuẩn giọng Anh. Âm thanh không lưu trên VPS.
+  Android không ghi âm song song được nên chỉ có trên iPad.
+  Phần chấm câu (không có ghi âm) chỉ dựa vào chữ máy chép lại; điểm số từng âm kiểu Azure Pronunciation Assessment có thể thêm sau.
 - **Sao và luật thưởng** ⭐: sao ghi vào **sổ sao** (chỉ thêm dòng, không sửa/xoá; số dư = tổng sổ). Luật mặc định:
   tự bắt đầu +2, hoàn thành nhiệm vụ trong "Hôm nay" +5, tự sửa sai +3, giải thích đúng +3, tiến bộ có bằng chứng +5,
   đạt mục tiêu tuần +10; sai không bao giờ bị trừ. Ba mẹ chỉnh mức sao, số lần tối đa mỗi ngày/tuần, mức sao tối đa mỗi ngày
