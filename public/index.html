@@ -1150,7 +1150,12 @@ function runAction(a){
   if(a.view==="speak") return openSpeak(a.type, a.topic||"");
   state.subject = a.subject; state.topic = a.topic || "";
   if(a.view==="quiz") return startQuiz();
-  if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat"); }
+  if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat");
+    // Việc "Học lại phần còn yếu" / "Xem trước bài ngày mai": Mây bắt đầu luôn, bé không phải nghĩ câu hỏi
+    const name = subjById(a.subject)?.name || "", t = a.topic ? " – " + a.topic : "";
+    if(a.relearn) sendChat(`Mình còn yếu phần ${name}${t}. Mây giảng lại thật dễ hiểu rồi cho mình làm thử 2–3 bài nhỏ nhé.`);
+    else if(a.preview) sendChat(`Ngày mai mình học ${name}${t}. Mây cho mình xem trước bài, hỏi mình vài câu khởi động nhé.`);
+  }
 }
 async function openPlan(tab){
   state.planTab = tab || state.planTab || "day"; state.plan = {loading:true}; go("plan");
