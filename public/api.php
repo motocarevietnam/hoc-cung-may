@@ -1100,7 +1100,7 @@ function r_parent_google(array $b): never
     $stat = q('SELECT COUNT(*) AS n, COALESCE(SUM(bytes), 0) AS bytes FROM drive_files WHERE deleted_at IS NULL')->fetch();
     out(['configured' => google_configured(), 'connected' => drive_connected(), 'email' => setting('google_email'),
          'files' => (int)$stat['n'], 'bytes' => (int)$stat['bytes'], 'keep_days' => max(30, (int)cfg('drive_keep_days', 365)),
-         'redirect_uri' => google_configured() ? google_redirect_uri() : '']);
+         'redirect_uri' => google_configured() ? google_redirect_uri() : '', 'backup' => backup_status()]);
 }
 
 function r_parent_google_connect(array $b): never

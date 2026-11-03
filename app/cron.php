@@ -1,5 +1,5 @@
 <?php
-// Chạy mỗi đêm bằng cron (user "may"): xoá trò chuyện cũ, sao lưu cơ sở dữ liệu.
+// Chạy mỗi đêm bằng cron (user "may"): xoá trò chuyện cũ, sao lưu cơ sở dữ liệu (trên VPS và Google Drive).
 //   0 3 * * * /usr/bin/php /var/www/hoc-cung-may/app/cron.php
 // Kiểm tra kết nối và tạo bảng (dùng khi cài đặt):
 //   sudo -u may php /var/www/hoc-cung-may/app/cron.php --check
@@ -47,49 +47,20 @@ try {
     fwrite(STDERR, date('c') . ' LỖI Drive: ' . $e->getMessage() . PHP_EOL);
 }
 
-// 3. Sao lưu bằng mysqldump: một file .sql.gz mỗi ngày, giữ N bản gần nhất.
-//    Mật khẩu đưa qua file tạm chỉ user "may" đọc được, không lộ trên dòng lệnh.
-$dir = __DIR__ . '/backups';
-if (!is_dir($dir)) mkdir($dir, 0750, true);
-$file = $dir . '/may-' . date('Y-m-d') . '.sql.gz';
-
-$cnf = tempnam(sys_get_temp_dir(), 'may-dump-');
-chmod($cnf, 0600);
-file_put_contents($cnf, sprintf("[client]\nhost=%s\nport=%d\nuser=%s\npassword=\"%s\"\n",
-    cfg('db_host', '127.0.0.1'), (int)cfg('db_port', 3306), cfg('db_user', 'hoc_cung_may'),
-    addcslashes((string)cfg('db_pass', ''), "\\\"")));
-
-$dump = is_executable('/usr/bin/mariadb-dump') ? '/usr/bin/mariadb-dump' : 'mysqldump';
-$cmd = escapeshellarg($dump) . ' --defaults-extra-file=' . escapeshellarg($cnf)
-     . ' --single-transaction --skip-lock-tables --default-character-set=utf8mb4 '
-     . escapeshellarg((string)cfg('db_name', 'hoc_cung_may'));
-$proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
-$ok = false;
-$err = '';
-if (is_resource($proc)) {
-    $gz = gzopen($file . '.part', 'wb6');
-    while (!feof($pipes[1])) {
-        $chunk = fread($pipes[1], 1 << 16);
-        if ($chunk !== false && $chunk !== '') gzwrite($gz, $chunk);
-    }
-    gzclose($gz);
-    $err = trim((string)stream_get_contents($pipes[2]));
-    fclose($pipes[1]);
-    fclose($pipes[2]);
-    $ok = proc_close($proc) === 0;
-}
-unlink($cnf);
-
-if ($ok) {
-    rename($file . '.part', $file);
-    chmod($file, 0640);
-    $keep = max(1, (int)cfg('backup_keep', 14));
-    $all = glob($dir . '/may-*.sql.gz') ?: [];
-    sort($all);
-    foreach (array_slice($all, 0, max(0, count($all) - $keep)) as $old) unlink($old);
-    echo date('c') . " ok: xoá {$deletedConvs} cuộc trò chuyện cũ, sao lưu " . basename($file) . PHP_EOL;
-} else {
-    @unlink($file . '.part');
-    fwrite(STDERR, date('c') . " LỖI sao lưu: {$err}" . PHP_EOL);
+// 3. Sao lưu: một file .sql.gz mỗi ngày trên VPS (giữ backup_keep bản), rồi gửi một bản lên Google Drive nếu đã kết nối
+try {
+    $file = db_backup_local();
+} catch (Throwable $e) {
+    fwrite(STDERR, date('c') . ' LỖI ' . $e->getMessage() . PHP_EOL);
     exit(1);
+}
+echo date('c') . " ok: xoá {$deletedConvs} cuộc trò chuyện cũ, sao lưu " . basename($file) . PHP_EOL;
+
+if (drive_connected()) {
+    try {
+        $b = drive_backup($file);
+        echo date('c') . ' Drive: đã gửi bản sao lưu ' . $b['name'] . ' (' . round($b['bytes'] / 1024) . ' KB)' . PHP_EOL;
+    } catch (Throwable $e) {
+        fwrite(STDERR, date('c') . ' LỖI sao lưu lên Drive: ' . $e->getMessage() . PHP_EOL);
+    }
 }
