@@ -697,8 +697,48 @@ function schedule(): array
         'syllabus' => (string)($s['syllabus'] ?? ''),
         'minutes' => max(15, min(90, (int)($s['minutes'] ?? 40))),
         'timetable' => $tt,
+        'grid' => timetable_grid($s['grid'] ?? null),
         'classes' => $classes,
     ];
+}
+
+// Thời khoá biểu dạng bảng (giống bản PDF của trường): các tiết theo giờ × các ngày.
+// Trả về ['periods' => ['08:00 - 08:35', ...], 'cells' => ['1' => ['Tiếng Anh', ...], ...]] hoặc null.
+function timetable_grid(mixed $g): ?array
+{
+    if (!is_array($g) || !is_array($g['periods'] ?? null)) return null;
+    $periods = [];
+    foreach (array_slice($g['periods'], 0, 14) as $p) $periods[] = clean($p, 15);
+    if (!$periods) return null;
+    $cells = [];
+    for ($d = 1; $d <= 7; $d++) {
+        $row = is_array($g['cells'][(string)$d] ?? null) ? array_values($g['cells'][(string)$d]) : [];
+        $cells[(string)$d] = array_map(fn($i) => clean($row[$i] ?? '', 40), array_keys($periods));
+    }
+    return ['periods' => $periods, 'cells' => $cells];
+}
+
+// Chuyển một ngày trong bảng thành dòng chữ cho Mây đọc: "Sáng: Toán (2 tiết), Tiếng Việt. Chiều: ..."
+function timetable_day_text(array $grid, int $day): string
+{
+    $parts = ['Sáng' => [], 'Chiều' => [], '' => []];
+    foreach ($grid['periods'] as $i => $time) {
+        $sub = $grid['cells'][(string)$day][$i] ?? '';
+        if ($sub === '') continue;
+        $session = preg_match('/^\s*(\d{1,2})[:h.]/u', $time, $m) ? ((int)$m[1] < 12 ? 'Sáng' : 'Chiều') : '';
+        $list = &$parts[$session];
+        $n = count($list);
+        if ($n && $list[$n - 1][0] === $sub) $list[$n - 1][1]++;
+        else $list[] = [$sub, 1];
+        unset($list);
+    }
+    $out = [];
+    foreach ($parts as $session => $list) {
+        if (!$list) continue;
+        $txt = implode(', ', array_map(fn($x) => $x[1] > 1 ? "{$x[0]} ({$x[1]} tiết)" : $x[0], $list));
+        $out[] = $session !== '' ? "{$session}: {$txt}" : $txt;
+    }
+    return mb_substr(implode('. ', $out), 0, 500);
 }
 
 // Môn nào trong app khớp với chữ ghi trên thời khoá biểu ("Toán, Tiếng Việt, Tiếng Anh…")

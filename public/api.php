@@ -821,7 +821,10 @@ function r_parent_schedule(array $b): never
     if (isset($b['save']) && is_array($b['save'])) {
         $in = $b['save'];
         $tt = [];
-        for ($d = 1; $d <= 7; $d++) $tt[(string)$d] = clean($in['timetable'][(string)$d] ?? '', 200);
+        $grid = timetable_grid($in['grid'] ?? null);
+        for ($d = 1; $d <= 7; $d++) {
+            $tt[(string)$d] = $grid ? timetable_day_text($grid, $d) : clean($in['timetable'][(string)$d] ?? '', 200);
+        }
         $classes = [];
         foreach (is_array($in['classes'] ?? null) ? array_slice($in['classes'], 0, 10) : [] as $c) {
             if (!is_array($c) || clean($c['name'] ?? '', 60) === '') continue;
@@ -835,6 +838,7 @@ function r_parent_schedule(array $b): never
             'syllabus' => clean_multiline($in['syllabus'] ?? '', 4000),
             'minutes' => max(15, min(90, (int)($in['minutes'] ?? 40))),
             'timetable' => $tt,
+            'grid' => $grid,
             'classes' => $classes,
         ], JSON_UNESCAPED_UNICODE));
     }
