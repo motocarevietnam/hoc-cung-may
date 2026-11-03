@@ -22,4 +22,10 @@ check(str_contains(curriculum_toc_text($id), 'Bài 37: Ôn tập chung'), 'last 
 check(curriculum_for_book('Kết nối tri thức với cuộc sống', 'toan', 4, 1) !== null, 'matching textbook');
 check(curriculum_for_book('Cánh Diều', 'toan', 4, 1) === null, 'different textbook not mapped');
 check(curriculum_catalog('../config') === null, 'path traversal rejected');
+$tv = curriculum_for_book('Kết nối tri thức với cuộc sống', 'tv', 4, 1);
+check($tv !== null, 'Vietnamese catalog loads');
+check(count($tv['topics']) === 4, '4 Vietnamese topics');
+check(array_sum(array_map(fn($t) => count($t['lessons']), $tv['topics'])) === 32, '32 Vietnamese lessons');
+check(count($tv['reviews']) === 2, 'two review milestones');
+check(str_contains(curriculum_toc_text((string)$tv['id']), 'Ôn tập cuối học kì I'), 'final review included');
 echo "OK: 7 topics, 37 lessons, catalog resolution and safety\n";
