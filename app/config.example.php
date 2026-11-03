@@ -28,7 +28,15 @@ return [
     'quiz_effort' => 'medium',
     'homework_effort' => 'medium',
 
-    // Giọng đọc tự nhiên (Microsoft Azure Speech). Để trống key thì Mây dùng giọng có sẵn của iPad.
+    // Giọng đọc tự nhiên (Google Cloud Text-to-Speech). Để trống key thì Mây dùng giọng có sẵn của iPad.
+    // Lấy key: console.cloud.google.com → bật "Cloud Text-to-Speech API" (project cần gắn thanh toán, có hạn mức
+    // miễn phí hằng tháng) → APIs & Services → Credentials → Create credentials → API key → Restrict key:
+    // chỉ chọn Cloud Text-to-Speech API.
+    'google_tts_key' => '',
+    // Có cả key Google và Azure thì chọn 'google' hoặc 'azure' (mặc định Google)
+    'tts_provider' => '',
+
+    // Hoặc Microsoft Azure Speech (có giọng bé gái cho tiếng Anh).
     // Lấy key: portal.azure.com → tạo tài nguyên "Speech" → Keys and Endpoint → Key 1 và Location/Region.
     'azure_speech_key' => '',
     'azure_speech_region' => 'southeastasia',
