@@ -1010,13 +1010,18 @@ function plan_prompt(array $weeks, array $sch, string $focus, string $weak): str
     $focusText = $focus !== '' ? $focus : '(không có)';
     $weakText = $weak !== '' ? $weak : '(chưa có dữ liệu)';
     $scopes = implode("\n", array_map(fn($id) => '- ' . SUBJECTS[$id]['name'] . ': ' . subject_scope($id), array_keys(SUBJECTS)));
-    // Mục lục chính thức theo bộ sách là dữ liệu riêng, không hardcode trong prompt.
-    // Ghi chú của ba mẹ bổ sung tiến độ thực tế; không thay thế thứ tự trong SGK.
-    $catalog = curriculum_for_book($book, 'toan', 4, 1);
-    $toc = $catalog ? curriculum_toc_text((string)$catalog['id']) : '';
-    $syllabus = $toc !== ''
-        ? "Mục lục Toán 4 Tập 1 theo bộ sách đã chọn (không đảo thứ tự, không tự bịa bài):\n" . $toc
-        : 'Chưa có mục lục Toán 4 Tập 1 cho bộ sách này: không tự nhận là đã xác minh.';
+    // Mục lục SGK theo môn, bộ sách và tập, tách riêng khỏi logic.
+    $catalogSections = [];
+    foreach (['toan' => 'Toán', 'tv' => 'Tiếng Việt'] as $subjectId => $subjectName) {
+        $catalog = curriculum_for_book($book, $subjectId, 4, 1);
+        if ($catalog) {
+            $catalogSections[] = "Mục lục {$subjectName} 4 Tập 1 (theo thứ tự SGK):\n"
+                . curriculum_toc_text((string)$catalog['id']);
+        }
+    }
+    $syllabus = $catalogSections
+        ? implode("\n\n", $catalogSections)
+        : 'Chưa có mục lục xác minh cho bộ sách này: không tự nhận là đã xác minh.';
     if ($sch['syllabus'] !== '') {
         $syllabus .= "\nTiến độ thực tế/ghi chú do ba mẹ nhập (ưu tiên để xác định bài đã học, không coi là nội dung SGK đã xác minh):\n" . $sch['syllabus'];
     }
