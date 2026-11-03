@@ -801,7 +801,7 @@ function weak_focus(int $ts): ?array
                 'reason' => "{$m['n']} câu " . SUBJECTS[$m['subject']]['name'] . ($t !== '' ? " ({$t})" : '') . ' làm sai trong 2 tuần qua, chưa thuộc'];
     }
     $a = q("SELECT subject, SUM(score) sc, SUM(total) tt FROM activity WHERE type = 'quiz' AND total > 0 AND created_at >= ?
-            GROUP BY subject HAVING tt >= 5 ORDER BY sc / tt ASC LIMIT 1", [$since])->fetch();
+            GROUP BY subject HAVING SUM(total) >= 5 ORDER BY SUM(score) / SUM(total) ASC LIMIT 1", [$since])->fetch();
     if ($a && $a['sc'] / $a['tt'] < 0.7 && isset(SUBJECTS[$a['subject']])) {
         return ['subject' => $a['subject'], 'topic' => '',
                 'reason' => 'Đố vui ' . SUBJECTS[$a['subject']]['name'] . ' 2 tuần qua đúng ' . (int)$a['sc'] . '/' . (int)$a['tt'] . ' câu: củng cố lại'];
