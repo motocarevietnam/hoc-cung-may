@@ -1440,7 +1440,7 @@ async function loadDriveCard(){
     : G.connected ? `<p style="margin:0">✅ Đã kết nối${G.email?` với <b>${esc(G.email)}</b>`:""}. Ảnh đã nén được lưu vào thư mục <b>Học cùng Mây – Bài tập</b> (riêng tư, chia theo tháng).</p>
         <p class="muted" style="margin:6px 0 0">Đang lưu ${G.files} ảnh, ${mb(G.bytes)}. Ảnh tự xoá khỏi Drive sau ${G.keep_days} ngày (1 năm học).</p>
         ${backupHtml(G.backup)}
-        <div class="row"><button class="btn danger" id="gOff">Ngắt kết nối</button></div>`
+        <div class="row"><button class="btn" id="gOn" title="Cấp lại quyền, giữ nguyên thư mục và ảnh đã lưu">🔄 Kết nối lại</button><button class="btn danger" id="gOff">Ngắt kết nối</button></div>`
     : `<p style="margin:0">Ảnh bài tập (đã nén trên iPad, khoảng 300 KB/trang) sẽ được lưu vào Google Drive của gia đình. Mây chỉ được quyền với các file do chính nó tạo, không xem được file khác trong Drive.</p>
         <div class="row"><button class="btn primary" id="gOn">Kết nối Google Drive</button></div>`}`;
   const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
