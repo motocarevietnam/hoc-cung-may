@@ -1120,7 +1120,7 @@ function taskList(day, clickable){
     const st = it.done ? "completed" : (it.status||"planned");
     return `<div class="task ${it.done?"done":""} ${st}">
     <button class="tmain" data-i="${i}" ${clickable?"":"disabled"}><span class="ck">${it.done?"✓":""}</span>
-      <span class="tt"><span class="ttl">${it.icon} ${esc(it.title)}</span>${TASK_ST[st]?`<span class="chip2 ${st}">${TASK_ST[st]}</span>`:""}${it.reason?`<span class="rs">Vì sao: ${esc(it.reason)}</span>`:""}${st==="needs_help"&&it.help_note?`<span class="rs">🙋 ${esc(it.help_note)}</span>`:""}</span>
+      <span class="tt"><span class="ttl">${it.icon} ${esc(it.title)}</span>${TASK_ST[st]?`<span class="chip2 ${st}">${TASK_ST[st]}</span>`:""}${st==="needs_help"&&it.help_note?`<span class="rs">🙋 ${esc(it.help_note)}</span>`:""}</span>
       <span class="min">${it.minutes} phút</span></button>
     ${clickable && ["started","paused","needs_help"].includes(st) ? `<div class="tops">
       ${st!=="paused"?`<button data-op="pause" data-k="${esc(it.key)}">⏸ Tạm dừng</button>`:""}
