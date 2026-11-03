@@ -1421,6 +1421,14 @@ try{ speechSynthesis.addEventListener("voiceschanged", ()=>{
 }); }catch(e){}
 
 /* ---------- Google Drive (Góc ba mẹ) ---------- */
+function backupHtml(B){
+  if(!B) return "";
+  const when = t => { const d=new Date(t*1000), z=n=>String(n).padStart(2,"0"); return `${z(d.getDate())}/${z(d.getMonth()+1)} lúc ${z(d.getHours())}:${z(d.getMinutes())}`; };
+  const kb = n => Math.max(1, Math.round(n/1024)) + " KB";
+  const d = B.drive_last ? `bản mới nhất ${when(B.drive_last.t)} (${kb(B.drive_last.bytes)}), đang giữ ${B.drive_count}/${B.drive_keep} bản`
+          : "chưa có bản nào (tự gửi lúc 3 giờ sáng mỗi ngày)";
+  return `<p class="muted" id="bInfo" style="margin:6px 0 0">💾 Sao lưu dữ liệu học vào thư mục <b>Học cùng Mây – Sao lưu</b>: ${d}.</p>`;
+}
 async function loadDriveCard(){
   const card = document.getElementById("driveCard"); if(!card) return;
   let G;
@@ -1431,6 +1439,7 @@ async function loadDriveCard(){
     ${!G.configured ? `<p class="muted" style="margin:0">Chưa bật. Cần điền <b>google_client_id</b> và <b>google_client_secret</b> vào config.php trên VPS. Khi chưa bật, ảnh chỉ dùng để chấm rồi bỏ, không lưu ở đâu.</p>`
     : G.connected ? `<p style="margin:0">✅ Đã kết nối${G.email?` với <b>${esc(G.email)}</b>`:""}. Ảnh đã nén được lưu vào thư mục <b>Học cùng Mây – Bài tập</b> (riêng tư, chia theo tháng).</p>
         <p class="muted" style="margin:6px 0 0">Đang lưu ${G.files} ảnh, ${mb(G.bytes)}. Ảnh tự xoá khỏi Drive sau ${G.keep_days} ngày (1 năm học).</p>
+        ${backupHtml(G.backup)}
         <div class="row"><button class="btn danger" id="gOff">Ngắt kết nối</button></div>`
     : `<p style="margin:0">Ảnh bài tập (đã nén trên iPad, khoảng 300 KB/trang) sẽ được lưu vào Google Drive của gia đình. Mây chỉ được quyền với các file do chính nó tạo, không xem được file khác trong Drive.</p>
         <div class="row"><button class="btn primary" id="gOn">Kết nối Google Drive</button></div>`}`;

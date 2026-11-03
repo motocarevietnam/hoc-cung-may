@@ -39,7 +39,7 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   chứng"; câu sai vào Sổ ôn tập). Mỗi kỹ năng: đang học → đang tiến bộ → thành thạo (đạt 2 lần liên tiếp); Cổng ba mẹ có bảng tiến bộ.
 - **Sổ ôn tập**: câu sai được lưu lại, Mây đố lại sau 1, 3, 7 ngày; đúng đủ 3 lần liên tiếp là thuộc hẳn.
 - **Báo cáo cho ba mẹ**: hoạt động 14 ngày, tỉ lệ đúng theo môn, phần hay sai, đọc lại lịch sử trò chuyện.
-- **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản.
+- **Lịch sử trò chuyện tự xoá** sau 30 ngày (đổi được). Sao lưu cơ sở dữ liệu mỗi đêm, giữ 14 bản trên VPS và 30 bản trên Google Drive (nếu đã kết nối).
 - Hai mã PIN: **app_pin** cho máy của bé, **parent_pin** cho ba mẹ (báo cáo, lịch sử, cài đặt).
 - API key và nguyên tắc an toàn cho trẻ nằm trên máy chủ; máy chủ tự chấm điểm đố vui.
 
@@ -119,6 +119,9 @@ Script giữ nguyên `config.php`, cơ sở dữ liệu và bản sao lưu.
 
 ## Sao lưu và khôi phục
 - Bản sao lưu nằm ở `/var/www/hoc-cung-may/app/backups/`, mỗi ngày một file.
+- Nếu đã kết nối Google Drive, mỗi đêm (3 giờ sáng) có thêm một bản gửi lên thư mục **Học cùng Mây – Sao lưu** trên Drive,
+  giữ 30 bản gần nhất (`drive_backup_keep`). Cổng ba mẹ → thẻ Google Drive hiện thời điểm bản mới nhất. VPS hỏng vẫn còn bản trên Drive:
+  tải file `may-NGAY.sql.gz` từ Drive về VPS rồi khôi phục bằng lệnh bên dưới.
 - Thỉnh thoảng nên tải một bản về máy tính: `scp user@IP-VPS:/var/www/hoc-cung-may/app/backups/may-*.sql.gz .`
 - Khôi phục một bản (ghi đè dữ liệu hiện tại):
   ```

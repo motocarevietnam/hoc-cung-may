@@ -1253,6 +1253,7 @@ function mp3_strip_id3(string $mp3): string
 // Quyền tối thiểu drive.file: app chỉ thấy các file do chính app tạo, không đọc được file khác trong Drive gia đình.
 
 const DRIVE_ROOT = 'Học cùng Mây – Bài tập';
+const DRIVE_BACKUP_ROOT = 'Học cùng Mây – Sao lưu';
 
 function google_configured(): bool
 {
@@ -1370,8 +1371,52 @@ function drive_folder(string $name, ?string $parent): string
     return $d['id'];
 }
 
+class DriveFolderMissing extends RuntimeException {}
+
+// Tải một file lên thư mục Drive; trả về mã file. File lớn hơn 4 MB dùng kiểu tải "resumable".
+function drive_upload_bytes(string $parent, string $name, string $mime, string $bin, string $description): string
+{
+    $meta = json_encode(['name' => $name, 'parents' => [$parent], 'description' => $description], JSON_UNESCAPED_UNICODE);
+    if (strlen($bin) <= 4 * 1048576) {
+        $boundary = 'may' . bin2hex(random_bytes(8));
+        $body = "--{$boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{$meta}\r\n"
+              . "--{$boundary}\r\nContent-Type: {$mime}\r\n\r\n{$bin}\r\n--{$boundary}--";
+        [$code, $d] = drive_api('POST', '/files?uploadType=multipart&fields=id', $body, "multipart/related; boundary={$boundary}", true);
+    } else {
+        $base = (string)cfg('google_api_base', 'https://www.googleapis.com') . '/upload/drive/v3/files?uploadType=resumable&fields=id';
+        $ch = curl_init($base);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_HEADER => true, CURLOPT_TIMEOUT => 30,
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . google_access_token(), 'Content-Type: application/json; charset=UTF-8',
+                                   'X-Upload-Content-Type: ' . $mime, 'X-Upload-Content-Length: ' . strlen($bin)],
+            CURLOPT_POSTFIELDS => $meta]);
+        $res = (string)curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        $d = [];
+        if ($code === 200 && preg_match('/^location:\s*(\S+)/mi', $res, $m)) {
+            [$code, $raw] = google_http('PUT', trim($m[1]), ['Content-Type: ' . $mime], $bin, 300);
+            $d = json_decode($raw, true) ?: [];
+        }
+    }
+    if ($code === 404) throw new DriveFolderMissing('Drive: không thấy thư mục');
+    if ($code !== 200 || empty($d['id'])) throw new UpstreamError('Drive tải file ' . $code);
+    return (string)$d['id'];
+}
+
+// Ba mẹ lỡ xoá thư mục của app trên Drive: quên mã cũ để lần sau tạo lại
+function drive_forget_folders(): void
+{
+    set_setting('drive_folders', '{}');
+}
+
+function drive_delete(string $fileId): bool
+{
+    [$code] = drive_api('DELETE', '/files/' . rawurlencode($fileId));
+    return in_array($code, [200, 204, 404], true);
+}
+
 // Tải các ảnh đã nén của một bài lên Drive: "Học cùng Mây – Bài tập/2026-11/2026-11-02 19h05 Toán – … – trang 1.jpg"
-function drive_upload_homework(int $homeworkId, string $subject, string $title, array $images): int
+function drive_upload_homework(int $homeworkId, string $subject, string $title, array $images, bool $retry = true, int $firstPage = 1): int
 {
     $root = drive_folder(DRIVE_ROOT, null);
     $month = drive_folder(date('Y-m'), $root);
@@ -1380,18 +1425,110 @@ function drive_upload_homework(int $homeworkId, string $subject, string $title, 
     $n = 0;
     foreach ($images as $i => $img) {
         $ext = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$img['type']] ?? 'jpg';
-        $name = $base . ' – trang ' . ($i + 1) . '.' . $ext;
-        $boundary = 'may' . bin2hex(random_bytes(8));
-        $meta = json_encode(['name' => $name, 'parents' => [$month], 'description' => 'Học cùng Mây – ảnh bài tập đã nén'], JSON_UNESCAPED_UNICODE);
-        $body = "--{$boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{$meta}\r\n"
-              . "--{$boundary}\r\nContent-Type: {$img['type']}\r\n\r\n{$img['bin']}\r\n--{$boundary}--";
-        [$code, $d] = drive_api('POST', '/files?uploadType=multipart&fields=id', $body, "multipart/related; boundary={$boundary}", true);
-        if ($code !== 200 || empty($d['id'])) throw new UpstreamError('Drive tải ảnh ' . $code);
+        $name = $base . ' – trang ' . ($firstPage + $i) . '.' . $ext;
+        try {
+            $id = drive_upload_bytes($month, $name, $img['type'], $img['bin'], 'Học cùng Mây – ảnh bài tập đã nén');
+        } catch (DriveFolderMissing $e) {
+            if (!$retry) throw $e;
+            drive_forget_folders();
+            return $n + drive_upload_homework($homeworkId, $subject, $title, array_slice($images, $n), false, $firstPage + $n);
+        }
         q('INSERT INTO drive_files (homework_id, file_id, name, bytes, created_at) VALUES (?, ?, ?, ?, ?)',
-            [$homeworkId, $d['id'], $name, strlen($img['bin']), time()]);
+            [$homeworkId, $id, $name, strlen($img['bin']), time()]);
         $n++;
     }
     return $n;
+}
+
+/* Sao lưu cơ sở dữ liệu: một file .sql.gz mỗi ngày trên VPS, và (nếu đã kết nối) một bản trên Google Drive */
+
+// Chạy mariadb-dump, nén gzip. Mật khẩu đưa qua file tạm chỉ user chạy lệnh đọc được, không lộ trên dòng lệnh.
+function db_backup_local(): string
+{
+    $dir = __DIR__ . '/backups';
+    if (!is_dir($dir)) mkdir($dir, 0750, true);
+    $file = $dir . '/may-' . date('Y-m-d') . '.sql.gz';
+    $cnf = tempnam(sys_get_temp_dir(), 'may-dump-');
+    chmod($cnf, 0600);
+    file_put_contents($cnf, sprintf("[client]\nhost=%s\nport=%d\nuser=%s\npassword=\"%s\"\n",
+        cfg('db_host', '127.0.0.1'), (int)cfg('db_port', 3306), cfg('db_user', 'hoc_cung_may'),
+        addcslashes((string)cfg('db_pass', ''), "\\\"")));
+    $dump = is_executable('/usr/bin/mariadb-dump') ? '/usr/bin/mariadb-dump' : 'mysqldump';
+    $cmd = escapeshellarg($dump) . ' --defaults-extra-file=' . escapeshellarg($cnf)
+         . ' --single-transaction --skip-lock-tables --default-character-set=utf8mb4 '
+         . escapeshellarg((string)cfg('db_name', 'hoc_cung_may'));
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $ok = false;
+    $err = '';
+    if (is_resource($proc)) {
+        $gz = gzopen($file . '.part', 'wb6');
+        while (!feof($pipes[1])) {
+            $chunk = fread($pipes[1], 1 << 16);
+            if ($chunk !== false && $chunk !== '') gzwrite($gz, $chunk);
+        }
+        gzclose($gz);
+        $err = trim((string)stream_get_contents($pipes[2]));
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $ok = proc_close($proc) === 0;
+    }
+    unlink($cnf);
+    if (!$ok) {
+        @unlink($file . '.part');
+        throw new RuntimeException('sao lưu: ' . $err);
+    }
+    rename($file . '.part', $file);
+    chmod($file, 0640);
+    $keep = max(1, (int)cfg('backup_keep', 14));
+    $all = glob($dir . '/may-*.sql.gz') ?: [];
+    sort($all);
+    foreach (array_slice($all, 0, max(0, count($all) - $keep)) as $old) unlink($old);
+    return $file;
+}
+
+// Đưa bản sao lưu lên thư mục "Học cùng Mây – Sao lưu", giữ N bản gần nhất (mặc định 30), chạy lại trong ngày thì thay bản cũ
+function drive_backup(string $file, bool $retry = true): array
+{
+    $name = basename($file);
+    $bin = (string)file_get_contents($file);
+    $list = json_decode(setting('drive_backups', '[]'), true) ?: [];
+    try {
+        $id = drive_upload_bytes(drive_folder(DRIVE_BACKUP_ROOT, null), $name, 'application/gzip', $bin,
+            'Học cùng Mây – sao lưu dữ liệu học (MariaDB). Khôi phục: xem README, mục Sao lưu và khôi phục.');
+    } catch (DriveFolderMissing $e) {
+        if (!$retry) throw $e;
+        drive_forget_folders();
+        set_setting('drive_backups', '[]');   // thư mục đã bị xoá thì các bản cũ cũng không còn
+        return drive_backup($file, false);
+    }
+    $keepList = [];
+    foreach ($list as $b) {
+        if (($b['name'] ?? '') === $name) drive_delete((string)$b['id']); else $keepList[] = $b;
+    }
+    $keepList[] = ['id' => $id, 'name' => $name, 'bytes' => strlen($bin), 't' => time()];
+    usort($keepList, fn($a, $b) => $a['t'] <=> $b['t']);
+    $keep = max(3, (int)cfg('drive_backup_keep', 30));
+    while (count($keepList) > $keep) {
+        $old = array_shift($keepList);
+        if (!drive_delete((string)$old['id'])) {   // xoá lỗi (mạng): giữ lại, lần sau thử tiếp
+            array_unshift($keepList, $old);
+            break;
+        }
+    }
+    set_setting('drive_backups', json_encode(array_values($keepList), JSON_UNESCAPED_UNICODE));
+    return end($keepList);
+}
+
+function backup_status(): array
+{
+    $list = json_decode(setting('drive_backups', '[]'), true) ?: [];
+    $last = $list ? end($list) : null;
+    $local = glob(__DIR__ . '/backups/may-*.sql.gz') ?: [];
+    sort($local);
+    $lastLocal = $local ? end($local) : null;
+    return ['drive_count' => count($list), 'drive_last' => $last ? ['name' => $last['name'], 'bytes' => $last['bytes'], 't' => $last['t']] : null,
+            'drive_keep' => max(3, (int)cfg('drive_backup_keep', 30)),
+            'local_count' => count($local), 'local_last' => $lastLocal ? ['name' => basename($lastLocal), 't' => filemtime($lastLocal)] : null];
 }
 
 // Xoá khỏi Drive các ảnh quá hạn (mặc định 365 ngày = 1 năm học). Chạy trong cron hằng đêm.

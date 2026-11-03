@@ -48,6 +48,8 @@ return [
     'google_client_secret' => '',
     // Giữ ảnh trên Drive bao nhiêu ngày rồi tự xoá (365 = 1 năm học)
     'drive_keep_days' => 365,
+    // Mỗi đêm gửi một bản sao lưu dữ liệu học lên thư mục "Học cùng Mây – Sao lưu" trên Drive, giữ bao nhiêu bản
+    'drive_backup_keep' => 30,
 
     // Cổng ba mẹ /parents/: đăng nhập bằng parent_pin, giữ đăng nhập bao nhiêu ngày
     'parent_session_days' => 7,
