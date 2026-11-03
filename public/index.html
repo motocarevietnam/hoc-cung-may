@@ -279,6 +279,21 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .statrow{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
 .stat{background:var(--surface-2);border-radius:12px;padding:6px 12px;font-size:14px}
 .stat b{font-family:var(--display);font-size:20px;display:block}
+.ttwrap{overflow-x:auto;margin-top:10px;border:2px solid var(--line);border-radius:14px;-webkit-overflow-scrolling:touch}
+table.tt{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12px;line-height:1.25}
+table.tt.wide{min-width:480px}
+table.tt th,table.tt td{border:1px solid var(--line);padding:0;background:var(--surface);text-align:center;vertical-align:middle}
+table.tt thead th{background:var(--surface-2);font-weight:700;padding:6px 2px;font-size:12px}
+table.tt .tttime{width:54px;background:var(--surface-2)}
+table.tt td button,table.tt .tttime button{display:block;width:100%;min-height:44px;border:0;background:transparent;padding:4px 2px;font-size:12px;line-height:1.25;overflow-wrap:anywhere;hyphens:auto}
+table.tt .tttime button{font-size:11px;color:var(--ink-soft)}
+table.tt td button.empty::after{content:"+";color:var(--line);font-size:16px}
+table.tt td button:active,table.tt .tttime button:active{background:var(--surface-2)}
+table.tt tr.ttsess th{text-align:left;background:var(--line);font-size:12px;padding:3px 8px}
+.ttbox{max-width:440px;width:100%;text-align:left;max-height:85vh;overflow:auto}
+.ttchips{display:flex;flex-wrap:wrap;gap:6px}
+.ttchips .chip{font-size:14px;padding:6px 10px}
+.ttchips .chip.on{background:var(--ink);color:var(--surface)}
 .clsrow{display:grid;grid-template-columns:110px 90px 80px 1fr 36px;gap:6px;margin:6px 0;align-items:center}
 .clsrow select,.clsrow input{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
 @media (max-width:520px){.clsrow{grid-template-columns:1fr 1fr 1fr}.clsrow input[data-f=name]{grid-column:1/3}}
@@ -1214,8 +1229,10 @@ function renderSchedule(){
       <input class="field" id="mins" type="number" min="15" max="90" value="${S.minutes}">
     </div>
     <div class="card"><h3>Thời khoá biểu ở trường</h3>
-      <p class="muted" style="margin:0">Ghi các môn mỗi ngày, cách nhau bằng dấu phẩy. Mây dùng để chọn môn ôn cho ngày mai.</p>
-      ${DAY_OPTS.map(([d,l])=>`<label for="tt${d}">${l}</label><input class="field" id="tt${d}" value="${esc(S.timetable[d]||"")}" placeholder="${d<=5?"Ví dụ: Toán, Tiếng Việt, Tiếng Anh, Khoa học":"(nghỉ)"}">`).join("")}
+      <p class="muted" style="margin:0">Mỗi hàng là một tiết, mỗi cột là một ngày, giống bản trường gửi. Chạm vào ô để chọn môn, chạm vào giờ để sửa giờ hoặc xoá tiết. Nhớ bấm “Lưu lịch học”.</p>
+      <div id="ttGrid"></div>
+      <div class="row" style="margin-top:8px"><button class="btn" id="ttAdd">+ Thêm tiết</button>
+        <label style="display:flex;gap:8px;align-items:center;margin:0"><input type="checkbox" id="ttWeekend" style="width:20px;height:20px"> Có học Thứ 7, Chủ nhật</label></div>
     </div>
     <div class="card"><h3>Lớp học thêm</h3>
       <div id="clsList">${S.classes.map(clsRow).join("")}</div>
@@ -1223,16 +1240,84 @@ function renderSchedule(){
     </div>
     <div class="row"><button class="btn primary" id="saveSched">Lưu lịch học</button><span class="muted" id="schMsg" style="align-self:center"></span></div>`;
   document.getElementById("back").onclick=()=>{ state.parentPage=null; render(); };
+  ttEdit = ttFromSched(S);
+  document.getElementById("ttWeekend").checked = ttEdit.weekend;
+  document.getElementById("ttWeekend").onchange=e=>{ ttEdit.weekend=e.target.checked; ttDraw(); };
+  document.getElementById("ttAdd").onclick=()=>{ ttEdit.periods.push(""); DAY_OPTS.forEach(([d])=>ttEdit.cells[d].push("")); ttDraw(); };
+  ttDraw();
   document.getElementById("addCls").onclick=()=>{ document.getElementById("clsList").insertAdjacentHTML("beforeend", clsRow({day:1,time:"",minutes:60,name:""})); wireCls(); };
   wireCls();
   document.getElementById("saveSched").onclick=async()=>{
     const msg=document.getElementById("schMsg");
     const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
-    DAY_OPTS.forEach(([d])=>save.timetable[d]=document.getElementById("tt"+d).value);
+    save.grid = {periods: ttEdit.periods, cells: ttEdit.cells};
     app.querySelectorAll(".clsrow").forEach(r=>{ const g=f=>r.querySelector(`[data-f=${f}]`).value; save.classes.push({day:+g("day"), time:g("time"), minutes:+g("minutes")||0, name:g("name")}); });
     try{ state.sched = (await api("/api/parent/schedule",{save},true)).schedule; msg.textContent="Đã lưu ✅"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
+}
+/* thời khoá biểu dạng bảng: hàng = tiết (giờ), cột = ngày */
+const TT_SUBJECTS = ["Toán","Tiếng Việt","Tiếng Anh","Tiếng Anh ET","Tiếng Anh LT","Math Cambridge","Science Cambridge","Khoa học",
+  "Lịch sử và Địa lí","Tin học","Công nghệ","STEM","Đạo đức","Hoạt động trải nghiệm","Giáo dục thể chất","Âm nhạc","Mĩ thuật",
+  "Công dân toàn cầu","Sức khoẻ toàn diện","Nghệ thuật biểu diễn","CLB"];
+const TT_DEFAULT_TIMES = ["08:00 - 08:35","08:40 - 09:15","09:35 - 10:10","10:15 - 10:50","12:45 - 13:20","13:20 - 13:55","14:20 - 14:55","14:55 - 15:30","15:35 - 16:15"];
+let ttEdit = null;
+function ttFromSched(S){
+  const g = S.grid;
+  const periods = g && g.periods && g.periods.length ? [...g.periods] : [...TT_DEFAULT_TIMES];
+  const cells = {};
+  DAY_OPTS.forEach(([d])=>{ const row = (g && g.cells && g.cells[d]) || []; cells[d] = periods.map((_,i)=>row[i]||""); });
+  return {periods, cells, weekend: [6,7].some(d=>cells[d].some(x=>x)) };
+}
+function ttDays(){ return DAY_OPTS.filter(([d])=>d<=5 || ttEdit.weekend); }
+function ttSess(t){ const m=/^\s*(\d{1,2})[:h.]/.exec(t||""); return m ? (+m[1]<12?"Sáng":"Chiều") : ""; }
+function ttDraw(){
+  const days = ttDays();
+  let prev = null, rows = "";
+  ttEdit.periods.forEach((t,i)=>{
+    const s = ttSess(t);
+    if(s && s!==prev) rows += `<tr class="ttsess"><th colspan="${days.length+1}">${s}</th></tr>`;
+    if(s) prev = s;
+    const [t1,t2] = String(t||"").split(/\s*[-–]\s*/);
+    rows += `<tr><th class="tttime"><button data-p="${i}" aria-label="Giờ tiết ${i+1}: ${esc(t||"chưa có")}">${t?`${esc(t1)}${t2?`<br>${esc(t2)}`:""}`:"+ giờ"}</button></th>
+      ${days.map(([d,l])=>{ const v=ttEdit.cells[d][i]||""; return `<td><button data-d="${d}" data-i="${i}" class="${v?"":"empty"}" aria-label="${l}, tiết ${i+1}: ${esc(v||"trống")}">${esc(v)}</button></td>`; }).join("")}</tr>`;
+  });
+  document.getElementById("ttGrid").innerHTML = `<div class="ttwrap"><table class="tt${days.length>5?" wide":""}"><thead><tr><th class="tttime">Giờ</th>${days.map(([d,l])=>`<th>${l.replace("Chủ nhật","CN")}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  app.querySelectorAll("#ttGrid [data-d]").forEach(btn=>btn.onclick=()=>ttPickCell(+btn.dataset.d, +btn.dataset.i));
+  app.querySelectorAll("#ttGrid [data-p]").forEach(btn=>btn.onclick=()=>ttPickTime(+btn.dataset.p));
+}
+function ttSheet(html){
+  const host = document.getElementById("overlayHost");
+  host.innerHTML = `<div class="overlay ttov" role="dialog" aria-modal="true"><div class="box ttbox">${html}</div></div>`;
+  host.querySelector(".ttov").onclick = e => { if(e.target.classList.contains("ttov")) ttClose(); };
+  return host;
+}
+function ttClose(){ document.getElementById("overlayHost").innerHTML = ""; ttDraw(); }
+function ttPickCell(d, i){
+  const label = DAY_OPTS.find(x=>x[0]===d)[1], cur = ttEdit.cells[d][i] || "", t = ttEdit.periods[i] || "";
+  const h = ttSheet(`<h3 style="margin:0 0 4px">${label} · tiết ${i+1}</h3><p class="muted" style="margin:0 0 10px">${esc(t)}</p>
+    <div class="ttchips">${TT_SUBJECTS.map(x=>`<button class="chip${x===cur?" on":""}" data-s="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+    <label for="ttOther" style="margin-top:10px">Môn khác</label>
+    <div class="row" style="margin:0"><input class="field" id="ttOther" value="${TT_SUBJECTS.includes(cur)?"":esc(cur)}" placeholder="Gõ tên môn" style="flex:1"><button class="btn primary" id="ttOk">Chọn</button></div>
+    <div class="row" style="margin-top:10px;justify-content:space-between"><button class="btn" id="ttClear">Để trống</button><button class="btn" id="ttCancel">Đóng</button></div>`);
+  const set = v => { ttEdit.cells[d][i] = v.trim().slice(0,40); ttClose(); };
+  h.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>set(b.dataset.s));
+  h.querySelector("#ttOk").onclick=()=>set(h.querySelector("#ttOther").value);
+  h.querySelector("#ttOther").onkeydown=e=>{ if(e.key==="Enter") set(e.target.value); };
+  h.querySelector("#ttClear").onclick=()=>set("");
+  h.querySelector("#ttCancel").onclick=ttClose;
+}
+function ttPickTime(i){
+  const [a,b] = String(ttEdit.periods[i]||"").split(/\s*[-–]\s*/);
+  const h = ttSheet(`<h3 style="margin:0 0 10px">Giờ của tiết ${i+1}</h3>
+    <div class="row" style="margin:0;align-items:center"><input class="field" type="time" id="ttFrom" value="${esc(a||"")}" style="flex:1"> – <input class="field" type="time" id="ttTo" value="${esc(b||"")}" style="flex:1"></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><button class="btn danger" id="ttDel">Xoá tiết này</button>
+      <span><button class="btn" id="ttCancel">Đóng</button> <button class="btn primary" id="ttOk">Lưu</button></span></div>`);
+  h.querySelector("#ttOk").onclick=()=>{ const f=h.querySelector("#ttFrom").value, t=h.querySelector("#ttTo").value;
+    ttEdit.periods[i] = f && t ? `${f} - ${t}` : (f||t); ttClose(); };
+  h.querySelector("#ttDel").onclick=()=>{ if(!confirm("Xoá tiết "+(i+1)+" ở tất cả các ngày?")) return;
+    ttEdit.periods.splice(i,1); DAY_OPTS.forEach(([d])=>ttEdit.cells[d].splice(i,1)); ttClose(); };
+  h.querySelector("#ttCancel").onclick=ttClose;
 }
 function clsRow(c){
   return `<div class="clsrow"><select data-f="day">${DAY_OPTS.map(([d,l])=>`<option value="${d}" ${d===c.day?"selected":""}>${l}</option>`).join("")}</select>
