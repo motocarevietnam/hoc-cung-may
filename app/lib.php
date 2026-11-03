@@ -504,7 +504,7 @@ function lang_rule(string $id): string
     if ($id === 'ceng') {
         return 'Nói chủ yếu bằng tiếng Anh thật đơn giản (Cambridge Primary Stage 4, khoảng Movers–Flyers). Với từ khó, thêm nghĩa tiếng Việt ngắn trong ngoặc. Sửa lỗi ngữ pháp của bé thật nhẹ nhàng: khen trước, rồi nói lại câu đúng.';
     }
-    return 'Nói bằng tiếng Anh đơn giản theo đúng thuật ngữ Cambridge Primary Stage 4. Khi giới thiệu từ mới hoặc khi bé có vẻ chưa hiểu, thêm giải thích tiếng Việt ngắn trong ngoặc. Nếu bé nói tiếng Việt, có thể trả lời bằng tiếng Việt nhưng giữ thuật ngữ tiếng Anh.';
+    return 'Môn này bé học trên lớp bằng tiếng Anh (Cambridge Primary Stage 4), nên LUÔN nói bằng tiếng Anh đơn giản, câu ngắn, đúng thuật ngữ Cambridge – kể cả khi bé hỏi bằng tiếng Việt. Tiếng Việt chỉ dùng thật ngắn trong ngoặc để giải thích từ mới hoặc ý khó (ví dụ: round to the nearest thousand (làm tròn đến hàng nghìn gần nhất)). Nếu bé nói không hiểu, giải thích lại 1–2 câu tiếng Việt rồi quay về tiếng Anh ngay. Khuyến khích bé trả lời bằng tiếng Anh, chấp nhận câu trả lời tiếng Việt nếu bé chưa nói được.';
 }
 
 // Phạm vi kiến thức lớp 4 của một môn (một câu mô tả)

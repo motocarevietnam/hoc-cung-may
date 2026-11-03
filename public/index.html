@@ -1152,9 +1152,11 @@ function runAction(a){
   if(a.view==="quiz") return startQuiz();
   if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat");
     // Việc "Học lại phần còn yếu" / "Xem trước bài ngày mai": Mây bắt đầu luôn, bé không phải nghĩ câu hỏi
-    const name = subjById(a.subject)?.name || "", t = a.topic ? " – " + a.topic : "";
-    if(a.relearn) sendChat(`Mình còn yếu phần ${name}${t}. Mây giảng lại thật dễ hiểu rồi cho mình làm thử 2–3 bài nhỏ nhé.`);
-    else if(a.preview) sendChat(`Ngày mai mình học ${name}${t}. Mây cho mình xem trước bài, hỏi mình vài câu khởi động nhé.`);
+    const sj = subjById(a.subject), name = sj?.name || "", t = a.topic ? " – " + a.topic : "", en = sj?.lang === "en";
+    if(a.relearn) sendChat(en ? `I'm not strong at ${name}${t} yet. Can you explain it simply and give me 2–3 small practice questions, please?`
+                              : `Mình còn yếu phần ${name}${t}. Mây giảng lại thật dễ hiểu rồi cho mình làm thử 2–3 bài nhỏ nhé.`);
+    else if(a.preview) sendChat(en ? `Tomorrow I have ${name}${t}. Can you give me a quick preview and a few warm-up questions, please?`
+                                   : `Ngày mai mình học ${name}${t}. Mây cho mình xem trước bài, hỏi mình vài câu khởi động nhé.`);
   }
 }
 async function openPlan(tab){
