@@ -26,12 +26,16 @@ function curriculum_toc_text(string $id): string
             $lines[] = 'Bài ' . (int)$lesson['number'] . ': ' . $lesson['title'];
         }
     }
+    foreach ($catalog['reviews'] ?? [] as $review) {
+        $lines[] = 'Ôn tập: ' . $review['title'] . ' (sau bài ' . (int)$review['after_lesson'] . ')';
+    }
     return implode("\n", $lines);
 }
 
 function curriculum_for_book(string $book, string $subject, int $grade, int $volume): ?array
 {
-    if ($subject !== 'toan' || $grade !== 4 || $volume !== 1) return null;
+    if ($grade !== 4 || $volume !== 1) return null;
     if (stripos($book, 'Kết nối tri thức') === false && stripos($book, 'Ket noi tri thuc') === false) return null;
-    return curriculum_catalog('vn-kntt-math-grade4-volume1');
+    $ids = ['toan' => 'vn-kntt-math-grade4-volume1', 'tv' => 'vn-kntt-vietnamese-grade4-volume1'];
+    return isset($ids[$subject]) ? curriculum_catalog($ids[$subject]) : null;
 }
