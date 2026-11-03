@@ -3,6 +3,8 @@
 // Thư mục app/ nằm NGOÀI thư mục web, nên trình duyệt không truy cập được file nào ở đây.
 declare(strict_types=1);
 
+require_once __DIR__ . '/curriculum.php';
+
 $CFG_FILE = __DIR__ . '/config.php';
 if (!is_file($CFG_FILE)) {
     http_response_code(500);
@@ -1008,9 +1010,16 @@ function plan_prompt(array $weeks, array $sch, string $focus, string $weak): str
     $focusText = $focus !== '' ? $focus : '(không có)';
     $weakText = $weak !== '' ? $weak : '(chưa có dữ liệu)';
     $scopes = implode("\n", array_map(fn($id) => '- ' . SUBJECTS[$id]['name'] . ': ' . subject_scope($id), array_keys(SUBJECTS)));
-    $syllabus = $sch['syllabus'] !== ''
-        ? "Mục lục sách / tiến độ của lớp do ba mẹ cung cấp (PHẢI theo đúng thứ tự và tên kiến thức trong này, không đảo thứ tự, không thêm bài không có):\n" . $sch['syllabus']
-        : 'Ba mẹ CHƯA cung cấp mục lục sách hay tiến độ của lớp: chỉ xếp theo trình tự phổ biến, và ghi vào "summary" rằng thứ tự có thể khác với lớp của bé.';
+    // Mục lục chính thức theo bộ sách là dữ liệu riêng, không hardcode trong prompt.
+    // Ghi chú của ba mẹ bổ sung tiến độ thực tế; không thay thế thứ tự trong SGK.
+    $catalog = curriculum_for_book($book, 'toan', 4, 1);
+    $toc = $catalog ? curriculum_toc_text((string)$catalog['id']) : '';
+    $syllabus = $toc !== ''
+        ? "Mục lục Toán 4 Tập 1 theo bộ sách đã chọn (không đảo thứ tự, không tự bịa bài):\n" . $toc
+        : 'Chưa có mục lục Toán 4 Tập 1 cho bộ sách này: không tự nhận là đã xác minh.';
+    if ($sch['syllabus'] !== '') {
+        $syllabus .= "\nTiến độ thực tế/ghi chú do ba mẹ nhập (ưu tiên để xác định bài đã học, không coi là nội dung SGK đã xác minh):\n" . $sch['syllabus'];
+    }
     return <<<TXT
 Soạn ĐỀ XUẤT kế hoạch ôn tập ở nhà theo từng tuần cho một học sinh lớp 4 ở Việt Nam, để ba mẹ kiểm tra và sửa trước khi áp dụng.
 - Môn sách giáo khoa Việt Nam (Toán, Tiếng Việt): bộ sách "{$book}", chương trình GDPT 2018 lớp 4, năm học bắt đầu tháng 9.
