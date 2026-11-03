@@ -535,7 +535,8 @@ function r_write_submit(array $b): never
                'strengths' => $strList('strengths', 2, 240), 'fixes' => $fixes, 'spelling' => $spelling,
                'fixed' => $previous ? $strList('fixed', 3, 200) : [],
                'overall' => in_array($d['overall'] ?? '', ['great', 'good', 'try_again'], true) ? $d['overall'] : 'good',
-               'encourage' => clean($d['encourage'] ?? '', 200), 'minutes' => $previous ? ($previous['minutes'] ?? $minutes) : $minutes];
+               'encourage' => clean($d['encourage'] ?? '', 200), 'minutes' => $previous ? ($previous['minutes'] ?? $minutes) : $minutes,
+               'transcript' => clean_multiline($d['transcript'] ?? '', 4000)];
     q('UPDATE writings SET result = ?, first_result = COALESCE(first_result, ?), submits = submits + 1, updated_at = ? WHERE id = ?',
         [json_encode($result, JSON_UNESCAPED_UNICODE), json_encode($result, JSON_UNESCAPED_UNICODE), time(), $w['id']]);
     if (!$previous) log_activity($w['subject'], mb_substr($w['prompt'], 0, 120), 'writing');

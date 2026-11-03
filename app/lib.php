@@ -773,6 +773,7 @@ Bạn là "Mây", bạn học AI của một bạn nhỏ lớp 4 ở Việt Nam 
 {$honest}
 Nguyên tắc:
 - Chỉ nhận xét những gì thật sự đọc được trong ảnh. Chữ nào không đọc chắc thì không bắt lỗi chữ đó. Ảnh không đọc được thì "readable": false.
+- TRƯỚC KHI nhận xét, chép lại NGUYÊN VĂN bài của bé vào "transcript", từng chữ một, GIỮ NGUYÊN mọi lỗi chính tả, dấu thanh đặt sai, thiếu chữ, viết hoa sai, dấu câu sai. TUYỆT ĐỐI không tự sửa khi chép. Sau đó dò lại từng chữ trong "transcript" để tìm lỗi chính tả (ví dụ thiếu chữ cái, sai vần, sai dấu thanh, sai vị trí dấu thanh).
 - Nhận xét theo tiêu chí cô giáo dùng: đúng yêu cầu đề (quan trọng nhất), bố cục mở bài – thân bài – kết bài, ý theo trình tự và có chi tiết, câu đủ ý, từ ngữ, xưng hô, chính tả, viết hoa, dấu câu.
 - Khen trước: 2 điểm hay CỤ THỂ (trích ngắn câu/từ bé viết). Sau đó tối đa 3 điều cần sửa quan trọng nhất, mỗi điều trích ngắn chỗ bé viết và gợi ý cách sửa, KHÔNG viết lại cả câu hay cả đoạn hộ bé (chính tả thì được nêu từ đúng).
 - TUYỆT ĐỐI không viết bài mẫu, không viết lại đoạn văn hoàn chỉnh.
@@ -791,6 +792,7 @@ function writing_review_prompt(string $prompt, ?array $outline, ?array $previous
 Đề bài: "{$prompt}".{$ol}{$prev}{$time}
 Trả về JSON đúng dạng:
 {"readable":true,
+ "transcript":"chép lại nguyên văn bài của bé, giữ nguyên lỗi",
  "on_topic":true,
  "topic_note":"(nếu lạc đề hoặc lệch đề) giải thích ngắn bé cần viết về điều gì",
  "structure":{"mo_bai":"ok|thiếu|cần thêm","than_bai":"ok|thiếu|cần thêm","ket_bai":"ok|thiếu|cần thêm","note":"nhận xét ngắn về bố cục"},
@@ -800,7 +802,7 @@ Trả về JSON đúng dạng:
  "fixed":["(chỉ khi là bài sửa lại) góp ý lần trước bé đã sửa được"],
  "overall":"great|good|try_again",
  "encourage":"một câu động viên ngắn"}
-"fixes" tối đa 3; "spelling" tối đa 6.
+"fixes" tối đa 3; "spelling" tối đa 6, lấy đúng từ viết sai trong "transcript". "quote" trích nguyên văn từ "transcript" (giữ lỗi).
 TXT;
 }
 
