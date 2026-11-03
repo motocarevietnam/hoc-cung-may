@@ -782,6 +782,33 @@ function plan_week(?array $plan, string $day): ?array
 }
 
 // Việc cần làm trong một ngày, tính từ lịch học + kế hoạch tuần + sổ ôn tập (không gọi Claude).
+// Phần bé còn yếu, theo thứ tự tin cậy: kỹ năng "Mình hiểu rồi – kiểm tra" chưa đạt → chủ đề/môn có nhiều câu sai
+// chưa thuộc trong 14 ngày → môn đố vui đúng dưới 70% trong 14 ngày. Không có dữ liệu thì trả null (không đoán).
+function weak_focus(int $ts): ?array
+{
+    $since = $ts - 14 * 86400;
+    $s = q("SELECT subject, skill, last_score FROM skill_mastery WHERE level = 'learning' AND checks > 0 AND streak = 0 AND updated_at >= ?
+            ORDER BY updated_at DESC LIMIT 1", [$since])->fetch();
+    if ($s && isset(SUBJECTS[$s['subject']])) {
+        return ['subject' => $s['subject'], 'topic' => clean($s['skill'], 80),
+                'reason' => 'Lần kiểm tra lại gần nhất "' . clean($s['skill'], 60) . '" chưa đạt (' . $s['last_score'] . '): học lại cho chắc'];
+    }
+    $m = q('SELECT subject, topic, COUNT(*) n FROM mistakes WHERE mastered_at IS NULL AND created_at >= ? GROUP BY subject, topic
+            ORDER BY n DESC, MAX(created_at) DESC LIMIT 1', [$since])->fetch();
+    if ($m && (int)$m['n'] >= 2 && isset(SUBJECTS[$m['subject']])) {
+        $t = clean($m['topic'], 80);
+        return ['subject' => $m['subject'], 'topic' => $t,
+                'reason' => "{$m['n']} câu " . SUBJECTS[$m['subject']]['name'] . ($t !== '' ? " ({$t})" : '') . ' làm sai trong 2 tuần qua, chưa thuộc'];
+    }
+    $a = q("SELECT subject, SUM(score) sc, SUM(total) tt FROM activity WHERE type = 'quiz' AND total > 0 AND created_at >= ?
+            GROUP BY subject HAVING tt >= 5 ORDER BY sc / tt ASC LIMIT 1", [$since])->fetch();
+    if ($a && $a['sc'] / $a['tt'] < 0.7 && isset(SUBJECTS[$a['subject']])) {
+        return ['subject' => $a['subject'], 'topic' => '',
+                'reason' => 'Đố vui ' . SUBJECTS[$a['subject']]['name'] . ' 2 tuần qua đúng ' . (int)$a['sc'] . '/' . (int)$a['tt'] . ' câu: củng cố lại'];
+    }
+    return null;
+}
+
 function day_plan(string $day): array
 {
     $sch = schedule();
@@ -798,54 +825,84 @@ function day_plan(string $day): array
         $notes[] = "Hôm nay có lớp {$c['name']} lúc {$c['time']}" . ($c['minutes'] ? ' (' . fmt_minutes($c['minutes']) . ')' : '')
                  . '. Học với Mây trước giờ đó nhé.';
     }
+    if ($sch['timetable'][(string)$n] !== '') $notes[] = 'Hôm nay trên lớp đã học: ' . $sch['timetable'][(string)$n];
     $tomorrowText = $sch['timetable'][(string)$tomorrowN];
     if ($tomorrowText !== '') $notes[] = 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') học: ' . $tomorrowText;
     if (!empty($week['note'])) $notes[] = 'Ghi chú tuần này: ' . clean($week['note'], 200);
 
+    // Buổi tối (mặc định 60 phút, ba mẹ đặt ở Lịch học): 1) làm bài cô giao, 2) ôn lại bài học trên lớp hôm nay,
+    // 3) bổ sung phần còn yếu (câu sai đến hạn, kỹ năng kiểm tra chưa đạt, môn làm sai nhiều), 4) còn giờ thì xem trước bài ngày mai.
+    $todayText = $sch['timetable'][(string)$n];
+    $todaySubs = subjects_in($todayText);
+    $tomorrowSubs = subjects_in($tomorrowText);
+    $doy = (int)date('z', $ts);
+    $budget = $sch['minutes'];
+    if ($classes) $budget = min($budget, 30);              // tối có lớp học thêm: buổi nhẹ
+    elseif ($weekend) $budget = min($budget, 30);          // cuối tuần: ôn nhẹ
+    $why = function (string $subj, string $t, string $fallback) : string {
+        return $t !== '' ? 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t : $fallback;
+    };
+
     $items = [];
     if (!$weekend) {
-        $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Chấm bài về nhà: làm bài cô giao rồi chụp gửi Mây', 'minutes' => 15,
+        $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Làm bài cô giao rồi chụp gửi Mây chấm', 'minutes' => $classes ? 20 : 25,
                     'reason' => 'Ưu tiên số 1: bài cô giao hôm nay', 'action' => ['view' => 'homework']];
     }
+
+    // Phần yếu cần bổ sung
     $endOfDay = strtotime($day . ' 23:59:59');
     $due = (int)q('SELECT COUNT(*) FROM mistakes WHERE mastered_at IS NULL AND due_at <= ?', [$endOfDay])->fetchColumn();
+    $weak = weak_focus($ts);
+    $fix = [];
     if ($due > 0) {
-        $items[] = ['key' => 'review', 'icon' => '📒', 'title' => "Sổ ôn tập: {$due} câu đến hạn", 'minutes' => min(10, max(5, $due * 2)),
-                    'reason' => "{$due} câu từng làm sai đến hạn ôn lại (ôn cách quãng 1 → 3 → 7 ngày)", 'action' => ['view' => 'review']];
+        $fix[] = ['key' => 'review', 'icon' => '📒', 'title' => "Sổ ôn tập: {$due} câu từng sai", 'minutes' => min(10, max(5, $due * 2)),
+                  'reason' => "{$due} câu từng làm sai đến hạn ôn lại (ôn cách quãng 1 → 3 → 7 ngày)", 'action' => ['view' => 'review']];
+    }
+    if ($weak) {
+        $fix[] = ['key' => 'chat:' . $weak['subject'], 'icon' => '🔧',
+                  'title' => 'Học lại phần còn yếu: ' . SUBJECTS[$weak['subject']]['name'] . ($weak['topic'] !== '' ? ' – ' . $weak['topic'] : ''),
+                  'minutes' => 15, 'reason' => $weak['reason'],
+                  'action' => ['view' => 'chat', 'subject' => $weak['subject'], 'topic' => $weak['topic'], 'relearn' => true]];
     }
 
-    // Môn ôn hôm nay: ưu tiên môn của ngày mai, xoay vòng theo ngày; ngày có lớp tiếng Anh thì ôn English
-    $hasEnglishClass = (bool)array_filter($classes, fn($c) => in_array('ceng', subjects_in($c['name']), true));
-    $cands = subjects_in($tomorrowText) ?: array_keys(SUBJECTS);
-    $doy = (int)date('z', $ts);
-    $main = $hasEnglishClass ? 'ceng' : $cands[$doy % count($cands)];
-    $t = $topic($main);
-    $tomorrowSubs = subjects_in($tomorrowText);
-    $why = function (string $subj, string $t) use ($tomorrowSubs, $tomorrowN): string {
-        if ($t !== '') return 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t;
-        if (in_array($subj, $tomorrowSubs, true)) return 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$subj]['name'];
-        return 'Ôn xoay vòng các môn (ba mẹ chưa nhập thời khoá biểu/kế hoạch tuần)';
-    };
-    if ($hasEnglishClass) {
-        // Ngày có lớp tiếng Anh: khởi động bằng luyện nói (trả lời câu hỏi)
-        $items[] = ['key' => 'speaking:ceng', 'icon' => '🗣️',
-                    'title' => 'Khởi động trước lớp tiếng Anh: luyện nói English' . ($t !== '' ? " – {$t}" : ''),
-                    'minutes' => 10, 'reason' => 'Hôm nay có lớp tiếng Anh: khởi động nhẹ, không giao bài nặng',
-                    'action' => ['view' => 'speak', 'subject' => 'ceng', 'type' => 'answer', 'topic' => $t]];
-    } else {
-        $items[] = ['key' => "quiz:{$main}", 'icon' => '🎯', 'title' => 'Đố vui ' . SUBJECTS[$main]['name'] . ($t !== '' ? " – {$t}" : ''),
-                    'minutes' => 10, 'reason' => $why($main, $t), 'action' => ['view' => 'quiz', 'subject' => $main, 'topic' => $t]];
+    // Ôn lại bài học trên lớp hôm nay (theo thời khoá biểu); cuối tuần/ngày chưa có TKB: ôn môn của ngày mai
+    $reviewSubs = array_values(array_diff($todaySubs ?: $tomorrowSubs, [$weak['subject'] ?? ''])) ?: ($todaySubs ?: $tomorrowSubs);
+    if ($reviewSubs && !$classes) {
+        $rs = $reviewSubs[$doy % count($reviewSubs)];
+        $t = $topic($rs);
+        $items[] = ['key' => "quiz:{$rs}", 'icon' => '🎯', 'title' => ($todaySubs ? 'Ôn bài hôm nay: đố vui ' : 'Ôn trước cho ngày mai: đố vui ') . SUBJECTS[$rs]['name'] . ($t !== '' ? " – {$t}" : ''),
+                    'minutes' => $weekend ? 10 : 15,
+                    'reason' => $why($rs, $t, $todaySubs ? 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$rs]['name'] . ': ôn lại cho nhớ'
+                                                           : 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$rs]['name']),
+                    'action' => ['view' => 'quiz', 'subject' => $rs, 'topic' => $t]];
     }
+    $items = array_merge($items, $fix);
 
-    $budget = $weekend ? 20 : ($classes ? 30 : $sch['minutes']);
+    // Còn giờ: xem trước bài ngày mai (môn chưa có trong danh sách)
     $used = array_sum(array_column($items, 'minutes'));
-    if ($budget - $used >= 10) {
-        $others = array_values(array_diff($cands, [$main])) ?: [$main];
-        $second = $others[$doy % count($others)];
-        $t2 = $topic($second);
-        $items[] = ['key' => "chat:{$second}", 'icon' => '💬',
-                    'title' => 'Hỏi Mây ôn ' . SUBJECTS[$second]['name'] . ($t2 !== '' ? " – {$t2}" : ($tomorrowText !== '' ? ' cho ngày mai' : '')),
-                    'minutes' => 10, 'reason' => $why($second, $t2), 'action' => ['view' => 'chat', 'subject' => $second, 'topic' => $t2]];
+    $haveChat = array_column($items, 'key');
+    foreach ($tomorrowSubs as $ts2) {
+        if ($budget - $used < 5 || $weekend && $n === 6) break;
+        if (in_array("chat:{$ts2}", $haveChat, true)) continue;
+        $t2 = $topic($ts2);
+        $items[] = ['key' => "chat:{$ts2}", 'icon' => '💬', 'title' => 'Xem trước bài ngày mai: ' . SUBJECTS[$ts2]['name'] . ($t2 !== '' ? " – {$t2}" : ''),
+                    'minutes' => min(10, $budget - $used),
+                    'reason' => $why($ts2, $t2, 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$ts2]['name']),
+                    'action' => ['view' => 'chat', 'subject' => $ts2, 'topic' => $t2, 'preview' => true]];
+        break;
+    }
+
+    // Quá giờ thì bỏ bớt từ cuối danh sách (giữ bài cô giao và phần yếu)
+    while (count($items) > 1 && array_sum(array_column($items, 'minutes')) > $budget + 5) {
+        $drop = null;
+        foreach ($items as $i => $it) if (str_starts_with($it['title'], 'Xem trước') || str_starts_with($it['title'], 'Ôn ')) $drop = $i;
+        if ($drop === null) break;
+        array_splice($items, $drop, 1);
+    }
+    if (!$items) {
+        $items[] = ['key' => 'quiz:' . array_keys(SUBJECTS)[$doy % count(SUBJECTS)], 'icon' => '🎯', 'title' => 'Đố vui ôn tập',
+                    'minutes' => 10, 'reason' => 'Ôn xoay vòng các môn (ba mẹ chưa nhập thời khoá biểu)',
+                    'action' => ['view' => 'quiz', 'subject' => array_keys(SUBJECTS)[$doy % count(SUBJECTS)], 'topic' => '']];
     }
 
     // Hôm nay: chốt danh sách lần đầu mở trong ngày (không tự đổi giữa chừng), đọc trạng thái bé đã cập nhật
