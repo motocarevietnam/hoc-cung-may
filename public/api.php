@@ -82,7 +82,8 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => TTS_VOICES,
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
+        'tts_by' => ['google' => 'Google', 'azure' => 'Microsoft', '' => ''][tts_provider()],
          'drive' => drive_connected()]);
 }
 
@@ -477,7 +478,7 @@ function r_homework_list(array $b): never
     out(['list' => $list, 'detail' => $detail]);
 }
 
-/* ---------------- giọng đọc tự nhiên (Azure) ---------------- */
+/* ---------------- giọng đọc tự nhiên (Google Cloud TTS hoặc Azure) ---------------- */
 
 // Đọc một đoạn đã tách theo ngôn ngữ thành một file mp3 (mỗi phần một giọng). Trả về âm thanh, không phải JSON.
 function r_tts(array $b): never

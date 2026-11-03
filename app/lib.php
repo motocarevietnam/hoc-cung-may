@@ -1029,25 +1029,54 @@ function word_diff(string $target, string $said): array
             'score' => $n ? (int)round(100 * $matched / $n) : 0, 'original' => $origWords];
 }
 
-/* ---------------- Giọng đọc tự nhiên: Microsoft Azure Speech (neural TTS) ---------------- */
+/* ---------------- Giọng đọc tự nhiên trên máy chủ: Google Cloud Text-to-Speech hoặc Microsoft Azure Speech ---------------- */
 
-// Các giọng ba mẹ chọn được. Ana và Maisie là giọng bé gái; tiếng Việt chỉ có giọng người lớn nên nâng nhẹ cao độ.
-const TTS_VOICES = [
+// Azure: Ana và Maisie là giọng bé gái; tiếng Việt chỉ có giọng người lớn nên nâng nhẹ cao độ.
+const TTS_VOICES_AZURE = [
     'vi' => ['vi-VN-HoaiMyNeural' => 'Hoài My (nữ)', 'vi-VN-NamMinhNeural' => 'Nam Minh (nam)'],
     'en' => ['en-US-AnaNeural' => 'Ana (bé gái, giọng Mỹ)', 'en-GB-MaisieNeural' => 'Maisie (bé gái, giọng Anh)',
              'en-US-JennyNeural' => 'Jenny (nữ, giọng Mỹ)', 'en-GB-SoniaNeural' => 'Sonia (nữ, giọng Anh)'],
 ];
 const TTS_PITCH = ['vi-VN-HoaiMyNeural' => '+12%', 'vi-VN-NamMinhNeural' => '+15%'];
 
+// Google: không có giọng trẻ em. Chirp 3 HD tự nhiên nhất nhưng không chỉnh cao độ được;
+// Neural2/WaveNet nâng cao độ (nửa cung) cho giọng trẻ hơn.
+const TTS_VOICES_GOOGLE = [
+    'vi' => ['vi-VN-Chirp3-HD-Leda' => 'Leda (nữ trẻ, tự nhiên nhất)', 'vi-VN-Chirp3-HD-Aoede' => 'Aoede (nữ)',
+             'vi-VN-Chirp3-HD-Puck' => 'Puck (nam)', 'vi-VN-Neural2-A' => 'Neural2 A (nữ, giọng cao hơn)',
+             'vi-VN-Wavenet-A' => 'WaveNet A (nữ, giọng cao hơn)'],
+    'en' => ['en-GB-Chirp3-HD-Leda' => 'Leda (nữ trẻ, giọng Anh)', 'en-GB-Chirp3-HD-Aoede' => 'Aoede (nữ, giọng Anh)',
+             'en-GB-Neural2-C' => 'Neural2 C (nữ, giọng Anh, cao hơn)', 'en-US-Chirp3-HD-Leda' => 'Leda (nữ trẻ, giọng Mỹ)'],
+];
+const TTS_PITCH_GOOGLE = ['vi-VN-Neural2-A' => 3.0, 'vi-VN-Wavenet-A' => 3.0, 'en-GB-Neural2-C' => 2.0, 'en-GB-Wavenet-A' => 2.0];
+// Nếu giọng đã chọn bị Google từ chối (đổi tên, ngừng hỗ trợ) thì dùng giọng lâu đời này
+const TTS_FALLBACK_GOOGLE = ['vi' => 'vi-VN-Wavenet-A', 'en' => 'en-GB-Wavenet-A'];
+
+// 'google', 'azure' hoặc '' (tắt). Có cả hai key thì dùng `tts_provider` trong config, mặc định Google.
+function tts_provider(): string
+{
+    $g = trim((string)cfg('google_tts_key', '')) !== '';
+    $a = trim((string)cfg('azure_speech_key', '')) !== '';
+    $want = (string)cfg('tts_provider', '');
+    if ($want === 'azure' && $a) return 'azure';
+    if ($want === 'google' && $g) return 'google';
+    return $g ? 'google' : ($a ? 'azure' : '');
+}
+
 function tts_enabled(): bool
 {
-    return trim((string)cfg('azure_speech_key', '')) !== '';
+    return tts_provider() !== '';
+}
+
+function tts_voices(): array
+{
+    return tts_provider() === 'azure' ? TTS_VOICES_AZURE : TTS_VOICES_GOOGLE;
 }
 
 function tts_voice(string $lang, string $want): string
 {
-    if (isset(TTS_VOICES[$lang][$want])) return $want;
-    return array_key_first(TTS_VOICES[$lang]);
+    $list = tts_voices()[$lang];
+    return isset($list[$want]) ? $want : (string)array_key_first($list);
 }
 
 function tts_ssml(array $chunks, array $voices, float $rate): string
@@ -1063,16 +1092,37 @@ function tts_ssml(array $chunks, array $voices, float $rate): string
     return "<speak version=\"1.0\" xmlns=\"http://www.w3.org/2001/10/synthesis\" xml:lang=\"vi-VN\">{$parts}</speak>";
 }
 
-// Gọi Azure, lưu tạm file mp3 theo nội dung để câu lặp lại không tính tiền lần nữa (dọn sau 30 ngày)
-function tts_mp3(array $chunks, array $voices, float $rate): string
+// Lưu tạm mp3 theo nội dung để câu lặp lại không tính tiền lần nữa (cron dọn sau 30 ngày)
+function tts_cache(string $key, callable $make): string
 {
-    $ssml = tts_ssml($chunks, $voices, $rate);
     $dir = __DIR__ . '/cache/tts';
-    $file = $dir . '/' . sha1($ssml) . '.mp3';
+    $file = $dir . '/' . sha1($key) . '.mp3';
     if (is_file($file)) {
         @touch($file);
         return (string)file_get_contents($file);
     }
+    $mp3 = $make();
+    if (!is_dir($dir)) @mkdir($dir, 0750, true);
+    @file_put_contents($file, $mp3);
+    return $mp3;
+}
+
+function tts_mp3(array $chunks, array $voices, float $rate): string
+{
+    if (tts_provider() === 'google') {
+        $out = '';
+        foreach ($chunks as $i => $c) {
+            $mp3 = google_tts_chunk($c['t'], $c['l'], $voices[$c['l']], $rate);
+            $out .= $i === 0 ? $mp3 : mp3_strip_id3($mp3);   // ghép nối các đoạn thành một file
+        }
+        return $out;
+    }
+    $ssml = tts_ssml($chunks, $voices, $rate);
+    return tts_cache('azure|' . $ssml, fn() => azure_tts($ssml));
+}
+
+function azure_tts(string $ssml): string
+{
     $region = preg_replace('/[^a-z0-9]/', '', strtolower((string)cfg('azure_speech_region', 'southeastasia')));
     $url = (string)cfg('azure_tts_endpoint', "https://{$region}.tts.speech.microsoft.com/cognitiveservices/v1");
     $ch = curl_init($url);
@@ -1096,9 +1146,66 @@ function tts_mp3(array $chunks, array $voices, float $rate): string
     if ($mp3 === false || $code !== 200 || strlen((string)$mp3) < 100) {
         throw new UpstreamError('Azure TTS ' . $code . ' ' . $err . ' ' . substr((string)$mp3, 0, 300));
     }
-    if (!is_dir($dir)) @mkdir($dir, 0750, true);
-    @file_put_contents($file, $mp3);
     return (string)$mp3;
+}
+
+// Một đoạn một giọng. Bị từ chối (400) thì thử lại không chỉnh tốc độ/cao độ, rồi thử giọng dự phòng.
+function google_tts_chunk(string $text, string $lang, string $voice, float $rate): string
+{
+    return tts_cache("google|{$voice}|{$rate}|{$text}", function () use ($text, $lang, $voice, $rate) {
+        $fallback = TTS_FALLBACK_GOOGLE[$lang] ?? $voice;
+        $tries = [[$voice, true], [$voice, false]];
+        if ($fallback !== $voice) $tries[] = [$fallback, true];
+        $last = '';
+        foreach ($tries as [$v, $tune]) {
+            $audio = ['audioEncoding' => 'MP3', 'sampleRateHertz' => 24000];
+            if ($tune) {
+                if (abs($rate - 1) > 0.01) $audio['speakingRate'] = round($rate, 2);
+                if (isset(TTS_PITCH_GOOGLE[$v])) $audio['pitch'] = TTS_PITCH_GOOGLE[$v];
+            }
+            [$code, $res] = google_tts_call(['input' => ['text' => $text],
+                'voice' => ['languageCode' => substr($v, 0, 5), 'name' => $v], 'audioConfig' => $audio]);
+            if ($code === 200) {
+                $mp3 = base64_decode((string)($res['audioContent'] ?? ''), true);
+                if ($mp3 !== false && strlen($mp3) >= 100) return $mp3;
+            }
+            $last = "{$v} {$code} " . substr(json_encode($res['error']['message'] ?? $res, JSON_UNESCAPED_UNICODE), 0, 300);
+            if ($code !== 400) break;   // lỗi key, hạn mức, mạng: thử giọng khác cũng vô ích
+        }
+        throw new UpstreamError('Google TTS ' . $last);
+    });
+}
+
+function google_tts_call(array $body): array
+{
+    $ch = curl_init((string)cfg('google_tts_endpoint', 'https://texttospeech.googleapis.com/v1/text:synthesize'));
+    curl_setopt_array($ch, [
+        CURLOPT_POST => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => 8,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => [
+            'X-Goog-Api-Key: ' . trim((string)cfg('google_tts_key', '')),
+            'Content-Type: application/json; charset=utf-8',
+            'User-Agent: hoc-cung-may',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE),
+    ]);
+    $raw = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    $res = json_decode((string)$raw, true);
+    return [$code, is_array($res) ? $res : ['error' => ['message' => $err ?: substr((string)$raw, 0, 200)]]];
+}
+
+// Bỏ thẻ ID3v2 đầu file để ghép nhiều mp3 thành một luồng liền mạch
+function mp3_strip_id3(string $mp3): string
+{
+    if (strlen($mp3) < 10 || substr($mp3, 0, 3) !== 'ID3') return $mp3;
+    $b = array_map('ord', str_split(substr($mp3, 6, 4)));
+    $size = ($b[0] << 21) | ($b[1] << 14) | ($b[2] << 7) | $b[3];
+    return (string)substr($mp3, 10 + $size + ((ord($mp3[5]) & 0x10) ? 10 : 0));
 }
 
 /* ---------------- Google Drive: lưu ảnh bài tập (cách A: ảnh đã nén trên iPad) ---------------- */

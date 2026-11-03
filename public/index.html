@@ -373,7 +373,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
-    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
+    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -1298,11 +1298,11 @@ function voiceCardHtml(){
     return list.length ? list.map(v=>`<option value="${esc(v.name)}" ${cur&&v.name===cur.name?"selected":""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
       : `<option value="">(máy chưa có giọng ${l==="vi"?"tiếng Việt":"tiếng Anh"})</option>`; };
   const tv = me.ttsVoices;
-  const cloud = me.tts ? `<div class="notice" style="margin-top:8px"><label style="display:flex;gap:10px;align-items:center;margin:0"><input type="checkbox" id="vCloud" ${LS.get("cloudVoice",true)?"checked":""} style="width:22px;height:22px"> <b>Dùng giọng tự nhiên (Microsoft)</b></label>
+  const cloud = me.tts ? `<div class="notice" style="margin-top:8px"><label style="display:flex;gap:10px;align-items:center;margin:0"><input type="checkbox" id="vCloud" ${LS.get("cloudVoice",true)?"checked":""} style="width:22px;height:22px"> <b>Dùng giọng tự nhiên (${esc(me.ttsBy||"máy chủ")})</b></label>
       ${tv?`<label for="cVi">Giọng tiếng Việt</label><select class="field" id="cVi">${Object.entries(tv.vi).map(([k,n])=>`<option value="${k}" ${LS.get("cloudVi","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>
       <label for="cEn">Giọng tiếng Anh</label><select class="field" id="cEn">${Object.entries(tv.en).map(([k,n])=>`<option value="${k}" ${LS.get("cloudEn","")===k?"selected":""}>${esc(n)}</option>`).join("")}</select>`:""}
       <p class="muted" style="margin:6px 0 0">Khi tắt, hoặc khi mạng lỗi, Mây dùng giọng của máy bên dưới.</p></div>`
-    : `<p class="muted" style="margin:8px 0 0">Muốn giọng tự nhiên như người thật (có giọng bé gái cho tiếng Anh): điền key Microsoft Azure Speech vào config.php trên VPS.</p>`;
+    : `<p class="muted" style="margin:8px 0 0">Muốn giọng tự nhiên như người thật: điền key Google Cloud Text-to-Speech (hoặc Microsoft Azure Speech) vào config.php trên VPS.</p>`;
   return `<div class="card"><h3>Giọng của Mây (trên máy này)</h3>${cloud}
     <p class="muted" style="margin:0">Mây dùng giọng đọc có sẵn của máy. Nâng <b>cao độ</b> để giọng trẻ như bạn nhỏ 8–10 tuổi. Nghe thử rồi chỉnh, máy tự lưu.</p>
     <label for="vVi">Giọng tiếng Việt</label><select class="field" id="vVi">${opts("vi")}</select>
