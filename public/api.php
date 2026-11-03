@@ -454,7 +454,8 @@ function writing_for_kid(array $w): array
     return ['id' => (int)$w['id'], 'subject' => $w['subject'], 'prompt' => $w['prompt'],
             'questions' => json_decode((string)$w['questions'], true) ?: null, 'answers' => json_decode((string)$w['answers'], true) ?: [],
             'outline' => json_decode((string)$w['outline'], true) ?: null, 'started_at' => $w['started_at'] !== null ? (int)$w['started_at'] : null,
-            'result' => json_decode((string)$w['result'], true) ?: null, 'submits' => (int)$w['submits'],
+            'result' => (function ($r) { if (is_array($r)) unset($r['transcript']); return $r ?: null; })(json_decode((string)$w['result'], true)),
+            'submits' => (int)$w['submits'],
             'minutes' => WRITING_MINUTES, 'now' => time(), 'created_at' => (int)$w['created_at']];
 }
 
