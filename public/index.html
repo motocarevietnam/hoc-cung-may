@@ -578,7 +578,7 @@ function toggleMic(){
   rec.onstart = ()=>{ mb.classList.add("on"); mb.setAttribute("aria-label","Dừng nghe"); note.textContent = micLang==="vi" ? "Mây đang nghe… nói xong thì dừng lại một chút nhé." : "Mây is listening… (đang nghe tiếng Anh)"; };
   rec.onresult = ev=>{ let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript; } box.value=(finalText+interim).trim(); };
   rec.onerror = ev=>{ const m={"not-allowed":"Cần cho phép dùng micro. Nếu không được, bé bấm micro trên bàn phím để nói thay nhé.","service-not-allowed":"Trình duyệt chưa cho nói ở đây. Bé bấm micro trên bàn phím để nói thay nhé.","no-speech":"Mây chưa nghe thấy gì. Bấm 🎤 rồi nói lại nhé.","audio-capture":"Không tìm thấy micro trên máy.","network":"Mạng chập chờn nên Mây nghe chưa được. Thử lại nhé."}; note.textContent = m[ev.error] || (ev.error==="aborted" ? "" : "Mây nghe chưa rõ. Thử lại nhé."); finalText=""; };
-  rec.onend = ()=>{ rec=null; mb.classList.remove("on"); mb.setAttribute("aria-label","Bấm để nói"); const t=box.value.trim(); if(finalText.trim() && t){ note.textContent=""; box.value=""; sendChat(t); } };
+  rec.onend = ()=>{ rec=null; mb.classList.remove("on"); mb.setAttribute("aria-label","Bấm để nói"); const t=box.value.trim(); if(finalText.trim() && t){ note.textContent=""; box.value=""; sendChat(t, true); } };
   try{ rec.start(); }catch(e){ rec=null; }
 }
 function guessLang(text, fallback){
@@ -676,7 +676,7 @@ function deviceSpeak(chunks, rate){
 }
 try{ speechSynthesis.getVoices(); speechSynthesis.onvoiceschanged = ()=>{}; }catch(e){}
 
-async function sendChat(text){
+async function sendChat(text, viaMic){
   text = (text||"").trim();
   if(!text || state.busy || !ready()) return;
   state.turns.push({role:"user",content:text});
@@ -685,7 +685,7 @@ async function sendChat(text){
   state.busy=true; updateComposer(); drawMessages();
   const ctl = {aborted:false, abort(){ this.aborted=true; }}; state.ctl=ctl;
   try{
-    const res = await api("/api/chat",{conv_id:state.convId, subject:state.subject, topic:state.topic, text});
+    const res = await api("/api/chat",{conv_id:state.convId, subject:state.subject, topic:state.topic, text, mic:!!viaMic});
     state.convId = res.conv_id; setStars(res.stars);
     if(ctl.aborted) throw {code:"cancelled"};
     reply.content = res.text || "…"; reply.pending=false;

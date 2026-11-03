@@ -125,6 +125,11 @@ function r_chat(array $b): never
         else $messages[] = ['role' => $role, 'content' => $r['content']];
     }
     while ($messages && $messages[0]['role'] !== 'user') array_shift($messages);
+    // Bé nói qua micro: nhắc Mây rằng chữ (nhất là chữ số) do máy chép, không phải bé tự viết
+    if (!empty($b['mic']) && $messages) {
+        $messages[count($messages) - 1]['content'] .= "\n\n[Ghi chú của hệ thống: tin nhắn trên do bé NÓI qua micro, máy tự chép thành chữ."
+            . " Chữ số, dấu chấm, dấu phẩy là do máy tự định dạng, không phải bé viết.]";
+    }
 
     $system = chat_system($subject, $topic, setting('nick'), setting('focus'), memory_note($subject), schedule_note());
     $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), $system, $messages, 4000, 60, (string)cfg('chat_effort', 'low')));
