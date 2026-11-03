@@ -581,22 +581,69 @@ Quy tắc:
 TXT;
 }
 
-function quiz_prompt(string $id, string $topic, string $focus): string
+// Mỗi môn ứng với phần nào trong ô "Mục lục sách / tiến độ của lớp" do ba mẹ nhập
+const SYLLABUS_LABEL = ['toan' => 'Toán 4 (Kết nối tri thức)', 'tv' => 'Tiếng Việt 4 (Kết nối tri thức)', 'cmath' => 'Math Cambridge',
+                        'ceng' => 'English (Our World 4)', 'csci' => 'Science Cambridge'];
+
+// Chủ đề đang học / đang ôn của từng môn, để bé chọn nhanh ở trang môn học
+function current_topics(string $day): array
+{
+    $sch = schedule();
+    $week = plan_week(approved_plan($day), $day) ?: [];
+    $exam = next_exam($day, $sch['exams']);
+    $out = [];
+    foreach (array_keys(SUBJECTS) as $id) {
+        $list = [];
+        if ($exam && $exam['days_left'] >= 1 && $exam['days_left'] <= EXAM_PREP_DAYS && (!$exam['subjects'] || in_array($id, $exam['subjects'], true))) {
+            $list[] = ['label' => "📅 Ôn thi {$exam['name']} (còn {$exam['days_left']} ngày)",
+                       'topic' => mb_substr("Ôn thi {$exam['name']}: " . ($exam['scope'] !== '' ? $exam['scope'] : 'các bài đã học trong kỳ'), 0, 200)];
+        }
+        if (!empty($week[$id])) $list[] = ['label' => '📌 Tuần này: ' . clean($week[$id], 80), 'topic' => clean($week[$id], 200)];
+        $out[$id] = $list;
+    }
+    return $out;
+}
+
+// Bối cảnh chương trình đưa vào đề đố vui: kế hoạch tuần đã duyệt, kỳ kiểm tra sắp tới, mục lục / tiến độ ba mẹ nhập
+function quiz_context(string $id): string
+{
+    $sch = schedule();
+    $day = today();
+    $lines = [];
+    $week = plan_week(approved_plan($day), $day) ?: [];
+    if (!empty($week[$id])) $lines[] = 'Kế hoạch tuần này ba mẹ đã duyệt cho môn này: ' . $week[$id];
+    $exam = next_exam($day, $sch['exams']);
+    if ($exam && $exam['days_left'] <= EXAM_PREP_DAYS && (!$exam['subjects'] || in_array($id, $exam['subjects'], true))) {
+        $lines[] = "Bé sắp kiểm tra {$exam['name']} ngày " . date('d/m', strtotime($exam['date'])) . " (còn {$exam['days_left']} ngày)"
+                 . ($exam['scope'] !== '' ? ", phạm vi ôn: {$exam['scope']}" : ', phạm vi: các bài đã học từ đầu kỳ');
+    }
+    $n = (int)date('N', strtotime($day));
+    $todayTxt = $sch['timetable'][(string)$n] ?? '';
+    if ($todayTxt !== '' && in_array($id, subjects_in($todayTxt), true)) $lines[] = 'Hôm nay trên lớp bé có học môn này.';
+    if ($sch['syllabus'] !== '') {
+        $lines[] = "Mục lục sách / tiến độ của lớp do ba mẹ nhập. CHỈ dùng phần \"" . SYLLABUS_LABEL[$id] . "\"; chỉ hỏi kiến thức thuộc các bài có trong đó,"
+                 . " ưu tiên bài lớp đang học hoặc vừa học (theo tiến độ, tuần học); KHÔNG hỏi bài lớp chưa học tới:\n" . $sch['syllabus'];
+    }
+    return $lines ? "Bối cảnh chương trình của bé (bám sát phần này):\n- " . implode("\n- ", $lines) : '';
+}
+
+function quiz_prompt(string $id, string $topic, string $focus, string $context = ''): string
 {
     $s = SUBJECTS[$id];
     $lang = $s['lang'] === 'vi'
         ? 'Viết toàn bộ bằng tiếng Việt.'
         : 'Write questions and options in simple English (Cambridge Primary Stage 4). Write "explain" and "hint" in simple English followed by a short Vietnamese translation in brackets.';
-    $topicText = $topic !== '' ? $topic : 'kiến thức tổng hợp lớp 4 của môn này';
+    $topicText = $topic !== '' ? $topic : 'các bài lớp đang học hoặc vừa học (theo bối cảnh chương trình bên dưới); nếu không có bối cảnh thì kiến thức tổng hợp lớp 4 của môn này';
+    $ctx = $context !== '' ? "\n" . $context : '';
     $focusText = $focus !== '' ? "\nGhi chú của ba mẹ: " . $focus : '';
     $scope = grade4_scope($id);
     return <<<TXT
-Tạo đúng 5 câu hỏi trắc nghiệm vui, vừa sức học sinh lớp 4.
-Môn: {$s['name']} ({$s['sub']}). Chủ đề: {$topicText}.{$focusText}
+Tạo đúng 10 câu hỏi trắc nghiệm vui, vừa sức học sinh lớp 4.
+Môn: {$s['name']} ({$s['sub']}). Chủ đề: {$topicText}.{$focusText}{$ctx}
 {$lang}
 {$scope}
 Nếu chủ đề bé chọn vượt lớp 4, hãy chọn phần gần nhất thuộc chương trình lớp 4 để ra câu hỏi.
-Yêu cầu: câu hỏi ngắn, bối cảnh gần gũi với trẻ em Việt Nam, nội dung phù hợp trẻ em; mỗi câu có 3 hoặc 4 lựa chọn, chỉ một đáp án đúng; vị trí đáp án đúng thay đổi giữa các câu; độ khó tăng dần. Kiểm tra kỹ từng đáp án cho chính xác tuyệt đối.
+Yêu cầu: câu hỏi ngắn, bối cảnh gần gũi với trẻ em Việt Nam, nội dung phù hợp trẻ em; mỗi câu có 3 hoặc 4 lựa chọn, chỉ một đáp án đúng; vị trí đáp án đúng thay đổi giữa các câu; độ khó tăng dần (khoảng 3 câu dễ, 4 câu vừa, 3 câu khó); trải đều các dạng bài trong chủ đề, giống dạng bài trong sách và đề kiểm tra lớp 4, không lặp một dạng quá 3 câu. Kiểm tra kỹ từng đáp án cho chính xác tuyệt đối.
 "explain": giải thích ngắn (dưới 30 từ) vì sao đáp án đúng. "hint": gợi ý không lộ đáp án.
 Chỉ trả về JSON, không thêm chữ nào khác, đúng dạng: {"questions":[{"q":"...","options":["...","..."],"answer":0,"explain":"...","hint":"..."}]} trong đó "answer" là chỉ số (bắt đầu từ 0) của lựa chọn đúng.
 TXT;
@@ -699,6 +746,7 @@ function schedule(): array
         'minutes' => max(15, min(90, (int)($s['minutes'] ?? 40))),
         'timetable' => $tt,
         'grid' => timetable_grid($s['grid'] ?? null),
+        'exams' => exams_clean($s['exams'] ?? []),
         'classes' => $classes,
     ];
 }
@@ -717,6 +765,41 @@ function timetable_grid(mixed $g): ?array
         $cells[(string)$d] = array_map(fn($i) => clean($row[$i] ?? '', 40), array_keys($periods));
     }
     return ['periods' => $periods, 'cells' => $cells];
+}
+
+// Lịch kiểm tra do ba mẹ nhập: [{name, date: 'Y-m-d', subjects: ['toan', ...], other, scope}], sắp theo ngày
+const EXAM_PREP_DAYS = 12;   // bắt đầu chế độ ôn thi trước ngày kiểm tra bao nhiêu ngày
+
+function exams_clean(mixed $list): array
+{
+    $out = [];
+    foreach (is_array($list) ? array_slice($list, 0, 8) : [] as $e) {
+        if (!is_array($e)) continue;
+        $date = (string)($e['date'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !strtotime($date)) continue;
+        $subs = array_values(array_intersect(array_keys(SUBJECTS), is_array($e['subjects'] ?? null) ? $e['subjects'] : []));
+        $out[] = ['name' => clean($e['name'] ?? '', 60) ?: 'Kiểm tra', 'date' => $date, 'subjects' => $subs,
+                  'other' => clean($e['other'] ?? '', 120), 'scope' => clean($e['scope'] ?? '', 300)];
+    }
+    usort($out, fn($a, $b) => strcmp($a['date'], $b['date']));
+    return $out;
+}
+
+// Kỳ kiểm tra gần nhất từ hôm nay trở đi (kèm số ngày còn lại), hoặc null
+function next_exam(string $day, array $exams): ?array
+{
+    foreach ($exams as $e) {
+        $days = (int)round((strtotime($e['date']) - strtotime($day)) / 86400);
+        if ($days >= 0) return $e + ['days_left' => $days];
+    }
+    return null;
+}
+
+function exam_subject_names(array $e): string
+{
+    $names = array_map(fn($id) => SUBJECTS[$id]['name'], $e['subjects']);
+    if ($e['other'] !== '') $names[] = $e['other'];
+    return $names ? implode(', ', $names) : 'các môn';
 }
 
 // Chuyển một ngày trong bảng thành dòng chữ cho Mây đọc: "Sáng: Toán (2 tiết), Tiếng Việt. Chiều: ..."
@@ -843,6 +926,15 @@ function day_plan(string $day): array
         return $t !== '' ? 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t : $fallback;
     };
 
+    // Sắp kiểm tra: đếm ngược, và trong EXAM_PREP_DAYS ngày trước đó buổi tối chuyển sang ôn thi
+    $exam = next_exam($day, $sch['exams']);
+    if ($exam) {
+        $examLabel = $exam['name'] . ' (' . date('d/m', strtotime($exam['date'])) . ') – ' . exam_subject_names($exam);
+        if ($exam['days_left'] === 0) $notes[] = "Hôm nay kiểm tra {$examLabel}. Bình tĩnh, đọc kỹ đề nhé! 💪";
+        elseif ($exam['days_left'] <= EXAM_PREP_DAYS) $notes[] = "Còn {$exam['days_left']} ngày tới {$examLabel}. Đang ôn thi" . ($exam['scope'] !== '' ? ": {$exam['scope']}" : '') . '.';
+    }
+    $examMode = $exam && $exam['days_left'] >= 1 && $exam['days_left'] <= EXAM_PREP_DAYS;
+
     $items = [];
     if (!$weekend) {
         $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Làm bài cô giao rồi chụp gửi Mây chấm', 'minutes' => $classes ? 20 : 25,
@@ -865,45 +957,73 @@ function day_plan(string $day): array
                   'action' => ['view' => 'chat', 'subject' => $weak['subject'], 'topic' => $weak['topic'], 'relearn' => true]];
     }
 
-    // Ôn lại bài học trên lớp hôm nay (theo thời khoá biểu); cuối tuần/ngày chưa có TKB: ôn môn của ngày mai
-    $reviewSubs = array_values(array_diff($todaySubs ?: $tomorrowSubs, [$weak['subject'] ?? ''])) ?: ($todaySubs ?: $tomorrowSubs);
-    if ($reviewSubs && !$classes) {
-        $rs = $reviewSubs[$doy % count($reviewSubs)];
-        $t = $topic($rs);
-        $items[] = ['key' => "quiz:{$rs}", 'icon' => '🎯', 'title' => ($todaySubs ? 'Ôn bài hôm nay: đố vui ' : 'Ôn trước cho ngày mai: đố vui ') . SUBJECTS[$rs]['name'] . ($t !== '' ? " – {$t}" : ''),
-                    'minutes' => $weekend ? 10 : 15,
-                    'reason' => $why($rs, $t, $todaySubs ? 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$rs]['name'] . ': ôn lại cho nhớ'
-                                                           : 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$rs]['name']),
-                    'action' => ['view' => 'quiz', 'subject' => $rs, 'topic' => $t]];
-    }
-    $items = array_merge($items, $fix);
-
-    // Còn nhiều giờ: ôn thêm môn khác học hôm nay (10 phút/môn, chừa 10 phút xem trước)
-    $usedSubs = array_filter(array_map(fn($it) => $it['action']['subject'] ?? null, $items));
-    $used = array_sum(array_column($items, 'minutes'));
-    if (!$classes && !$weekend) {
-        foreach ($todaySubs as $more) {
-            if ($budget - $used < ($tomorrowSubs ? 20 : 10)) break;   // ngày mai nghỉ thì không cần chừa giờ xem trước
-            if (in_array($more, $usedSubs, true)) continue;
-            $t = $topic($more);
-            $items[] = ['key' => "quiz:{$more}", 'icon' => '🎯', 'title' => 'Ôn bài hôm nay: đố vui ' . SUBJECTS[$more]['name'] . ($t !== '' ? " – {$t}" : ''),
-                        'minutes' => 10, 'reason' => $why($more, $t, 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$more]['name'] . ': ôn lại cho nhớ'),
-                        'action' => ['view' => 'quiz', 'subject' => $more, 'topic' => $t]];
-            $usedSubs[] = $more;
-            $used += 10;
+    if ($examMode) {
+        // Ôn thi: phần yếu trước, rồi ôn tổng hợp lần lượt các môn thi; cuối tuần và hôm trước ngày thi có đề luyện / ôn nhẹ
+        $items = array_merge($items, $fix);
+        $examSubs = $exam['subjects'] ?: array_keys(SUBJECTS);
+        $scope = $exam['scope'] !== '' ? $exam['scope'] : 'các bài đã học từ đầu kỳ đến nay (theo mục lục sách)';
+        $used = array_sum(array_column($items, 'minutes'));
+        $budgetExam = $exam['days_left'] === 1 ? min($budget, 45) : ($classes ? min($budget, 40) : max($budget, $weekend ? 40 : $budget));
+        $i = 0;
+        $start = $doy % count($examSubs);
+        while ($budgetExam - $used >= 10 && $i < count($examSubs)) {
+            $sub = $examSubs[($start + $i) % count($examSubs)];
+            $i++;
+            $mock = $weekend && $i === 1 && $exam['days_left'] > 1;
+            $topicTxt = ($mock ? 'Đề luyện tổng hợp ' : 'Ôn thi ') . $exam['name'] . ': ' . $scope;
+            $mins = $exam['days_left'] === 1 ? 10 : ($mock ? 20 : 15);
+            $items[] = ['key' => "quiz:{$sub}", 'icon' => $mock ? '📝' : '🎯',
+                        'title' => ($mock ? 'Đề luyện tổng hợp ' : 'Ôn thi ') . SUBJECTS[$sub]['name'],
+                        'minutes' => min($mins, $budgetExam - $used),
+                        'reason' => "Còn {$exam['days_left']} ngày tới {$exam['name']}: ôn " . ($exam['scope'] !== '' ? $exam['scope'] : 'các bài đã học trong kỳ')
+                                    . ($exam['days_left'] === 1 ? ' (hôm trước ngày thi: ôn nhẹ, ngủ sớm)' : ''),
+                        'action' => ['view' => 'quiz', 'subject' => $sub, 'topic' => mb_substr($topicTxt, 0, 200)]];
+            $used += min($mins, $budgetExam - $used);
         }
+        $budget = $budgetExam;
     }
 
-    // Còn giờ: xem trước bài ngày mai (môn chưa ôn tối nay)
-    foreach ($tomorrowSubs as $ts2) {
-        if ($budget - $used < 5 || $weekend && $n === 6) break;
-        if (in_array($ts2, $usedSubs, true)) continue;
-        $t2 = $topic($ts2);
-        $items[] = ['key' => "chat:{$ts2}", 'icon' => '💬', 'title' => 'Xem trước bài ngày mai: ' . SUBJECTS[$ts2]['name'] . ($t2 !== '' ? " – {$t2}" : ''),
-                    'minutes' => min(10, $budget - $used),
-                    'reason' => $why($ts2, $t2, 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$ts2]['name']),
-                    'action' => ['view' => 'chat', 'subject' => $ts2, 'topic' => $t2, 'preview' => true]];
-        break;
+    if (!$examMode) {
+        // Ôn lại bài học trên lớp hôm nay (theo thời khoá biểu); cuối tuần/ngày chưa có TKB: ôn môn của ngày mai
+        $reviewSubs = array_values(array_diff($todaySubs ?: $tomorrowSubs, [$weak['subject'] ?? ''])) ?: ($todaySubs ?: $tomorrowSubs);
+        if ($reviewSubs && !$classes) {
+            $rs = $reviewSubs[$doy % count($reviewSubs)];
+            $t = $topic($rs);
+            $items[] = ['key' => "quiz:{$rs}", 'icon' => '🎯', 'title' => ($todaySubs ? 'Ôn bài hôm nay: đố vui ' : 'Ôn trước cho ngày mai: đố vui ') . SUBJECTS[$rs]['name'] . ($t !== '' ? " – {$t}" : ''),
+                        'minutes' => $weekend ? 10 : 15,
+                        'reason' => $why($rs, $t, $todaySubs ? 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$rs]['name'] . ': ôn lại cho nhớ'
+                                                               : 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$rs]['name']),
+                        'action' => ['view' => 'quiz', 'subject' => $rs, 'topic' => $t]];
+        }
+        $items = array_merge($items, $fix);
+
+        // Còn nhiều giờ: ôn thêm môn khác học hôm nay (10 phút/môn, chừa 10 phút xem trước)
+        $usedSubs = array_filter(array_map(fn($it) => $it['action']['subject'] ?? null, $items));
+        $used = array_sum(array_column($items, 'minutes'));
+        if (!$classes && !$weekend) {
+            foreach ($todaySubs as $more) {
+                if ($budget - $used < ($tomorrowSubs ? 20 : 10)) break;   // ngày mai nghỉ thì không cần chừa giờ xem trước
+                if (in_array($more, $usedSubs, true)) continue;
+                $t = $topic($more);
+                $items[] = ['key' => "quiz:{$more}", 'icon' => '🎯', 'title' => 'Ôn bài hôm nay: đố vui ' . SUBJECTS[$more]['name'] . ($t !== '' ? " – {$t}" : ''),
+                            'minutes' => 10, 'reason' => $why($more, $t, 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$more]['name'] . ': ôn lại cho nhớ'),
+                            'action' => ['view' => 'quiz', 'subject' => $more, 'topic' => $t]];
+                $usedSubs[] = $more;
+                $used += 10;
+            }
+        }
+
+        // Còn giờ: xem trước bài ngày mai (môn chưa ôn tối nay)
+        foreach ($tomorrowSubs as $ts2) {
+            if ($budget - $used < 5 || $weekend && $n === 6) break;
+            if (in_array($ts2, $usedSubs, true)) continue;
+            $t2 = $topic($ts2);
+            $items[] = ['key' => "chat:{$ts2}", 'icon' => '💬', 'title' => 'Xem trước bài ngày mai: ' . SUBJECTS[$ts2]['name'] . ($t2 !== '' ? " – {$t2}" : ''),
+                        'minutes' => min(10, $budget - $used),
+                        'reason' => $why($ts2, $t2, 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$ts2]['name']),
+                        'action' => ['view' => 'chat', 'subject' => $ts2, 'topic' => $t2, 'preview' => true]];
+            break;
+        }
     }
 
     // Quá giờ thì bỏ bớt từ cuối danh sách (giữ bài cô giao và phần yếu)
@@ -1005,6 +1125,8 @@ function plan_prompt(array $weeks, array $sch, string $focus, string $weak): str
     $list = implode(', ', $weeks);
     $ttText = $tt ? implode('; ', $tt) : '(ba mẹ chưa nhập)';
     $clsText = $cls ? implode('; ', $cls) : '(không có)';
+    $examText = $sch['exams'] ? implode('; ', array_map(fn($e) => "{$e['name']} ngày " . date('d/m/Y', strtotime($e['date'])) . ' (' . exam_subject_names($e) . ')'
+        . ($e['scope'] !== '' ? ", phạm vi: {$e['scope']}" : ''), $sch['exams'])) : '(ba mẹ chưa nhập)';
     $focusText = $focus !== '' ? $focus : '(không có)';
     $weakText = $weak !== '' ? $weak : '(chưa có dữ liệu)';
     $scopes = implode("\n", array_map(fn($id) => '- ' . SUBJECTS[$id]['name'] . ': ' . subject_scope($id), array_keys(SUBJECTS)));
@@ -1016,6 +1138,7 @@ Soạn ĐỀ XUẤT kế hoạch ôn tập ở nhà theo từng tuần cho một
 - Môn sách giáo khoa Việt Nam (Toán, Tiếng Việt): bộ sách "{$book}", chương trình GDPT 2018 lớp 4, năm học bắt đầu tháng 9.
 - Môn Cambridge Primary Stage 4: Maths, English, Science.
 - Thời khoá biểu ở trường: {$ttText}. Lớp học thêm: {$clsText}.
+- Lịch kiểm tra định kỳ do ba mẹ nhập: {$examText}. Tuần có ngày kiểm tra và tuần ngay trước đó: dành để ÔN TẬP các môn thi trong phạm vi đã học (ghi "Ôn tập …" và nêu phạm vi), không đưa bài mới.
 - Ghi chú của ba mẹ: {$focusText}
 - Phần bé đang hay sai: {$weakText}
 Phạm vi kiến thức lớp 4 từng môn (chỉ chọn chủ đề trong phạm vi này, không lấy chủ đề của lớp/Stage khác):
@@ -1026,7 +1149,7 @@ Phạm vi kiến thức lớp 4 từng môn (chỉ chọn chủ đề trong ph�
 Yêu cầu:
 - Mỗi tuần, mỗi môn ghi NGẮN GỌN chủ đề/kiến thức nên ôn ở nhà tuần đó (dưới 12 từ), theo đúng trình tự thường gặp của chương trình lớp 4 tại thời điểm đó trong năm học.
 - Chỉ ghi kiến thức lớp 4. Ghi theo tên kiến thức (ví dụ "Phép cộng, phép trừ số có nhiều chữ số"), KHÔNG ghi số bài, số trang hay tên bài nếu không chắc chắn. Không bịa.
-- Những tuần cuối học kỳ có thể dành để "Ôn tập cuối học kỳ". Nếu không chắc lịch nghỉ lễ hay thi, không tự đặt ra; ghi vào "note" để ba mẹ kiểm tra.
+- Nếu ba mẹ chưa nhập lịch kiểm tra: những tuần cuối học kỳ có thể dành để "Ôn tập cuối học kỳ". Không tự đặt ra ngày thi hay lịch nghỉ lễ; ghi vào "note" để ba mẹ kiểm tra.
 - Xen kẽ ôn lại phần bé hay sai.
 Chỉ trả về JSON đúng dạng:
 {"weeks":[{"start":"YYYY-MM-DD","toan":"...","tv":"...","cmath":"...","ceng":"...","csci":"...","note":""}],"summary":"2–3 câu giải thích cách sắp xếp, nhắc ba mẹ đối chiếu với tiến độ của lớp"}

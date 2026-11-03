@@ -294,6 +294,12 @@ table.tt tr.ttsess th{text-align:left;background:var(--line);font-size:12px;padd
 .ttchips{display:flex;flex-wrap:wrap;gap:6px}
 .ttchips .chip{font-size:14px;padding:6px 10px}
 .ttchips .chip.on{background:var(--ink);color:var(--surface)}
+.chip.now{border-color:var(--ink);font-weight:600}
+.exrow{border:2px solid var(--line);border-radius:14px;padding:8px;margin:8px 0;display:grid;gap:6px}
+.exrow input:not([type=checkbox]){background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
+.exhead{display:grid;grid-template-columns:1fr 150px 40px;gap:6px}
+@media (max-width:520px){.exhead{grid-template-columns:1fr 40px}.exhead input[type=date]{grid-column:1/2;grid-row:2}}
+.exsubs{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:14px}.exsubs label{display:flex;gap:4px;align-items:center;margin:0}
 .clsrow{display:grid;grid-template-columns:110px 90px 80px 1fr 36px;gap:6px;margin:6px 0;align-items:center}
 .clsrow select,.clsrow input{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
 @media (max-width:520px){.clsrow{grid-template-columns:1fr 1fr 1fr}.clsrow input[data-f=name]{grid-column:1/3}}
@@ -388,7 +394,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
-    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
+    me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; me.nowTopics = s.now_topics || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -474,17 +480,20 @@ function renderHome(){
 
 function renderSubject(){
   const s = subjById(state.subject);
+  // Chủ đề tuần này / đang ôn thi (theo kế hoạch ba mẹ duyệt và lịch kiểm tra) đứng đầu
+  const nowT = (me.nowTopics && me.nowTopics[s.id]) || [], allT = [...s.topics, ...nowT.map(x=>x.topic)];
   app.innerHTML = `
     <button class="back" id="back">‹ Chọn môn khác</button>
     <div class="sec-title"><div class="badge" style="background:${s.color}">${s.ic}</div>
       <div><h2>${s.name}</h2><div class="muted">${s.sub}</div></div></div>
     <p style="margin:14px 0 4px">Hôm nay bạn học bài gì? (chọn một, hoặc bỏ qua)</p>
+    ${nowT.length?`<div class="chips">${nowT.map(x=>`<button class="chip now" aria-pressed="${state.topic===x.topic}" data-t="${esc(x.topic)}">${esc(x.label)}</button>`).join("")}</div>`:""}
     <div class="chips">${s.topics.map(t=>`<button class="chip" aria-pressed="${state.topic===t}" data-t="${esc(t)}">${esc(t)}</button>`).join("")}</div>
-    <input class="field" id="ownTopic" placeholder="Hoặc gõ tên bài của bạn…" value="${s.topics.includes(state.topic)?"":esc(state.topic)}">
+    <input class="field" id="ownTopic" placeholder="Hoặc gõ tên bài của bạn…" value="${allT.includes(state.topic)?"":esc(state.topic)}">
     ${noSampleNotice()}
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
-      <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 5 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
+      <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 10 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
@@ -1245,6 +1254,12 @@ function renderSchedule(){
       <div id="clsList">${S.classes.map(clsRow).join("")}</div>
       <button class="btn" id="addCls">+ Thêm lớp</button>
     </div>
+    <div class="card"><h3>Lịch kiểm tra</h3>
+      <p class="muted" style="margin:0">Nhập ngày và môn của từng kỳ kiểm tra. Trước ngày kiểm tra ${EXAM_PREP_DAYS} ngày, buổi tối của bé tự chuyển sang <b>ôn thi</b> (vẫn làm bài cô giao trước), trang chính hiện đếm ngược.</p>
+      <div id="exList">${(S.exams||[]).map(exRow).join("")}</div>
+      <div class="row"><button class="btn" id="addEx">+ Thêm kỳ kiểm tra</button><button class="btn" id="exSuggest">Điền sẵn 4 kỳ của lớp 4</button></div>
+      <datalist id="exNames"><option value="Giữa học kì 1"><option value="Cuối học kì 1"><option value="Giữa học kì 2"><option value="Cuối năm"></datalist>
+    </div>
     <div class="row"><button class="btn primary" id="saveSched">Lưu lịch học</button><span class="muted" id="schMsg" style="align-self:center"></span></div>`;
   document.getElementById("back").onclick=()=>{ state.parentPage=null; render(); };
   ttEdit = ttFromSched(S);
@@ -1254,12 +1269,24 @@ function renderSchedule(){
   ttDraw();
   document.getElementById("addCls").onclick=()=>{ document.getElementById("clsList").insertAdjacentHTML("beforeend", clsRow({day:1,time:"",minutes:60,name:""})); wireCls(); };
   wireCls();
+  const addEx = e => { document.getElementById("exList").insertAdjacentHTML("beforeend", exRow(e)); wireEx(); };
+  document.getElementById("addEx").onclick=()=>addEx({name:"", date:"", subjects:["toan","tv"], other:"", scope:""});
+  const sug=document.getElementById("exSuggest");
+  if(sug) sug.onclick=()=>{ [["Giữa học kì 1",["toan","tv"],""],["Cuối học kì 1",["toan","tv","csci"],"Khoa học, Lịch sử và Địa lí, Tin học, Công nghệ"],
+      ["Giữa học kì 2",["toan","tv"],""],["Cuối năm",["toan","tv","csci"],"Khoa học, Lịch sử và Địa lí, Tin học, Công nghệ"]]
+      .forEach(([name,subjects,other])=>addEx({name, date:"", subjects, other, scope:""})); };
+  wireEx();
   document.getElementById("saveSched").onclick=async()=>{
     const msg=document.getElementById("schMsg");
     const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
     save.grid = {periods: ttEdit.periods, cells: ttEdit.cells};
+    save.exams = [...app.querySelectorAll(".exrow")].map(r=>({name:r.querySelector("[data-f=name]").value, date:r.querySelector("[data-f=date]").value,
+      subjects:[...r.querySelectorAll("[data-sub]:checked")].map(c=>c.dataset.sub), other:r.querySelector("[data-f=other]").value, scope:r.querySelector("[data-f=scope]").value}));
+    const noDate = save.exams.filter(e=>(e.name||e.scope) && !e.date).length;
     app.querySelectorAll(".clsrow").forEach(r=>{ const g=f=>r.querySelector(`[data-f=${f}]`).value; save.classes.push({day:+g("day"), time:g("time"), minutes:+g("minutes")||0, name:g("name")}); });
-    try{ state.sched = (await api("/api/parent/schedule",{save},true)).schedule; msg.textContent="Đã lưu ✅"; }
+    try{ state.sched = (await api("/api/parent/schedule",{save},true)).schedule;
+      msg.textContent = noDate ? `Đã lưu ✅ (bỏ qua ${noDate} kỳ kiểm tra chưa có ngày)` : "Đã lưu ✅";
+      if(noDate===0){ const ex=document.getElementById("exList"); if(ex){ ex.innerHTML=(state.sched.exams||[]).map(exRow).join(""); wireEx(); } } }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
 }
@@ -1326,6 +1353,17 @@ function ttPickTime(i){
     ttEdit.periods.splice(i,1); DAY_OPTS.forEach(([d])=>ttEdit.cells[d].splice(i,1)); ttClose(); };
   h.querySelector("#ttCancel").onclick=ttClose;
 }
+const EXAM_PREP_DAYS = 12;
+function exRow(e){
+  return `<div class="exrow">
+    <div class="exhead"><input data-f="name" list="exNames" value="${esc(e.name)}" placeholder="Tên kỳ, ví dụ Giữa học kì 1">
+      <input data-f="date" type="date" value="${esc(e.date)}" aria-label="Ngày kiểm tra"><button class="btn danger" data-rmex title="Xoá">×</button></div>
+    <div class="exsubs">${SUBJECTS.map(sj=>`<label><input type="checkbox" data-sub="${sj.id}" ${(e.subjects||[]).includes(sj.id)?"checked":""}> ${esc(sj.name)}</label>`).join("")}</div>
+    <input data-f="other" value="${esc(e.other||"")}" placeholder="Môn khác (không có trong app), ví dụ Khoa học, Lịch sử và Địa lí">
+    <input data-f="scope" value="${esc(e.scope||"")}" placeholder="Phạm vi ôn (nếu cô dặn), ví dụ Toán bài 1–16; Tiếng Việt tuần 1–8">
+  </div>`;
+}
+function wireEx(){ app.querySelectorAll("[data-rmex]").forEach(b=>b.onclick=()=>b.closest(".exrow").remove()); }
 function clsRow(c){
   return `<div class="clsrow"><select data-f="day">${DAY_OPTS.map(([d,l])=>`<option value="${d}" ${d===c.day?"selected":""}>${l}</option>`).join("")}</select>
     <input data-f="time" type="time" value="${esc(c.time)}"><input data-f="minutes" type="number" min="0" max="300" value="${c.minutes}" title="Số phút">

@@ -84,7 +84,7 @@ function r_state(array $b): never
 {
     out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
         'tts_by' => ['google' => 'Google', 'azure' => 'Microsoft', '' => ''][tts_provider()],
-         'drive' => drive_connected()]);
+         'drive' => drive_connected(), 'now_topics' => current_topics(today())]);
 }
 
 function subject_or_fail(array $b): string
@@ -145,15 +145,15 @@ function r_chat(array $b): never
 function r_quiz(array $b): never
 {
     $subject = subject_or_fail($b);
-    $topic = clean($b['topic'] ?? '', 80);
-    spend(3);
+    $topic = clean($b['topic'] ?? '', 200);
+    spend(5);
 
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'))]],
+        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject))]],
         16000,
-        100,
+        110,
         (string)cfg('quiz_effort', 'medium')
     );
     $start = strpos($text, '{');
@@ -174,9 +174,9 @@ function r_quiz(array $b): never
             'explain' => clean($item['explain'] ?? '', 400),
             'hint' => clean($item['hint'] ?? '', 300),
         ];
-        if (count($questions) === 5) break;
+        if (count($questions) === 10) break;
     }
-    if (count($questions) < 3) out(['error' => 'bad_quiz'], 502);
+    if (count($questions) < 6) out(['error' => 'bad_quiz'], 502);
 
     q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
         [$subject, $topic, json_encode($questions, JSON_UNESCAPED_UNICODE), count($questions), time()]);
@@ -844,6 +844,7 @@ function r_parent_schedule(array $b): never
             'minutes' => max(15, min(90, (int)($in['minutes'] ?? 40))),
             'timetable' => $tt,
             'grid' => $grid,
+            'exams' => exams_clean($in['exams'] ?? []),
             'classes' => $classes,
         ], JSON_UNESCAPED_UNICODE));
     }
