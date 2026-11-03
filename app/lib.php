@@ -878,12 +878,26 @@ function day_plan(string $day): array
     }
     $items = array_merge($items, $fix);
 
-    // Còn giờ: xem trước bài ngày mai (môn chưa có trong danh sách)
+    // Còn nhiều giờ: ôn thêm môn khác học hôm nay (10 phút/môn, chừa 10 phút xem trước)
+    $usedSubs = array_filter(array_map(fn($it) => $it['action']['subject'] ?? null, $items));
     $used = array_sum(array_column($items, 'minutes'));
-    $haveChat = array_column($items, 'key');
+    if (!$classes && !$weekend) {
+        foreach ($todaySubs as $more) {
+            if ($budget - $used < 20) break;
+            if (in_array($more, $usedSubs, true)) continue;
+            $t = $topic($more);
+            $items[] = ['key' => "quiz:{$more}", 'icon' => '🎯', 'title' => 'Ôn bài hôm nay: đố vui ' . SUBJECTS[$more]['name'] . ($t !== '' ? " – {$t}" : ''),
+                        'minutes' => 10, 'reason' => $why($more, $t, 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$more]['name'] . ': ôn lại cho nhớ'),
+                        'action' => ['view' => 'quiz', 'subject' => $more, 'topic' => $t]];
+            $usedSubs[] = $more;
+            $used += 10;
+        }
+    }
+
+    // Còn giờ: xem trước bài ngày mai (môn chưa ôn tối nay)
     foreach ($tomorrowSubs as $ts2) {
         if ($budget - $used < 5 || $weekend && $n === 6) break;
-        if (in_array("chat:{$ts2}", $haveChat, true)) continue;
+        if (in_array($ts2, $usedSubs, true)) continue;
         $t2 = $topic($ts2);
         $items[] = ['key' => "chat:{$ts2}", 'icon' => '💬', 'title' => 'Xem trước bài ngày mai: ' . SUBJECTS[$ts2]['name'] . ($t2 !== '' ? " – {$t2}" : ''),
                     'minutes' => min(10, $budget - $used),
@@ -901,7 +915,7 @@ function day_plan(string $day): array
     }
     if (!$items) {
         $items[] = ['key' => 'quiz:' . array_keys(SUBJECTS)[$doy % count(SUBJECTS)], 'icon' => '🎯', 'title' => 'Đố vui ôn tập',
-                    'minutes' => 10, 'reason' => 'Ôn xoay vòng các môn (ba mẹ chưa nhập thời khoá biểu)',
+                    'minutes' => 10, 'reason' => 'Ôn nhẹ xoay vòng các môn',
                     'action' => ['view' => 'quiz', 'subject' => array_keys(SUBJECTS)[$doy % count(SUBJECTS)], 'topic' => '']];
     }
 
