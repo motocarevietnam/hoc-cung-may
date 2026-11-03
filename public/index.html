@@ -1129,9 +1129,12 @@ function taskList(day, clickable){
 }
 function todayCard(day){
   const done = day.items.filter(x=>x.done).length;
+  // Thẻ của bé: gọn, chỉ tên + danh sách việc. Ghi chú lịch học (TKB, kế hoạch tuần) Mây vẫn biết khi trò chuyện;
+  // chỉ giữ một dòng ngắn đếm ngược khi sắp kiểm tra.
+  const exam = day.notes.find(n=>/^(Còn \d+ ngày tới|Hôm nay kiểm tra)/.test(n));
   return `<div class="today">
-    <div class="head"><h3>Hôm nay của ${esc(nick())}</h3><span class="muted">${esc(day.weekday)} · ${done}/${day.items.length} việc · khoảng ${day.minutes} phút</span></div>
-    ${day.notes.map(n=>`<div class="pnote">📌 ${esc(n)}</div>`).join("")}
+    <div class="head"><h3>Hôm nay của ${esc(nick())}</h3></div>
+    ${exam ? `<div class="pnote">📅 ${esc(exam.split(". ")[0])}</div>` : ""}
     ${taskList(day, true)}
     ${done===day.items.length && day.items.length ? `<div class="pnote">🎉 Xong hết việc hôm nay rồi! Giỏi quá.</div>` : ""}
   </div>`;
