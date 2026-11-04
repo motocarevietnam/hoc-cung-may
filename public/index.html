@@ -159,7 +159,8 @@ h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
 .btn{background:var(--surface);border:2px solid var(--ink);border-radius:14px;padding:9px 16px;font-family:var(--display);font-weight:700;font-size:17px}
 .btn.primary{background:var(--ink);color:var(--paper)}
 .score{text-align:center;padding:10px 0}
-.score .stars{font-size:44px;letter-spacing:4px}
+.score .stars{font-size:clamp(20px,6.5vw,40px);letter-spacing:2px;line-height:1.3;overflow-wrap:anywhere;word-break:break-all;max-width:100%}
+.qcard{max-width:100%;overflow:hidden}
 .score h2{font-size:34px;margin:8px 0}
 
 /* parent */
@@ -300,6 +301,14 @@ table.tt tr.ttsess th{text-align:left;background:var(--line);font-size:12px;padd
 .wrclock{text-align:center;margin:14px 0;padding:12px;border:3px solid var(--ink);border-radius:20px;background:var(--surface-2)}
 .wrclock span{display:block;font-family:var(--display);font-size:48px;line-height:1}.wrclock.over{border-color:var(--coral);color:var(--coral)}
 .btn.on{background:var(--sun)}
+.vidcard{border:2px solid var(--line);border-radius:16px;padding:10px;margin:8px 0;background:var(--surface)}
+.vidpick{display:flex;gap:10px;align-items:center;width:100%;text-align:left;border:2px solid var(--line);border-radius:12px;background:var(--surface-2);padding:6px;margin:6px 0;font:inherit}
+.vidpick img{width:112px;height:63px;object-fit:cover;border-radius:8px;flex:none}.vidpick small{display:block;color:var(--ink-soft);font-size:13px}
+.vidframe{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:#000}.vidframe iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.vidrow{display:grid;grid-template-columns:120px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--line)}.vidrow img{width:120px;border-radius:8px}
+.vidrow input{width:100%;border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;background:var(--surface)}
+.vidrow.rejected{opacity:.6}
+@media (max-width:520px){.vidrow{grid-template-columns:1fr}.vidrow img{width:100%}}
 .exrow{border:2px solid var(--line);border-radius:14px;padding:8px;margin:8px 0;display:grid;gap:6px}
 .exrow input:not([type=checkbox]){background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
 .exhead{display:grid;grid-template-columns:1fr 150px 40px;gap:6px}
@@ -515,7 +524,7 @@ function renderSubject(){
     state.topic=e.target.value.trim();
     app.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed","false"));
   };
-  document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; go("chat"); };
+  document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; state.vidShown=null; state.pendingMsg=null; go("chat"); };
   document.getElementById("toQuiz").onclick=()=>startQuiz();
   const tw=document.getElementById("toWrite"); if(tw) tw.onclick=()=>openWrite(s.id);
   const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
@@ -536,6 +545,7 @@ function renderChat(){
   app.innerHTML = `
     <button class="back" id="back">‹ ${esc(s.name)}${state.topic?": "+esc(state.topic):""}</button>
     ${noSampleNotice()}
+    <div id="vidWrap"></div>
     <div class="chat" id="chat"></div>
     <div class="chips" id="sugg">${sugg.map(x=>`<button class="chip">${esc(x)}</button>`).join("")}</div>
     <div id="ckWrap"></div>
@@ -559,6 +569,34 @@ function renderChat(){
   const mb=document.getElementById("micBtn"); if(mb) mb.onclick=toggleMic;
   drawMessages();
   updateComposer();
+  if(!state.turns.length && !state.vidShown) loadChatVideos(s);
+}
+// 📺 Video bài giảng ba mẹ đã duyệt, khớp bài đang học: gợi ý xem trước rồi mới trò chuyện (không bắt buộc)
+async function loadChatVideos(s){
+  const key = s.id + "|" + (state.topic||""), pending = state.pendingMsg; state.pendingMsg = null; state.vidShown = key;
+  let vids = [];
+  if(state.topic){ try{ vids = (await api("/api/video_for",{subject:s.id, topic:state.topic})).videos || []; }catch(e){} }
+  if(state.view!=="chat" || state.subject!==s.id) return;
+  if(!vids.length){ if(pending) sendChat(pending); return; }
+  const en = s.lang==="en", wrap = document.getElementById("vidWrap"); if(!wrap) return;
+  const min = v => Math.max(1, Math.round(v.play_seconds/60));
+  const done = (msg)=>{ wrap.innerHTML=""; sendChat(msg); };
+  wrap.innerHTML = `<div class="vidcard"><b>📺 ${en?"Watch a short video first?":"Xem video bài này trước nhé?"}</b>
+    ${vids.map((v,i)=>`<button class="vidpick" data-v="${i}"><img src="https://i.ytimg.com/vi/${esc(v.yt)}/mqdefault.jpg" alt=""><span>${esc(v.lesson)}<small>${esc(v.channel)} · ${min(v)} phút</small></span></button>`).join("")}
+    <div class="row" style="margin:6px 0 0"><button class="btn" id="vidSkip">${en?"Skip":"Bỏ qua, hỏi Mây luôn"}</button></div></div>`;
+  wrap.querySelectorAll("[data-v]").forEach(b=>b.onclick=()=>{
+    const v = vids[+b.dataset.v]; stopVoice();
+    const end = v.seconds && v.seconds > v.play_seconds ? `&end=${v.play_seconds}` : "";
+    wrap.innerHTML = `<div class="vidcard"><div class="vidframe"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.yt)}?rel=0&modestbranding=1&playsinline=1&iv_load_policy=3${end}"
+        title="${esc(v.title)}" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+      <div class="muted" style="margin:6px 0">${esc(v.title)} · ${esc(v.channel)}${end?` (xem ${min(v)} phút đầu)`:""}</div>
+      <div class="row" style="margin:0"><button class="btn primary" id="vidDone">✅ ${en?"I've watched it":"Mình xem xong rồi"}</button><button class="btn" id="vidClose">${en?"Close":"Đóng video"}</button></div></div>`;
+    document.getElementById("vidDone").onclick=()=>{ api("/api/video_watched",{id:v.id}).catch(()=>{});
+      done(pending || (en ? `I've watched the video about ${v.lesson}. Can you ask me 2–3 quick questions to check, please?`
+                          : `Mình xem video bài "${v.lesson}" xong rồi. Mây hỏi mình 2–3 câu để kiểm tra nhé.`)); };
+    document.getElementById("vidClose").onclick=()=>{ wrap.innerHTML=""; if(pending) sendChat(pending); };
+  });
+  document.getElementById("vidSkip").onclick=()=>{ wrap.innerHTML=""; if(pending) sendChat(pending); };
 }
 function onSend(){
   if(state.busy) { state.ctl?.abort(); return; }
@@ -1303,13 +1341,15 @@ function runAction(a){
   if(a.view==="speak") return openSpeak(a.type, a.topic||"");
   state.subject = a.subject; state.topic = a.topic || "";
   if(a.view==="quiz") return startQuiz();
-  if(a.view==="chat"){ state.turns=[]; state.convId=null; go("chat");
-    // Việc "Học lại phần còn yếu" / "Xem trước bài ngày mai": Mây bắt đầu luôn, bé không phải nghĩ câu hỏi
+  if(a.view==="chat"){ state.turns=[]; state.convId=null;
+    // Việc "Học lại phần còn yếu" / "Xem trước bài ngày mai": Mây bắt đầu luôn, bé không phải nghĩ câu hỏi.
+    // Nếu bài có video ba mẹ đã duyệt, Mây gợi ý xem video trước rồi mới gửi lời mở đầu.
     const sj = subjById(a.subject), name = sj?.name || "", t = a.topic ? " – " + a.topic : "", en = sj?.lang === "en";
-    if(a.relearn) sendChat(en ? `I'm not strong at ${name}${t} yet. Can you explain it simply and give me 2–3 small practice questions, please?`
-                              : `Mình còn yếu phần ${name}${t}. Mây giảng lại thật dễ hiểu rồi cho mình làm thử 2–3 bài nhỏ nhé.`);
-    else if(a.preview) sendChat(en ? `Tomorrow I have ${name}${t}. Can you give me a quick preview and a few warm-up questions, please?`
-                                   : `Ngày mai mình học ${name}${t}. Mây cho mình xem trước bài, hỏi mình vài câu khởi động nhé.`);
+    state.pendingMsg = a.relearn ? (en ? `I'm not strong at ${name}${t} yet. Can you explain it simply and give me 2–3 small practice questions, please?`
+                                       : `Mình còn yếu phần ${name}${t}. Mây giảng lại thật dễ hiểu rồi cho mình làm thử 2–3 bài nhỏ nhé.`)
+                     : a.preview ? (en ? `Tomorrow I have ${name}${t}. Can you give me a quick preview and a few warm-up questions, please?`
+                                       : `Ngày mai mình học ${name}${t}. Mây cho mình xem trước bài, hỏi mình vài câu khởi động nhé.`) : null;
+    state.vidShown = null; go("chat");
   }
 }
 async function openPlan(tab){
@@ -1371,6 +1411,43 @@ function renderPlan(){
   app.querySelectorAll(".tabs .chip").forEach(c=>c.onclick=()=>openPlan(c.dataset.t));
   if(P.view==="day") wireTasks(P.day);
   document.getElementById("back").onclick=()=>{ go("home"); refreshState(); };
+}
+
+
+/* ---------- góc ba mẹ: 📺 video bài giảng (duyệt video Mây tìm, thêm link YouTube) ---------- */
+const VID_ST = {candidate:"Chờ duyệt", approved:"Đã duyệt", rejected:"Đã loại"};
+function renderParentVideos(){
+  const V = state.vids;
+  const back = `<button class="back" id="back">‹ Báo cáo</button><h2 style="font-size:28px">📺 Video bài giảng</h2>`;
+  if(!V){ app.innerHTML = back + `<p>Đang mở…</p>`; document.getElementById("back").onclick=()=>{state.parentPage=null;render();}; return; }
+  const mm = sec => sec ? `${Math.floor(sec/60)}:${String(sec%60).padStart(2,"0")}` : "?";
+  const row = v => `<div class="vidrow ${v.status}">
+      <a href="https://www.youtube.com/watch?v=${esc(v.yt)}" target="_blank" rel="noopener"><img src="https://i.ytimg.com/vi/${esc(v.yt)}/mqdefault.jpg" alt="Xem trước"></a>
+      <div><b>${esc(subjById(v.subject)?.name||v.subject)} · ${esc(v.lesson)}</b>
+        <div class="muted">${esc(v.title)}</div>
+        <div class="muted">${esc(v.channel)} · ${mm(v.seconds)}${v.seconds>v.max?` (bé xem ${Math.round(v.max/60)} phút đầu)`:""} · ${v.added_by==="parent"?"ba mẹ thêm":"Mây tìm"}${v.watched?` · bé đã xem ${v.watched} lần`:""}</div>
+        <label class="muted" style="margin:4px 0 0">Từ khoá (khớp với bài bé đang học, cách nhau dấu phẩy)</label>
+        <input data-kw="${v.id}" value="${esc(v.keywords)}">
+        <div class="row" style="margin:6px 0 0"><span class="st ${v.status==="approved"?"approved":v.status==="candidate"?"pending":""}">${VID_ST[v.status]}</span>
+          ${v.status!=="approved"?`<button class="btn primary" data-st="approved" data-id="${v.id}">Duyệt</button>`:""}
+          ${v.status!=="rejected"?`<button class="btn" data-st="rejected" data-id="${v.id}">Loại</button>`:""}
+          <button class="btn" data-savekw="${v.id}">Lưu từ khoá</button></div></div></div>`;
+  app.innerHTML = back + `
+    <div class="card"><p class="muted" style="margin:0">Bấm vào ảnh để xem video trên YouTube trước khi duyệt. Chỉ video <b>đã duyệt</b> mới hiện cho bé, ở đầu khung chat khi bé học đúng bài (khớp từ khoá). Video có thể có quảng cáo của YouTube. Toán, Tiếng Việt phát tối đa 15 phút; Maths, English, Science tối đa 8 phút.</p></div>
+    <div class="card"><h3>Thêm video (dán link YouTube)</h3>
+      <select class="field" id="nvSub">${SUBJECTS.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
+      <input class="field" id="nvUrl" placeholder="https://www.youtube.com/watch?v=…">
+      <input class="field" id="nvLesson" placeholder="Tên bài, ví dụ: Bài 20: Thực hành đo đại lượng">
+      <input class="field" id="nvKw" placeholder="Từ khoá, ví dụ: thực hành, đo đại lượng">
+      <div class="row"><button class="btn primary" id="nvAdd">Thêm và duyệt</button><span class="muted" id="nvMsg" style="align-self:center"></span></div></div>
+    ${["candidate","approved","rejected"].map(st=>{ const list=V.filter(v=>v.status===st); return list.length?`<div class="card"><h3>${VID_ST[st]} (${list.length})</h3>${list.map(row).join("")}</div>`:""; }).join("")}`;
+  document.getElementById("back").onclick=()=>{ state.parentPage=null; render(); };
+  const save = async body => { try{ state.vids=(await api("/api/parent/video_save", body, true)).videos; render(); }catch(e){ alert(copyFor(e&&e.code)); } };
+  app.querySelectorAll("[data-st]").forEach(b=>b.onclick=()=>save({id:+b.dataset.id, status:b.dataset.st, keywords:app.querySelector(`[data-kw="${b.dataset.id}"]`).value}));
+  app.querySelectorAll("[data-savekw]").forEach(b=>b.onclick=()=>save({id:+b.dataset.savekw, keywords:app.querySelector(`[data-kw="${b.dataset.savekw}"]`).value}));
+  document.getElementById("nvAdd").onclick=async()=>{ const m=document.getElementById("nvMsg"); m.textContent="Đang lấy thông tin video…";
+    try{ state.vids=(await api("/api/parent/video_save",{subject:document.getElementById("nvSub").value, url:document.getElementById("nvUrl").value, lesson:document.getElementById("nvLesson").value, keywords:document.getElementById("nvKw").value},true)).videos; render(); }
+    catch(e){ m.textContent = e&&e.code==="video_bad_link" ? "Link YouTube hoặc tên bài chưa đúng." : copyFor(e&&e.code); } };
 }
 
 /* ---------- góc ba mẹ: lịch học và kế hoạch ---------- */
@@ -1866,6 +1943,7 @@ function renderParent(){
   if(state.parentPage==="plan") return renderParentPlan();
   if(state.parentPage==="rewards") return renderRewards();
   if(state.parentPage==="shop") return renderParentShop();
+  if(state.parentPage==="videos") return renderParentVideos();
   return PARENT_MODE ? renderParentPortal() : renderDeviceSettings();
 }
 const NOTE_CARD = `<div class="card"><h3>Lưu ý</h3>
@@ -2010,7 +2088,7 @@ function reportHtml(R){
     <div class="card">
       <h3>Lịch học và kế hoạch</h3>
       <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
-      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button><button class="btn" id="toRewards">⭐ Sao và luật thưởng</button><button class="btn ${R.shop_pending?"primary":""}" id="toPShop">🎁 Đổi quà${R.shop_pending?` (${R.shop_pending} chờ duyệt)`:""}</button></div>
+      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button><button class="btn" id="toRewards">⭐ Sao và luật thưởng</button><button class="btn" id="toVideos">📺 Video bài giảng</button><button class="btn ${R.shop_pending?"primary":""}" id="toPShop">🎁 Đổi quà${R.shop_pending?` (${R.shop_pending} chờ duyệt)`:""}</button></div>
     </div>
     <div class="card">
       <h3>Bài tập về nhà đã chấm</h3>
@@ -2056,6 +2134,11 @@ function wireReport(R){
   document.getElementById("toRewards").onclick=async()=>{
     state.parentPage="rewards"; state.rw=null; render();
     try{ state.rw = await api("/api/parent/rewards",{},true); }catch(e){ state.rw={error:copyFor(e&&e.code)}; }
+    render();
+  };
+  document.getElementById("toVideos").onclick=async()=>{
+    state.parentPage="videos"; state.vids=null; render();
+    try{ state.vids=(await api("/api/parent/videos",{},true)).videos; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }
     render();
   };
   document.getElementById("toSched").onclick=async()=>{

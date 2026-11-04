@@ -34,6 +34,10 @@ $routes = [
     'write_begin'         => 'r_write_begin',
     'write_submit'        => 'r_write_submit',
     'write_list'          => 'r_write_list',
+    'video_for'           => 'r_video_for',
+    'video_watched'       => 'r_video_watched',
+    'parent/videos'       => 'r_parent_videos',
+    'parent/video_save'   => 'r_parent_video_save',
     'homework_list'       => 'r_homework_list',
     'plan'                => 'r_plan',
     'task'                => 'r_task',
@@ -559,6 +563,54 @@ function r_write_list(array $b): never
     $rows = q('SELECT id, subject, prompt, submits, result, created_at FROM writings ORDER BY id DESC LIMIT 10')->fetchAll();
     out(['list' => array_map(fn($r) => ['id' => (int)$r['id'], 'subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'],
         'overall' => (json_decode((string)$r['result'], true) ?: [])['overall'] ?? null, 'created_at' => (int)$r['created_at']], $rows)]);
+}
+
+/* ---------------- Video bài giảng ---------------- */
+
+function r_video_for(array $b): never
+{
+    $subject = subject_or_fail($b);
+    out(['videos' => videos_for($subject, clean($b['topic'] ?? '', 200))]);
+}
+
+function r_video_watched(array $b): never
+{
+    $v = q("SELECT * FROM videos WHERE id = ? AND status = 'approved'", [(int)($b['id'] ?? 0)])->fetch();
+    if (!$v) out(['error' => 'bad_request'], 400);
+    q('UPDATE videos SET watched = watched + 1 WHERE id = ?', [$v['id']]);
+    log_activity($v['subject'], $v['lesson'], 'video');
+    out(['ok' => true]);
+}
+
+function r_parent_videos(array $b): never
+{
+    $rows = q("SELECT * FROM videos ORDER BY FIELD(status, 'candidate', 'approved', 'rejected'), subject, lesson, seconds")->fetchAll();
+    out(['videos' => array_map(fn($v) => video_public($v) + ['subject' => $v['subject'], 'keywords' => $v['keywords'], 'status' => $v['status'],
+        'added_by' => $v['added_by'], 'watched' => (int)$v['watched'], 'max' => VIDEO_MAX[$v['subject']] ?? 480], $rows)]);
+}
+
+// Ba mẹ duyệt / loại / sửa một video, hoặc dán link YouTube để thêm video mới (đã duyệt luôn)
+function r_parent_video_save(array $b): never
+{
+    $subject = (string)($b['subject'] ?? '');
+    $id = (int)($b['id'] ?? 0);
+    if ($id > 0) {
+        $v = q('SELECT * FROM videos WHERE id = ?', [$id])->fetch();
+        if (!$v) out(['error' => 'bad_request'], 400);
+        $status = in_array($b['status'] ?? '', ['candidate', 'approved', 'rejected'], true) ? $b['status'] : $v['status'];
+        q('UPDATE videos SET status = ?, lesson = ?, keywords = ? WHERE id = ?',
+            [$status, clean($b['lesson'] ?? $v['lesson'], 160) ?: $v['lesson'], clean($b['keywords'] ?? $v['keywords'], 300), $id]);
+        r_parent_videos([]);
+    }
+    if (!isset(SUBJECTS[$subject])) out(['error' => 'bad_request'], 400);
+    $yt = youtube_id((string)($b['url'] ?? ''));
+    $lesson = clean($b['lesson'] ?? '', 160);
+    if ($yt === '' || $lesson === '') out(['error' => 'video_bad_link'], 400);
+    $info = youtube_info($yt);
+    q("INSERT INTO videos (subject, lesson, keywords, yt_id, title, channel, seconds, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', 'parent', ?)
+       ON DUPLICATE KEY UPDATE subject = VALUES(subject), lesson = VALUES(lesson), keywords = VALUES(keywords), status = 'approved'",
+        [$subject, $lesson, clean($b['keywords'] ?? '', 300), $yt, $info['title'] ?: 'Video YouTube', $info['channel'], $info['seconds'], time()]);
+    r_parent_videos([]);
 }
 
 function respond_now(array $data): void
