@@ -37,6 +37,9 @@ $routes = [
     'read_start'          => 'r_read_start',
     'read_answer'         => 'r_read_answer',
     'read_pron'           => 'r_read_pron',
+    'listen_start'        => 'r_listen_start',
+    'listen_answer'       => 'r_listen_answer',
+    'listen_audio'        => 'r_listen_audio',
     'speak_pron'          => 'r_speak_pron',
     'video_for'           => 'r_video_for',
     'video_watched'       => 'r_video_watched',
@@ -605,7 +608,7 @@ function r_speak_pron(array $b): never
 function reading_or_fail(array $b): array
 {
     $r = q('SELECT * FROM readings WHERE id = ?', [(int)($b['id'] ?? 0)])->fetch();
-    if (!$r) out(['error' => 'bad_request'], 400);
+    if (!$r || $r['kind'] !== ($b['_kind'] ?? 'read')) out(['error' => 'bad_request'], 400);
     return $r;
 }
 
@@ -613,14 +616,14 @@ function reading_or_fail(array $b): array
 function r_read_start(array $b): never
 {
     if (empty($b['new'])) {
-        $r = q('SELECT * FROM readings WHERE day = ? ORDER BY (score IS NULL) DESC, id DESC LIMIT 1', [today()])->fetch();
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'read' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
         if ($r) out(['reading' => reading_for_kid($r), 'level' => read_level()]);
     }
     [$subject, $topic] = read_topic(today());
     $level = read_level();
     spend(3);
     $titles = array_values(array_filter(array_map(fn($r) => (json_decode((string)$r['data'], true) ?: [])['title'] ?? '',
-        q('SELECT data FROM readings ORDER BY id DESC LIMIT 15')->fetchAll())));
+        q("SELECT data FROM readings WHERE kind = 'read' ORDER BY id DESC LIMIT 15")->fetchAll())));
     $avoid = $titles ? "\nBài đọc gần đây (viết bài MỚI, khác nội dung và nhân vật; không lặp tiêu đề): " . implode('; ', $titles) : '';
     $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
         [['role' => 'user', 'content' => read_prompt($subject, $topic, $level, quiz_context($subject) . $avoid)]], 6000, 75, 'low')) ?? [];
@@ -663,6 +666,71 @@ function r_read_pron(array $b): never
     $p = pron_from_speechsuper($res);
     if ($p['overall'] !== 'unclear') q('UPDATE readings SET pron_score = GREATEST(COALESCE(pron_score, 0), ?), updated_at = updated_at WHERE id = ?', [(int)$p['score'], $r['id']]);
     out(['pron' => $p]);
+}
+
+/* ---------------- Nghe tiếng Anh (Listening) ---------------- */
+
+function r_listen_start(array $b): never
+{
+    if (empty($b['new'])) {
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'listen' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
+        if ($r) out(['listening' => listening_for_kid($r), 'level' => read_level('listen'), 'audio' => tts_enabled()]);
+    }
+    [$subject, $topic] = read_topic(today());
+    $level = read_level('listen');
+    spend(3);
+    $titles = array_values(array_filter(array_map(fn($r) => (json_decode((string)$r['data'], true) ?: [])['title'] ?? '',
+        q("SELECT data FROM readings WHERE kind = 'listen' ORDER BY id DESC LIMIT 15")->fetchAll())));
+    $avoid = $titles ? "\nBài nghe gần đây (viết bài MỚI, khác tình huống và nhân vật): " . implode('; ', $titles) : '';
+    $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => listen_prompt($topic, $level, quiz_context($subject) . $avoid)]], 6000, 75, 'low')) ?? [];
+    $data = listen_clean($d);
+    if (!$data) out(['error' => 'upstream'], 502);
+    q("INSERT INTO readings (day, kind, subject, topic, level, data, created_at, updated_at) VALUES (?, 'listen', ?, ?, ?, ?, ?, ?)",
+        [today(), $subject, $topic, $level, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
+    out(['listening' => listening_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId(), '_kind' => 'listen'])), 'level' => $level, 'audio' => tts_enabled()]);
+}
+
+// Âm thanh bài nghe: part = "all" (cả bài) hoặc "dict" (câu chép); slow = nghe chậm
+function r_listen_audio(array $b): never
+{
+    if (!tts_enabled()) out(['error' => 'tts_off'], 404);
+    $r = reading_or_fail(['id' => $b['id'] ?? 0, '_kind' => 'listen']);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $slow = !empty($b['slow']);
+    if (($b['part'] ?? 'all') === 'dict') {
+        $who = 'N';
+        foreach ($d['lines'] as $l) if (mb_stripos($l['text'], $d['dictation']) !== false) { $who = $l['who']; break; }
+        $mp3 = listen_mp3(['lines' => [['who' => $who, 'text' => $d['dictation']]]], (int)$r['level'], $slow);
+    } else {
+        $mp3 = listen_mp3($d, (int)$r['level'], $slow);
+    }
+    header('Content-Type: audio/mpeg');
+    header('Cache-Control: private, max-age=86400');
+    header('Content-Length: ' . strlen($mp3));
+    echo $mp3;
+    exit;
+}
+
+function r_listen_answer(array $b): never
+{
+    $r = reading_or_fail(['id' => $b['id'] ?? 0, '_kind' => 'listen']);
+    if ($r['score'] !== null) out(['listening' => listening_for_kid($r), 'level' => read_level('listen')]);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $mc = is_array($b['answers'] ?? null) ? array_map('intval', array_slice($b['answers'], 0, count($d['questions']))) : [];
+    if (count($mc) !== count($d['questions'])) out(['error' => 'bad_request'], 400);
+    $typed = clean($b['typed'] ?? '', 300);
+    $score = 0;
+    foreach ($d['questions'] as $i => $x) if ($mc[$i] === (int)$x['answer']) $score++;
+    $dict = dictation_check($d['dictation'], $typed);
+    if ($dict['pass']) $score++;
+    $total = count($d['questions']) + 1;
+    q('UPDATE readings SET answers = ?, score = ?, updated_at = ? WHERE id = ?',
+        [json_encode(['mc' => $mc, 'typed' => $typed, 'dict' => $dict], JSON_UNESCAPED_UNICODE), $score, time(), $r['id']]);
+    $lv = read_adjust_level($score, $total, 'listen');
+    log_activity('ceng', mb_substr('Listening: ' . ($d['title'] ?? ''), 0, 200), 'listening', $score, $total);
+    out(['listening' => listening_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'listen'])), 'level' => $lv['to'],
+         'level_change' => $lv['to'] - $lv['from'], 'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
 }
 
 /* ---------------- Video bài giảng ---------------- */
@@ -1294,7 +1362,7 @@ function r_parent_report(array $b): never
     unset($c);
 
     out([
-        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level()],
+        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen')],
         'stars' => stars(),
         'days' => $days,
         'subjects' => $subjects,
@@ -1308,9 +1376,9 @@ function r_parent_report(array $b): never
         'writings' => array_map(fn($r) => ['subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'], 'created_at' => (int)$r['created_at'],
             'first' => json_decode((string)$r['first_result'], true) ?: null, 'last' => json_decode((string)$r['result'], true) ?: null],
             q('SELECT subject, prompt, submits, first_result, result, created_at FROM writings WHERE submits > 0 ORDER BY id DESC LIMIT 8')->fetchAll()),
-        'readings' => array_map(fn($r) => ['day' => $r['day'], 'level' => (int)$r['level'], 'score' => $r['score'] !== null ? (int)$r['score'] : null,
+        'readings' => array_map(fn($r) => ['day' => $r['day'], 'kind' => $r['kind'], 'total' => $r['kind'] === 'listen' ? count((json_decode((string)$r['data'], true) ?: [])['questions'] ?? []) + 1 : 3, 'level' => (int)$r['level'], 'score' => $r['score'] !== null ? (int)$r['score'] : null,
             'pron_score' => $r['pron_score'] !== null ? (int)$r['pron_score'] : null, 'title' => (json_decode((string)$r['data'], true) ?: [])['title'] ?? ''],
-            q('SELECT day, level, score, pron_score, data FROM readings ORDER BY id DESC LIMIT 10')->fetchAll()),
+            q('SELECT day, kind, level, score, pron_score, data FROM readings ORDER BY id DESC LIMIT 12')->fetchAll()),
         'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
@@ -1457,6 +1525,8 @@ function r_parent_settings(array $b): never
     set_setting('focus', clean($b['focus'] ?? '', 400));
     if (isset($b['read_daily'])) set_setting('read_daily', $b['read_daily'] ? '1' : '0');
     if (isset($b['read_level'])) set_setting('read_level', (string)max(1, min(5, (int)$b['read_level'])));
+    if (isset($b['listen_on'])) set_setting('listen_on', $b['listen_on'] ? '1' : '0');
+    if (isset($b['listen_level'])) set_setting('listen_level', (string)max(1, min(5, (int)$b['listen_level'])));
     out(['ok' => true]);
 }
 
