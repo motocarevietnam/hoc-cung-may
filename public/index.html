@@ -263,6 +263,10 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .passage mark{background:color-mix(in srgb,var(--sun) 40%,transparent);border-radius:6px;padding:0 3px}
 .ra{font-size:20px;font-weight:600;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:10px 14px;margin:8px 0}
 .vocab{display:grid;gap:8px}
+.lsline{margin:4px 0}.lsline b{color:var(--muted,#6b5e8f)}
+.dw{display:inline-block;margin:2px 3px;padding:0 4px;border-radius:6px}
+.dw.ok{background:var(--mint-bg)}.dw.no{background:var(--coral-bg);text-decoration:underline wavy var(--coral)}
+.plays{font-size:14px}
 .vocab button{text-align:left;background:var(--surface-2);border:2px solid var(--line);border-radius:14px;padding:10px 12px;font:inherit;cursor:pointer}
 .wd.good{background:var(--mint-bg);color:var(--mint)}.wd.ok.pw{background:#FFF3C4;color:#8A6200}.wd.bad{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
 .wd.ok{background:var(--mint-bg);color:var(--mint)}.wd.no{background:var(--coral-bg);color:var(--coral);text-decoration:underline wavy}
@@ -468,6 +472,7 @@ function render(){
   else if(state.view==="check") renderCheck();
   else if(state.view==="write") renderWrite();
   else if(state.view==="read") renderRead();
+  else if(state.view==="listen") renderListen();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
@@ -522,6 +527,7 @@ function renderSubject(){
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 10 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
       ${["tv","ceng"].includes(s.id) ? `<button class="mode" id="toWrite"><div class="big">✍️</div><h3>${s.id==="ceng"?"Writing":"Viết đoạn văn"}</h3><div class="muted">Lập dàn ý cùng Mây, viết vào vở 35 phút rồi chụp gửi Mây nhận xét</div></button>` : ""}
+      ${s.id==="ceng" && me.tts ? `<button class="mode" id="toListen"><div class="big">🎧</div><h3>Listening</h3><div class="muted">Nghe hội thoại, trả lời 4 câu, nghe và chép 1 câu</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toRead"><div class="big">📖</div><h3>Reading</h3><div class="muted">Đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
@@ -540,6 +546,7 @@ function renderSubject(){
   const tw=document.getElementById("toWrite"); if(tw) tw.onclick=()=>openWrite(s.id);
   const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
   const trd=document.getElementById("toRead"); if(trd) trd.onclick=()=>openRead();
+  const tli=document.getElementById("toListen"); if(tli) tli.onclick=()=>openListen();
 }
 
 /* ---------- chat ---------- */
@@ -1119,6 +1126,101 @@ function renderRead(){
   on("rdHome", ()=>{ go("home"); refreshState(); });
 }
 
+/* ---------- Nghe tiếng Anh (Listening) ---------- */
+// Bé nghe (không thấy chữ), đọc trước 4 câu hỏi, trả lời, rồi nghe và chép 1 câu. Nộp xong mới hiện lời thoại.
+function openListen(isNew){
+  state.ls = {phase:"loading", err:"", sel:[], typed:"", plays:0, dplays:0};
+  go("listen");
+  loadListen(!!isNew);
+}
+async function loadListen(isNew){
+  const L=state.ls;
+  try{
+    const d = await api("/api/listen_start", isNew?{new:1}:{});
+    if(state.ls!==L) return;
+    Object.assign(L, {r:d.listening, level:d.level, phase: d.listening.score!==null ? "done" : "listen", sel: d.listening.answers || []});
+  }catch(e){ L.phase="error"; L.err=copyFor(e&&e.code); }
+  if(state.view==="listen" && state.ls===L) render();
+}
+// Phát âm thanh bài nghe từ máy chủ (giữ trong bộ nhớ để nghe lại không phải tải lại)
+const lsCache = {};
+async function playListen(part, slow){
+  const L=state.ls, key=L.r.id+":"+part+":"+(slow?1:0);
+  stopVoice(); const seq=++ttsSeq;
+  L.loadingAudio=true; render();
+  try{
+    let data = lsCache[key];
+    if(!data){
+      const res = await fetch("/api/listen_audio",{method:"POST", headers:{"content-type":"application/json","x-app-pin":pin}, body:JSON.stringify({id:L.r.id, part, slow:slow?1:0})});
+      if(!res.ok) throw new Error("audio "+res.status);
+      data = lsCache[key] = await res.arrayBuffer();
+    }
+    const c = audioCtx(); if(c.state==="suspended") await c.resume();
+    const buf = await new Promise((ok,no)=>c.decodeAudioData(data.slice(0), ok, no));
+    if(seq!==ttsSeq) return;
+    asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination); asrc.start(0);
+    if(part==="all") L.plays++; else L.dplays++;
+  }catch(e){ L.err="Mây chưa phát được âm thanh. Thử lại nhé."; }
+  L.loadingAudio=false; if(state.view==="listen" && state.ls===L) render();
+}
+async function submitListen(){
+  const L=state.ls; L.busy=true; stopVoice(); render();
+  try{
+    const d = await api("/api/listen_answer",{id:L.r.id, answers:L.sel, typed:L.typed});
+    Object.assign(L, {r:d.listening, level:d.level, change:d.level_change||0, phase:"done"});
+  }catch(e){ L.err=copyFor(e&&e.code); }
+  L.busy=false; if(state.view==="listen" && state.ls===L){ render(); window.scrollTo(0,0); }
+}
+function renderListen(){
+  const L=state.ls;
+  const head = `<button class="back" id="back">‹ Về trang chính</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">🎧</div><div><h2>Listening</h2><div class="muted">Nghe tiếng Anh 10 phút${L.level?` · mức ${L.level}/5`:""}</div></div></div>`;
+  const wireBack=()=>{ document.getElementById("back").onclick=()=>{ go("home"); refreshState(); }; };
+  if(L.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">Mây đang soạn bài nghe cho bạn… ☁️</div>`; return wireBack(); }
+  if(L.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(L.err)}</div><button class="btn primary" id="lsRetry">Thử lại</button>`; wireBack(); document.getElementById("lsRetry").onclick=()=>openListen(); return; }
+  const r=L.r, done=L.phase==="done", dis=L.loadingAudio?"disabled":"";
+  const qs = r.questions.map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
+      ${x.options.map((o,j)=>{ let c=""; if(done){ if(j===x.answer) c=" right"; else if(r.answers&&r.answers[i]===j) c=" wrong"; } else if(L.sel[i]===j) c=" chosen";
+        return `<button class="opt${c}" data-q="${i}" data-o="${j}" ${done?"disabled":""}>${esc(o)}</button>`; }).join("")}
+    </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${esc(x.explain)}</p>`:""}</div>`).join("");
+  const lvMsg = L.change>0 ? `<div class="notice">🎉 Đúng hết 2 bài liền! Bài nghe sau lên <b>mức ${L.level}</b> nhé.</div>`
+              : L.change<0 ? `<div class="notice">Bài nghe sau Mây chọn dễ hơn một chút (mức ${L.level}) nhé.</div>` : "";
+  const ready = L.sel.filter(x=>x!==undefined&&x!==null).length>=r.questions.length && L.typed.trim();
+  app.innerHTML = head + `
+    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.total-r.score)}</div><p>Bạn được <b>${r.score}/${r.total}</b> điểm.</p></div>${lvMsg}`:""}
+    <div class="card"><h3>${done?esc(r.title):"🎧 Nghe đoạn hội thoại"}</h3>
+      ${done?"":`<p class="muted" style="margin:0 0 8px">Đọc trước 4 câu hỏi bên dưới, rồi bấm nghe. Nghe <b>2 lần</b> rồi chọn đáp án.</p>`}
+      <div class="row"><button class="btn primary" id="lsPlay" ${dis}>▶️ Nghe</button><button class="btn" id="lsSlow" ${dis}>🐢 Nghe chậm</button><button class="btn" id="lsStop">⏹</button></div>
+      <p class="muted plays" style="margin:6px 0 0">${L.loadingAudio?"Đang tải âm thanh…":`Đã nghe ${L.plays} lần`}</p>
+      ${done?`<div style="margin-top:10px">${r.lines.map(l=>`<p class="lsline" lang="en">${l.name?`<b>${esc(l.name)}:</b> `:""}${esc(l.text)}</p>`).join("")}</div>`:""}
+    </div>
+    <h3 style="margin:18px 0 0">Chọn đáp án</h3>
+    ${qs}
+    <div class="card"><h3>📝 Nghe và chép lại 1 câu</h3>
+      <p class="muted" style="margin:0 0 8px">${done?"Câu đúng (chữ đỏ là từ bạn chép thiếu hoặc sai):":`Bấm nghe câu, rồi viết lại đúng những gì bạn nghe (${r.dict_words} từ).`}</p>
+      <div class="row"><button class="btn" id="lsDict" ${dis}>▶️ Nghe câu</button><button class="btn" id="lsDictSlow" ${dis}>🐢 Chậm</button></div>
+      ${done ? `<p lang="en" style="font-size:19px">${(r.dict?.words||[]).map(w=>`<span class="dw ${w.ok?"ok":"no"}">${esc(w.w)}</span>`).join(" ")}</p>
+                <p class="muted" style="margin:0">Bạn viết: <span lang="en">${esc(r.typed||"")}</span> · đúng ${r.dict?.right||0}/${r.dict?.total||0} từ ${r.dict?.pass?"✅":""}</p>`
+             : `<input class="field" id="lsTyped" lang="en" autocomplete="off" autocapitalize="sentences" spellcheck="false" placeholder="Viết câu bạn nghe được…" value="${esc(L.typed)}">`}
+    </div>
+    ${L.err?`<div class="notice">${esc(L.err)}</div>`:""}
+    ${done?`<div class="row" style="margin-top:12px"><button class="btn" id="lsNew">🎧 Nghe thêm bài khác</button><button class="btn primary" id="lsHome">Xong rồi 🏠</button></div>`
+          :`<button class="btn primary" id="lsSubmit" ${!ready||L.busy?"disabled":""}>${L.busy?"Mây đang chấm…":"Nộp bài ✅"}</button>`}`;
+  wireBack();
+  app.querySelectorAll(".opt[data-q]").forEach(b=>b.onclick=()=>{ L.sel[+b.dataset.q]=+b.dataset.o; render(); });
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("lsPlay", ()=>playListen("all", false));
+  on("lsSlow", ()=>playListen("all", true));
+  on("lsStop", ()=>{ stopVoice(); });
+  on("lsDict", ()=>playListen("dict", false));
+  on("lsDictSlow", ()=>playListen("dict", true));
+  const ti=document.getElementById("lsTyped");
+  if(ti) ti.oninput=e=>{ L.typed=e.target.value; const b=document.getElementById("lsSubmit"); if(b) b.disabled = !(L.sel.filter(x=>x!==undefined&&x!==null).length>=r.questions.length && L.typed.trim()); };
+  on("lsSubmit", submitListen);
+  on("lsNew", ()=>openListen(true));
+  on("lsHome", ()=>{ go("home"); refreshState(); });
+}
+
 /* ---------- luyện nói tiếng Anh (Speaking) ---------- */
 // iPad chuyển giọng nói thành chữ (SpeechRecognition); đồng thời ghi âm để bé nghe lại giọng mình (chỉ trên máy, không gửi đi).
 const SP_TYPES = {read:{ic:"📖", name:"Đọc to câu mẫu", sub:"Nghe mẫu rồi đọc lại"}, answer:{ic:"❓", name:"Trả lời câu hỏi", sub:"Như phần thi nói Cambridge"}, tell:{ic:"💭", name:"Kể / miêu tả ngắn", sub:"Nói 3–5 câu về một chủ đề"}};
@@ -1507,6 +1609,7 @@ function runAction(a){
   if(a.view==="review") return startReview();
   if(a.view==="speak") return openSpeak(a.type, a.topic||"");
   if(a.view==="read") return openRead();
+  if(a.view==="listen") return openListen();
   state.subject = a.subject; state.topic = a.topic || "";
   if(a.view==="quiz") return startQuiz();
   if(a.view==="chat"){ state.turns=[]; state.convId=null;
@@ -2246,6 +2349,9 @@ function reportHtml(R){
       <label><input type="checkbox" id="readDaily" ${R.settings.read_daily?"checked":""}> Mỗi ngày có việc “📖 Đọc tiếng Anh 10 phút”</label>
       <label for="readLevel">Mức bài đọc tiếng Anh (Mây tự lên/xuống theo kết quả)</label>
       <select class="field" id="readLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${R.settings.read_level===n?"selected":""}>Mức ${n}${[""," – rất dễ (60–90 từ)"," – dễ (90–120 từ)"," – vừa (120–150 từ)"," – lớp 4 (150–190 từ)"," – khó hơn (190–230 từ)"][n]}</option>`).join("")}</select>
+      <label><input type="checkbox" id="listenOn" ${R.settings.listen_on?"checked":""}> Thứ 2, 4, 6 có việc “🎧 Nghe tiếng Anh 10 phút”</label>
+      <label for="listenLevel">Mức bài nghe tiếng Anh (Mây tự lên/xuống theo kết quả)</label>
+      <select class="field" id="listenLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${R.settings.listen_level===n?"selected":""}>Mức ${n}${[""," – Starters, rất dễ"," – Movers dễ"," – Movers"," – Flyers dễ"," – Flyers"][n]}</option>`).join("")}</select>
       <div class="row"><button class="btn primary" id="saveSettings">Lưu cài đặt</button><span class="muted" id="setMsg" style="align-self:center"></span></div>
     </div>
     <div class="card">
@@ -2267,9 +2373,9 @@ function reportHtml(R){
       <h3>Lưu ảnh bài tập lên Google Drive</h3>
       <p class="muted" style="margin:0">Đang tải…</p>
     </div>
-    <div class="card"><h3>📖 Đọc tiếng Anh</h3>
-      ${(R.readings||[]).map(x=>`<div class="req"><span><b>${esc(x.title)}</b><br><span class="muted">${ddmm(x.day)} · mức ${x.level}${x.pron_score!==null?` · phát âm ${x.pron_score}/100`:""}</span></span>
-        <span class="st ${x.score===3?"approved":x.score===2?"pending":""}">${x.score===null?"Chưa làm xong":x.score+"/3 câu"}</span></div>`).join("") || `<p class="muted" style="margin:0">Chưa có bài nào.</p>`}
+    <div class="card"><h3>📖 Đọc và 🎧 nghe tiếng Anh</h3>
+      ${(R.readings||[]).map(x=>`<div class="req"><span><b>${x.kind==="listen"?"🎧":"📖"} ${esc(x.title)}</b><br><span class="muted">${ddmm(x.day)} · mức ${x.level}${x.pron_score!==null?` · phát âm ${x.pron_score}/100`:""}</span></span>
+        <span class="st ${x.score!==null&&x.score>=(x.total||3)?"approved":x.score!==null&&x.score>=(x.total||3)-1?"pending":""}">${x.score===null?"Chưa làm xong":x.score+"/"+(x.total||3)+(x.kind==="listen"?" điểm":" câu")}</span></div>`).join("") || `<p class="muted" style="margin:0">Chưa có bài nào.</p>`}
     </div>
     <div class="card"><h3>✍️ Bài viết của bé</h3>
       ${(R.writings||[]).map(w=>{ const r=w.last||{}; return `<div class="req"><span><b>${esc(subjById(w.subject)?.name||"")}: ${esc(w.prompt)}</b><br>
@@ -2324,7 +2430,8 @@ function wireReport(R){
     const msg=document.getElementById("setMsg");
     const nickV=document.getElementById("nick").value.trim(), focusV=document.getElementById("focus").value.trim();
     const rdD=document.getElementById("readDaily").checked, rdL=+document.getElementById("readLevel").value;
-    try{ await api("/api/parent/settings",{nick:nickV, focus:focusV, read_daily:rdD, read_level:rdL},true); me.nick=nickV; LS.set("nick",nickV); R.settings={nick:nickV,focus:focusV,read_daily:rdD,read_level:rdL}; msg.textContent="Đã lưu"; }
+    const lsO=document.getElementById("listenOn").checked, lsL=+document.getElementById("listenLevel").value;
+    try{ await api("/api/parent/settings",{nick:nickV, focus:focusV, read_daily:rdD, read_level:rdL, listen_on:lsO, listen_level:lsL},true); me.nick=nickV; LS.set("nick",nickV); R.settings={nick:nickV,focus:focusV,read_daily:rdD,read_level:rdL,listen_on:lsO,listen_level:lsL}; msg.textContent="Đã lưu"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
   app.querySelectorAll(".convlist button[data-hw]").forEach(b=>b.onclick=async()=>{

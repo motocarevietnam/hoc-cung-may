@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -175,6 +175,9 @@ const SCHEMA = [
        answers VARCHAR(100) NULL, score INT NULL, pron_score INT NULL, created_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL,
        KEY idx_readings_day (day)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Bài nghe dùng chung bảng với bài đọc: kind = 'read' | 'listen'
+    "ALTER TABLE readings ADD COLUMN IF NOT EXISTS kind VARCHAR(10) NOT NULL DEFAULT 'read'",
+    "ALTER TABLE readings MODIFY answers TEXT NULL",
     // Thư viện video bài giảng (YouTube) do ba mẹ duyệt; Mây chỉ gợi ý video đã duyệt, khớp bài đang học
     "CREATE TABLE IF NOT EXISTS videos (
        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, lesson VARCHAR(160) NOT NULL,
@@ -1304,6 +1307,12 @@ function day_plan(string $day): array
                     'reason' => 'Đọc hiểu tiếng Anh mỗi ngày: đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu',
                     'action' => ['view' => 'read']];
     }
+    // Nghe tiếng Anh 10 phút: thứ 2, 4, 6 (ba mẹ tắt được trong Cài đặt)
+    if (setting('listen_on', '1') !== '0' && in_array($n, [1, 3, 5], true)) {
+        $items[] = ['key' => 'listening', 'icon' => '🎧', 'title' => 'Nghe tiếng Anh 10 phút', 'minutes' => 10,
+                    'reason' => 'Nghe hiểu tiếng Anh: nghe đoạn hội thoại, trả lời 4 câu, nghe và chép 1 câu',
+                    'action' => ['view' => 'listen']];
+    }
 
     // Phần yếu cần bổ sung
     $endOfDay = strtotime($day . ' 23:59:59');
@@ -2268,9 +2277,9 @@ const READ_LEVELS = [
     5 => ['words' => '190–230', 'sent' => 16, 'desc' => 'A2+, US Grade 4–5: some longer sentences, simple inference'],
 ];
 
-function read_level(): int
+function read_level(string $kind = 'read'): int
 {
-    return max(1, min(5, (int)(setting('read_level') ?: 1)));
+    return max(1, min(5, (int)(setting($kind === 'listen' ? 'listen_level' : 'read_level') ?: 1)));
 }
 
 // Chủ đề bài đọc: bám bài English/Science tuần này (kế hoạch ba mẹ duyệt), xen kẽ theo ngày
@@ -2344,13 +2353,125 @@ function reading_for_kid(array $r): array
 }
 
 // Sau mỗi bài: đúng 3/3 hai bài liền thì lên một mức, sai từ 2 câu thì xuống một mức
-function read_adjust_level(int $score): array
+function read_adjust_level(int $score, int $total = 3, string $kind = 'read'): array
 {
-    $lv = read_level();
-    $prev = q('SELECT score FROM readings WHERE score IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT 1 OFFSET 1')->fetchColumn();
+    $lv = read_level($kind);
+    $prev = q('SELECT score FROM readings WHERE kind = ? AND score IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT 1 OFFSET 1', [$kind])->fetchColumn();
     $new = $lv;
-    if ($score >= 3 && $prev !== false && (int)$prev >= 3) $new = min(5, $lv + 1);
-    elseif ($score <= 1) $new = max(1, $lv - 1);
-    if ($new !== $lv) set_setting('read_level', (string)$new);
+    if ($score >= $total && $prev !== false && (int)$prev >= $total) $new = min(5, $lv + 1);
+    elseif ($score <= $total - 2) $new = max(1, $lv - 1);
+    if ($new !== $lv) set_setting($kind === 'listen' ? 'listen_level' : 'read_level', (string)$new);
     return ['from' => $lv, 'to' => $new];
+}
+
+/* ---------------- Nghe tiếng Anh (Listening) ---------------- */
+// Bé nghe đoạn hội thoại / đoạn kể (không thấy chữ), trả lời 4 câu trắc nghiệm, rồi nghe và chép lại 1 câu.
+// Nộp bài xong mới hiện lời thoại. Mức nghe 1–5 tự lên/xuống như bài đọc.
+const LISTEN_LEVELS = [
+    1 => ['words' => '50–80',   'sent' => 8,  'rate' => 0.85, 'desc' => 'Pre-A1 Starters: very common words, short sentences, clear repetition of key words'],
+    2 => ['words' => '80–110',  'sent' => 10, 'rate' => 0.9,  'desc' => 'A1 Movers (easy): common words, numbers, names spelled out once'],
+    3 => ['words' => '110–140', 'sent' => 12, 'rate' => 0.95, 'desc' => 'A1 Movers: some detail questions (time, place, colour, how many)'],
+    4 => ['words' => '140–180', 'sent' => 14, 'rate' => 1.0,  'desc' => 'A1+/A2 Flyers (easy): one distractor (a speaker changes their mind)'],
+    5 => ['words' => '180–220', 'sent' => 16, 'rate' => 1.0,  'desc' => 'A2 Flyers: distractors, simple inference about feelings or reasons'],
+];
+// Giọng đọc Google cho từng người nói (A nữ, B nam); giọng không dùng được thì google_tts_chunk tự đổi sang giọng dự phòng
+const LISTEN_VOICES = ['A' => 'en-GB-Chirp3-HD-Leda', 'B' => 'en-GB-Chirp3-HD-Puck', 'N' => 'en-GB-Chirp3-HD-Aoede'];
+
+function listen_prompt(string $topic, int $level, string $context): string
+{
+    $L = LISTEN_LEVELS[$level];
+    $topicText = $topic !== '' ? $topic : 'the unit the class is studying now (see context), or an everyday situation for a 9-year-old';
+    $ctx = $context !== '' ? "\n" . $context : '';
+    return <<<TXT
+Write a short English LISTENING task (audio only, the child will not see the text) for a 9-year-old Vietnamese learner, in the style of Cambridge English Young Learners listening.
+Topic: {$topicText}.{$ctx}
+Level {$level}/5: {$L['desc']}. Total length {$L['words']} words. Each sentence at most {$L['sent']} words. Natural spoken English, child-safe, true facts only.
+Usually a dialogue between two speakers: A is a woman or girl, B is a man or boy (give them names, say the names in the dialogue). Sometimes (1 in 4) a short talk by one narrator "N". Lines must be speakable (no stage directions, no emojis).
+Then make:
+- "questions": exactly 4 multiple-choice questions in simple English, 3 short options each, only one correct, each answerable ONLY by listening (detail: who/what/where/when/how many/colour; at level ≥3 one question with a distractor that is mentioned but not correct). Questions in the order the answers appear. Vary the position of the correct answer. "explain": one short Vietnamese sentence quoting what was said.
+- "dictation": copy exactly ONE sentence (5–10 words) spoken in the script, with common words, for the child to listen and write down.
+Return JSON only: {"title":"...","lines":[{"who":"A","name":"...","text":"..."}],"questions":[{"q":"...","options":["...","...","..."],"answer":0,"explain":"..."}],"dictation":"..."}
+TXT;
+}
+
+function listen_clean(array $d): ?array
+{
+    $lines = [];
+    foreach (is_array($d['lines'] ?? null) ? array_slice($d['lines'], 0, 30) : [] as $x) {
+        $who = in_array($x['who'] ?? '', ['A', 'B', 'N'], true) ? $x['who'] : 'N';
+        $t = trim(preg_replace('/\s+/u', ' ', clean($x['text'] ?? '', 400)) ?? '');
+        if ($t !== '') $lines[] = ['who' => $who, 'name' => clean($x['name'] ?? '', 30), 'text' => $t];
+    }
+    $all = implode(' ', array_column($lines, 'text'));
+    if (count($lines) < 1 || str_word_count($all) < 35) return null;
+    $qs = [];
+    foreach (is_array($d['questions'] ?? null) ? array_slice($d['questions'], 0, 4) : [] as $x) {
+        $opts = array_values(array_filter(array_map(fn($o) => clean($o, 120), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
+        $a = (int)($x['answer'] ?? -1);
+        if (clean($x['q'] ?? '', 300) === '' || count($opts) < 2 || $a < 0 || $a >= count($opts)) continue;
+        $qs[] = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300)];
+    }
+    if (count($qs) < 3) return null;
+    // Câu chép chính tả phải nằm trong lời thoại; nếu không thì lấy câu 5–10 từ đầu tiên
+    $dict = trim(clean($d['dictation'] ?? '', 200));
+    if ($dict === '' || mb_stripos($all, $dict) === false) {
+        $dict = '';
+        foreach ($lines as $l) foreach (preg_split('/(?<=[.!?])\s+/u', $l['text']) as $sent) {
+            $n = str_word_count($sent);
+            if ($dict === '' && $n >= 5 && $n <= 10) $dict = trim($sent);
+        }
+        if ($dict === '') $dict = $lines[0]['text'];
+    }
+    return ['title' => clean($d['title'] ?? '', 120) ?: 'Listening', 'lines' => $lines, 'questions' => $qs, 'dictation' => $dict];
+}
+
+// Âm thanh cả bài (mỗi người nói một giọng), lưu sẵn để nghe lại không tốn thêm
+function listen_mp3(array $data, int $level, bool $slow): string
+{
+    $rate = $slow ? 0.75 : LISTEN_LEVELS[$level]['rate'];
+    if (tts_provider() !== 'google') {
+        return tts_mp3([['l' => 'en', 't' => implode(' ', array_column($data['lines'], 'text'))]], ['vi' => tts_voice('vi', ''), 'en' => tts_voice('en', '')], $rate);
+    }
+    $out = '';
+    foreach ($data['lines'] as $i => $l) {
+        $mp3 = google_tts_chunk($l['text'], 'en', LISTEN_VOICES[$l['who']] ?? LISTEN_VOICES['N'], $rate);
+        $out .= $i === 0 ? $mp3 : mp3_strip_id3($mp3);
+    }
+    return $out;
+}
+
+// Chấm câu chép: so từng từ (bỏ dấu câu, chữ hoa; sai 1 chữ cái ở từ dài vẫn tính đúng)
+function dictation_check(string $target, string $typed): array
+{
+    $norm = fn($t) => array_values(array_filter(preg_split('/\s+/u', trim(preg_replace("/[^\\p{L}\\p{N}' ]+/u", ' ', mb_strtolower($t)) ?? '')), fn($w) => $w !== ''));
+    $tw = $norm($target); $kw = $norm($typed);
+    $show = preg_split('/\s+/u', trim($target));
+    $eq = fn($a, $b) => $a === $b || (mb_strlen($a) >= 4 && levenshtein($a, $b) <= 1);
+    // LCS để biết từ nào của câu gốc bé đã viết đúng
+    $n = count($tw); $m = count($kw); $L = array_fill(0, $n + 1, array_fill(0, $m + 1, 0));
+    for ($i = $n - 1; $i >= 0; $i--) for ($j = $m - 1; $j >= 0; $j--)
+        $L[$i][$j] = $eq($tw[$i], $kw[$j]) ? $L[$i + 1][$j + 1] + 1 : max($L[$i + 1][$j], $L[$i][$j + 1]);
+    $ok = array_fill(0, $n, false);
+    for ($i = 0, $j = 0; $i < $n && $j < $m;) {
+        if ($eq($tw[$i], $kw[$j])) { $ok[$i] = true; $i++; $j++; }
+        elseif ($L[$i + 1][$j] >= $L[$i][$j + 1]) $i++;
+        else $j++;
+    }
+    $words = [];
+    foreach ($show as $k => $w) $words[] = ['w' => $w, 'ok' => $ok[$k] ?? false];
+    $right = count(array_filter($ok));
+    return ['words' => $words, 'right' => $right, 'total' => $n, 'pass' => $n > 0 && $right / $n >= 0.8 && $m <= $n + 2];
+}
+
+function listening_for_kid(array $r): array
+{
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $done = $r['score'] !== null;
+    $ans = $done ? (json_decode((string)$r['answers'], true) ?: []) : [];
+    return ['id' => (int)$r['id'], 'level' => (int)$r['level'], 'title' => $done ? ($d['title'] ?? '') : 'Listening',
+            'questions' => array_map(fn($x) => $done ? $x : ['q' => $x['q'], 'options' => $x['options']], $d['questions'] ?? []),
+            'lines' => $done ? ($d['lines'] ?? []) : [], 'dictation' => $done ? ($d['dictation'] ?? '') : '',
+            'dict_words' => str_word_count($d['dictation'] ?? ''),
+            'answers' => $ans['mc'] ?? null, 'typed' => $ans['typed'] ?? null, 'dict' => $ans['dict'] ?? null,
+            'score' => $done ? (int)$r['score'] : null, 'total' => count($d['questions'] ?? []) + 1];
 }
