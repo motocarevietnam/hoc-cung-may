@@ -1918,11 +1918,11 @@ function joinSR(results){
 }
 // Câu hỏi bước 1 theo từng môn: Toán/Maths giải thích các bước; môn chữ thì nói lại ý chính và cho ví dụ
 const CK_ASK = {
-  toan:"Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao?",
-  cmath:"Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao? (Nói tiếng Việt hay English đều được)",
-  tv:"Bạn nói lại bằng lời của mình nhé: phần này là gì, nhận ra nó bằng cách nào, và cho 1 ví dụ của bạn.",
-  ceng:"Bạn nói lại bằng lời của mình nhé: từ / mẫu câu này nghĩa là gì, dùng khi nào, và đặt 1 câu tiếng Anh của bạn. (Giải thích bằng tiếng Việt cũng được)",
-  csci:"Bạn giải thích lại bằng lời của mình nhé: hiện tượng này là gì, vì sao lại như vậy, cho 1 ví dụ ngoài đời. (Tiếng Việt hay English đều được)"
+  toan:"Nói xem làm bước nào trước, bước nào sau, vì sao.",
+  cmath:"Nói xem làm bước nào trước, bước nào sau, vì sao. Tiếng Việt hay English đều được.",
+  tv:"Nói xem phần này là gì, nhận ra nó bằng cách nào, và cho 1 ví dụ của bạn.",
+  ceng:"Nói xem từ / mẫu câu này nghĩa là gì, dùng khi nào, rồi đặt 1 câu tiếng Anh. Giải thích bằng tiếng Việt cũng được.",
+  csci:"Nói xem hiện tượng này là gì, vì sao lại như vậy, và cho 1 ví dụ ngoài đời. Tiếng Việt hay English đều được."
 };
 const CK_EX = {
   toan:"Ví dụ: Đầu tiên mình đổi về cùng đơn vị, rồi…",
@@ -1941,7 +1941,8 @@ function renderCheck(){
   else if(C.phase==="explain" || C.phase==="judging" || C.phase==="explained"){
     const r = C.result;
     body = `<div class="sp-card"><div class="muted">Bước 1/2</div>
-      <div class="sp-big" style="font-size:20px">${CK_ASK[C.subject]||CK_ASK.toan}</div>
+      <div class="sp-big" style="font-size:20px">Bạn giải thích điều vừa ôn tập cho Mây hiểu với nha</div>
+      <p class="muted" style="margin:6px 0 0">💡 ${CK_ASK[C.subject]||CK_ASK.toan}</p>
       ${C.phase!=="explained" || (r && r.verdict!=="correct" && C.tries>0) ? `
         <textarea class="field" id="ckText" rows="4" placeholder="${esc(CK_EX[C.subject]||CK_EX.toan)}">${esc(C.text||"")}</textarea>
         <div class="row">${SR?`<button class="btn" id="ckMic">${ckRec?"⏹️ Dừng":"🎤 Nói"}</button>`:""}
