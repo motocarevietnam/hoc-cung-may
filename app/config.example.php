@@ -36,6 +36,11 @@ return [
     // Có cả key Google và Azure thì chọn 'google' hoặc 'azure' (mặc định Google)
     'tts_provider' => '',
 
+    // Mây nghe phát âm (Luyện nói): SpeechSuper chấm từng âm, giọng Anh-Anh, trẻ 6–12 tuổi. Lấy key: console.speechsuper.com
+    // (chọn coreType word.eval.promax và sent.eval.promax). Âm thanh chỉ gửi SpeechSuper để chấm, VPS không lưu.
+    'speechsuper_app_key' => '',
+    'speechsuper_secret_key' => '',
+
     // Hoặc Microsoft Azure Speech (có giọng bé gái cho tiếng Anh).
     // Lấy key: portal.azure.com → tạo tài nguyên "Speech" → Keys and Endpoint → Key 1 và Location/Region.
     'azure_speech_key' => '',

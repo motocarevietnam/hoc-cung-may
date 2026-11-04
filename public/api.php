@@ -16,7 +16,7 @@ if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
 // Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
-$maxBody = in_array($route, ['homework', 'write_submit'], true) ? 9 * 1024 * 1024 : 65536;
+$maxBody = in_array($route, ['homework', 'write_submit', 'speak_pron'], true) ? 9 * 1024 * 1024 : 65536;
 $raw = file_get_contents('php://input', false, null, 0, $maxBody);
 $body = json_decode($raw !== false && $raw !== '' ? $raw : '{}', true);
 if (!is_array($body)) $body = [];
@@ -34,6 +34,7 @@ $routes = [
     'write_begin'         => 'r_write_begin',
     'write_submit'        => 'r_write_submit',
     'write_list'          => 'r_write_list',
+    'speak_pron'          => 'r_speak_pron',
     'video_for'           => 'r_video_for',
     'video_watched'       => 'r_video_watched',
     'parent/videos'       => 'r_parent_videos',
@@ -91,7 +92,7 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'pron' => speechsuper_enabled(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
         'tts_by' => ['google' => 'Google', 'azure' => 'Microsoft', '' => ''][tts_provider()],
          'drive' => drive_connected(), 'now_topics' => current_topics(today())]);
 }
@@ -563,6 +564,28 @@ function r_write_list(array $b): never
     $rows = q('SELECT id, subject, prompt, submits, result, created_at FROM writings ORDER BY id DESC LIMIT 10')->fetchAll();
     out(['list' => array_map(fn($r) => ['id' => (int)$r['id'], 'subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'],
         'overall' => (json_decode((string)$r['result'], true) ?: [])['overall'] ?? null, 'created_at' => (int)$r['created_at']], $rows)]);
+}
+
+/* ---------------- Mây nghe phát âm (SpeechSuper) ---------------- */
+// iPad gửi đoạn ghi âm đã chuyển sang WAV 16 kHz mono. Bài đọc so với câu mẫu; trả lời/kể so với câu bé đã nói.
+function r_speak_pron(array $b): never
+{
+    if (!speechsuper_enabled()) out(['error' => 'pron_off'], 404);
+    $sess = q('SELECT * FROM speaking WHERE id = ?', [(int)($b['session_id'] ?? 0)])->fetch();
+    $idx = (int)($b['index'] ?? -1);
+    $items = $sess ? json_decode($sess['items'], true) : [];
+    if (!$sess || !isset($items[$idx])) out(['error' => 'bad_request'], 400);
+    $audio = base64_decode((string)($b['audio'] ?? ''), true);
+    if ($audio === false || strlen($audio) < 2000 || strlen($audio) > 4 * 1024 * 1024 || substr($audio, 0, 4) !== 'RIFF' || substr($audio, 8, 4) !== 'WAVE') {
+        out(['error' => 'bad_audio'], 400);
+    }
+    $target = $sess['type'] === 'read' ? (string)$items[$idx]['text'] : clean($b['transcript'] ?? '', 1000);
+    $target = trim(preg_replace('/\s+/u', ' ', $target) ?? '');
+    if ($target === '' || count(preg_split('/\s+/u', $target)) > 200) out(['error' => 'bad_request'], 400);
+    spend(1);
+    $res = speechsuper_eval($audio, $target);
+    unset($audio, $b);
+    out(['pron' => pron_from_speechsuper($res)]);
 }
 
 /* ---------------- Video bài giảng ---------------- */
