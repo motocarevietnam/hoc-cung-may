@@ -2165,6 +2165,13 @@ function skill_key(string $topic): string
 function explain_judge_prompt(string $subject, string $skill, string $context, string $text): string
 {
     $s = SUBJECTS[$subject];
+    $steps = in_array($subject, ['toan', 'cmath'], true);
+    $what = $steps
+        ? 'Hãy đánh giá bé đã hiểu CÁCH LÀM chưa (không cần dùng đúng thuật ngữ, chỉ cần đúng ý các bước chính, theo cách làm lớp 4).'
+        : 'Hãy đánh giá bé đã hiểu Ý CHÍNH chưa: nói đúng nghĩa / khái niệm (bằng lời của bé, không cần thuật ngữ), biết khi nào dùng hoặc nhận biết thế nào, và ví dụ (nếu có) đúng. Với English: câu ví dụ dùng từ đúng nghĩa là đạt, lỗi ngữ pháp nhỏ không trừ.';
+    $scale = $steps
+        ? 'correct = nêu đúng các bước chính; partial = đúng hướng nhưng thiếu/nhầm một bước; incorrect = sai hoặc không liên quan.'
+        : 'correct = đúng ý chính (và ví dụ đúng nếu có); partial = đúng một phần hoặc ví dụ sai; incorrect = sai hoặc không liên quan.';
     return <<<TXT
 Môn: {$s['name']} ({$s['sub']}). Kỹ năng: {$skill}.
 Bối cảnh bài bé vừa học (trích cuộc trò chuyện/bài làm):
@@ -2173,9 +2180,10 @@ Bối cảnh bài bé vừa học (trích cuộc trò chuyện/bài làm):
 Bé tự giải thích lại cách làm bằng lời của mình (máy có thể chép giọng nói chưa chuẩn, đừng chấm chính tả):
 "{$text}"
 
-Hãy đánh giá bé đã hiểu CÁCH LÀM chưa (không cần dùng đúng thuật ngữ, chỉ cần đúng ý các bước chính, theo cách làm lớp 4).
+{$what}
 Trả về JSON: {"verdict":"correct|partial|incorrect","praise":"1 câu khen cụ thể","missing":"bước/ý bé còn thiếu hoặc nhầm (bỏ trống nếu correct)","tip":"1 gợi ý ngắn"}
-correct = nêu đúng các bước chính; partial = đúng hướng nhưng thiếu/nhầm một bước; incorrect = sai hoặc không liên quan.
+{$scale}
+Bé được giải thích bằng tiếng Việt hoặc tiếng Anh; viết "praise", "missing", "tip" bằng tiếng Việt dễ hiểu.
 TXT;
 }
 

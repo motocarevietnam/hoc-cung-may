@@ -1903,6 +1903,21 @@ async function startCheck(source, ref){
   if(state.view==="check") render();
 }
 let ckRec = null;
+// Câu hỏi bước 1 theo từng môn: Toán/Maths giải thích các bước; môn chữ thì nói lại ý chính và cho ví dụ
+const CK_ASK = {
+  toan:"Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao?",
+  cmath:"Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao? (Nói tiếng Việt hay English đều được)",
+  tv:"Bạn nói lại bằng lời của mình nhé: phần này là gì, nhận ra nó bằng cách nào, và cho 1 ví dụ của bạn.",
+  ceng:"Bạn nói lại bằng lời của mình nhé: từ / mẫu câu này nghĩa là gì, dùng khi nào, và đặt 1 câu tiếng Anh của bạn. (Giải thích bằng tiếng Việt cũng được)",
+  csci:"Bạn giải thích lại bằng lời của mình nhé: hiện tượng này là gì, vì sao lại như vậy, cho 1 ví dụ ngoài đời. (Tiếng Việt hay English đều được)"
+};
+const CK_EX = {
+  toan:"Ví dụ: Đầu tiên mình đổi về cùng đơn vị, rồi…",
+  cmath:"Ví dụ: First I look at the hundreds digit, then…",
+  tv:"Ví dụ: Danh từ riêng là tên riêng của người, nơi chốn… phải viết hoa. Ví dụ: Hà Nội.",
+  ceng:"Ví dụ: “grandma” nghĩa là bà. My grandma cooks soup for me.",
+  csci:"Ví dụ: Có bóng vì ánh sáng bị vật chắn lại. Ví dụ: bóng cây lúc trưa…"
+};
 function renderCheck(){
   const C = state.ck, s = subjById(C.subject||"toan");
   const head = `<button class="back" id="back">‹ Quay lại</button>
@@ -1913,9 +1928,9 @@ function renderCheck(){
   else if(C.phase==="explain" || C.phase==="judging" || C.phase==="explained"){
     const r = C.result;
     body = `<div class="sp-card"><div class="muted">Bước 1/2</div>
-      <div class="sp-big" style="font-size:20px">Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao?</div>
+      <div class="sp-big" style="font-size:20px">${CK_ASK[C.subject]||CK_ASK.toan}</div>
       ${C.phase!=="explained" || (r && r.verdict!=="correct" && C.tries>0) ? `
-        <textarea class="field" id="ckText" rows="4" placeholder="Ví dụ: Đầu tiên mình quy đồng mẫu số, rồi…">${esc(C.text||"")}</textarea>
+        <textarea class="field" id="ckText" rows="4" placeholder="${esc(CK_EX[C.subject]||CK_EX.toan)}">${esc(C.text||"")}</textarea>
         <div class="row">${SR?`<button class="btn" id="ckMic">${ckRec?"⏹️ Dừng":"🎤 Nói"}</button>`:""}
           <button class="btn primary" id="ckSend" ${C.phase==="judging"?"disabled":""}>${C.phase==="judging"?"Mây đang đọc…":"Gửi Mây"}</button></div>` : ""}
       ${r ? `<div class="sp-res"><div class="lv ${r.verdict==="correct"?"great":r.verdict==="incorrect"?"try_again":""}">${VERDICT[r.verdict]}</div>
