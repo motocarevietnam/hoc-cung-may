@@ -154,6 +154,7 @@ h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
 .opt.right{background:var(--mint-bg);border-color:var(--mint)}
 .opt.wrong{background:var(--coral-bg);border-color:var(--coral)}
 .opt:disabled{cursor:default}
+.btn:disabled{opacity:.5;cursor:default}
 .explain{margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--surface-2)}
 .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
 .btn{background:var(--surface);border:2px solid var(--ink);border-radius:14px;padding:9px 16px;font-family:var(--display);font-weight:700;font-size:17px}
@@ -909,7 +910,7 @@ function renderHomework(){
       <div class="sec-title"><div class="badge" style="background:var(--l2)">📸</div>
         <div><h2>${H.recheckOf ? "Chấm lại bài đã sửa" : "Chấm bài về nhà"}</h2><div class="muted">Chụp bài đã làm xong, Mây chấm và góp ý</div></div></div>
       ${noSampleNotice()}
-      <p style="margin:14px 0 4px"><b>1.</b> Bài tập môn gì?</p>
+      <p style="margin:14px 0 4px" id="hwStep1"><b>1.</b> Bài tập môn gì?${H.needSubject?` <span style="color:var(--coral)">← chọn một môn nhé</span>`:""}</p>
       <div class="chips">${SUBJECTS.map(x=>`<button class="chip" aria-pressed="${H.subject===x.id}" data-s="${x.id}" ${H.recheckOf?"disabled":""}>${x.ic} ${esc(x.name)}${x.lang==="en"?" (Cambridge)":""}</button>`).join("")}</div>
       <p style="margin:14px 0 4px"><b>2.</b> Chụp bài làm (tối đa 4 ảnh, mỗi trang một ảnh)</p>
       <div class="photos">
@@ -920,9 +921,9 @@ function renderHomework(){
       <p style="margin:14px 0 4px"><b>3.</b> Ghi chú cho Mây (không bắt buộc)</p>
       <input class="field" id="hwNote" maxlength="300" placeholder="Ví dụ: Bài 3, 4 trang 25; cô dặn trình bày lời giải" value="${esc(H.note)}">
       ${H.error ? `<div class="notice">${esc(H.error)}</div>` : ""}
-      <div class="row"><button class="btn primary" id="hwSend" ${(!H.subject||!H.photos.length||!ready()||H.shrinking)?"disabled":""}>${H.shrinking?"Đang xử lý ảnh…":"Gửi Mây chấm ✨"}</button></div>
+      <div class="row"><button class="btn primary" id="hwSend" ${H.shrinking?"disabled":""}>${H.shrinking?"Đang xử lý ảnh…":"Gửi Mây chấm ✨"}</button></div>
       ${hist ? `<div class="card"><h3>Bài đã chấm gần đây</h3><div class="convlist">${hist}</div></div>` : ""}`;
-    app.querySelectorAll(".chips .chip").forEach(c=>c.onclick=()=>{ H.subject=c.dataset.s; H.error=""; render(); });
+    app.querySelectorAll(".chips .chip").forEach(c=>c.onclick=()=>{ H.subject=c.dataset.s; H.error=""; H.needSubject=false; render(); });
     app.querySelectorAll(".ph .rm").forEach(b=>b.onclick=()=>{ H.photos.splice(+b.dataset.i,1); render(); });
     document.getElementById("hwNote").oninput=e=>{ H.note=e.target.value; };
     const inp=document.getElementById("phIn");
@@ -942,7 +943,11 @@ function renderHomework(){
 }
 async function sendHomework(){
   const H = state.hw;
-  if(!H.subject || !H.photos.length || H.loading || !ready()) return;
+  if(H.loading) return;
+  // Thiếu gì thì nói rõ cho bé (trước đây nút chỉ bị khoá im lặng, trông như hỏng)
+  if(!ready()){ H.error="Ba mẹ cần nhập mã PIN của app trong ⚙️ Cài đặt máy trước nhé."; return render(); }
+  if(!H.subject){ H.needSubject=true; H.error="Bạn chọn môn của bài tập ở bước 1 trước nhé 👆 (mỗi lần gửi một môn)."; render(); document.getElementById("hwStep1")?.scrollIntoView({behavior:"smooth", block:"center"}); return; }
+  if(!H.photos.length){ H.error="Bạn chụp ảnh bài làm ở bước 2 trước nhé 📷"; return render(); }
   H.loading=true; H.error=""; render(); window.scrollTo(0,0);
   try{
     const d = await api("/api/homework",{subject:H.subject, note:H.note, photos:H.photos, recheck_of:H.recheckOf});
