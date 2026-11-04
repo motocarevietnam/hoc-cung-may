@@ -295,6 +295,11 @@ table.tt tr.ttsess th{text-align:left;background:var(--line);font-size:12px;padd
 .ttchips .chip{font-size:14px;padding:6px 10px}
 .ttchips .chip.on{background:var(--ink);color:var(--surface)}
 .chip.now{border-color:var(--ink);font-weight:600}
+.wrq{margin:10px 0}.wrq label{display:block;margin:0 0 4px}
+.wrol ul{margin:4px 0 8px;padding-left:22px}.wrol li{margin:2px 0}
+.wrclock{text-align:center;margin:14px 0;padding:12px;border:3px solid var(--ink);border-radius:20px;background:var(--surface-2)}
+.wrclock span{display:block;font-family:var(--display);font-size:48px;line-height:1}.wrclock.over{border-color:var(--coral);color:var(--coral)}
+.btn.on{background:var(--sun)}
 .exrow{border:2px solid var(--line);border-radius:14px;padding:8px;margin:8px 0;display:grid;gap:6px}
 .exrow input:not([type=checkbox]){background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
 .exhead{display:grid;grid-template-columns:1fr 150px 40px;gap:6px}
@@ -444,12 +449,15 @@ function render(){
   else if(state.view==="speak") renderSpeak();
   else if(state.view==="shop") renderShop();
   else if(state.view==="check") renderCheck();
+  else if(state.view==="write") renderWrite();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   stopSpeakCapture(true);
+  if(wrRec){ try{wrRec.abort()}catch(e){} wrRec=null; }
+  if(wrTimer){ clearInterval(wrTimer); wrTimer=null; }
   stopVoice();
   if(view!=="parent"){ parentPin=""; state.devOk=false; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; state.ps=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
@@ -494,6 +502,7 @@ function renderSubject(){
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 10 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
+      ${["tv","ceng"].includes(s.id) ? `<button class="mode" id="toWrite"><div class="big">✍️</div><h3>${s.id==="ceng"?"Writing":"Viết đoạn văn"}</h3><div class="muted">Lập dàn ý cùng Mây, viết vào vở 35 phút rồi chụp gửi Mây nhận xét</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
@@ -508,6 +517,7 @@ function renderSubject(){
   };
   document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; go("chat"); };
   document.getElementById("toQuiz").onclick=()=>startQuiz();
+  const tw=document.getElementById("toWrite"); if(tw) tw.onclick=()=>openWrite(s.id);
   const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
 }
 
@@ -1109,6 +1119,137 @@ function renderSpeak(){
   on("spAgain",()=>{ S.phase="setup"; render(); });
   on("spRedo",()=>{ Object.assign(S,{phase:"item", i:0, live:"", note:"", showVi:false}); render(); sayPrompt(); });
   on("spHome",()=>{ go("home"); refreshState(); });
+}
+
+
+/* ---------- ✍️ Viết đoạn văn (Tiếng Việt, English): dàn ý cùng Mây → viết tay 35 phút → chụp ảnh → nhận xét ---------- */
+let wrRec = null, wrTimer = null;
+const WR_SAMPLES = {
+  tv: ["Thuật lại một hoạt động trải nghiệm em đã tham gia cùng người thân", "Thuật lại một hoạt động tập thể em đã tham gia ở trường",
+       "Viết đoạn văn tả một con vật em yêu thích", "Viết đoạn văn tả một cây em yêu thích", "Kể lại một câu chuyện em đã đọc hoặc đã nghe",
+       "Viết đoạn văn nêu ý kiến về một câu chuyện em thích"],
+  ceng: ["Write about your family", "Write about your favourite food", "Write about a day at school", "Write about your best friend",
+         "Write about what you did last weekend", "Write about your favourite animal"]
+};
+function openWrite(subject){
+  state.wr = {subject, phase:"setup", prompt:"", answers:[], list:null, photos:[], err:""};
+  go("write");
+  api("/api/write_list",{}).then(d=>{ if(state.wr && state.view==="write"){ state.wr.list=d.list||[]; render(); } }).catch(()=>{});
+}
+function wrLeft(W){ return W.started_at ? Math.max(0, W.started_at + W.minutes*60 - Math.floor(Date.now()/1000) + (W.skew||0)) : W.minutes*60; }
+function wrClock(sec){ const m=Math.floor(sec/60), x=sec%60; return `${String(m).padStart(2,"0")}:${String(x).padStart(2,"0")}`; }
+function wrDictate(inputId, lang, btn){
+  if(wrRec){ try{wrRec.stop()}catch(e){} return; }
+  if(!SR){ alert("Máy này chưa nói trực tiếp được. Bấm micro trên bàn phím để nói nhé."); return; }
+  const inp=document.getElementById(inputId); stopVoice();
+  try{ wrRec=new SR(); wrRec.lang = lang==="en" ? "en-GB" : "vi-VN"; wrRec.interimResults=true; wrRec.continuous=false; }catch(e){ wrRec=null; return; }
+  const base = inp.value ? inp.value.trim()+" " : ""; let fin="";
+  btn.classList.add("on");
+  wrRec.onresult=ev=>{ let it=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) fin+=r[0].transcript; else it+=r[0].transcript; } inp.value=(base+fin+it).trim(); inp.dispatchEvent(new Event("input")); };
+  wrRec.onend=()=>{ wrRec=null; btn.classList.remove("on"); };
+  wrRec.onerror=()=>{};
+  try{ wrRec.start(); }catch(e){ wrRec=null; btn.classList.remove("on"); }
+}
+async function wrCall(path, body, phaseWhile){
+  const R = state.wr; R.busy = phaseWhile; R.err=""; render();
+  try{ const d = await api(path, body); if(d.writing){ d.writing.skew = d.writing.now - Math.floor(Date.now()/1000); R.w = d.writing; } if(d.stars!==undefined) setStars(d.stars); return d; }
+  catch(e){ R.err = {write_no_prompt:"Bạn nhập đề bài trước nhé.", write_few_answers:"Bạn trả lời ít nhất 2 câu để Mây giúp lập dàn ý nhé."}[e&&e.code] || copyFor(e&&e.code); return null; }
+  finally{ R.busy=null; if(state.view==="write" && state.wr===R) render(); }
+}
+function renderWrite(){
+  const R = state.wr, s = subjById(R.subject), en = R.subject==="ceng", W = R.w;
+  if(wrTimer){ clearInterval(wrTimer); wrTimer=null; }
+  const head = `<button class="back" id="back">‹ ${esc(s.name)}</button>
+    <div class="sec-title"><div class="badge" style="background:${s.color}">✍️</div><div><h2>${en?"Writing":"Viết đoạn văn"}</h2><div class="muted">${W?esc(W.prompt):"Lập dàn ý cùng Mây → viết vào vở " + 35 + " phút → chụp ảnh gửi Mây"}</div></div></div>`;
+  let body = "";
+  const err = R.err ? `<div class="notice">${esc(R.err)}</div>` : "";
+  if(R.busy){
+    body = `<div class="greet">${mascot()}<div class="say">${esc(R.busy)} <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
+  } else if(!W){
+    const hist = (R.list||[]).filter(x=>x.subject===R.subject).map(x=>`<button data-open="${x.id}"><b>${esc(x.prompt)}</b><small>${fmtDate(x.created_at)}${x.submits?` · đã nộp ${x.submits} lần`:" · chưa nộp"}</small></button>`).join("");
+    body = `${err}<p style="margin:14px 0 4px"><b>1.</b> ${en?"Đề bài (cô cho hoặc chọn một đề luyện):":"Đề bài cô cho (gõ, nói 🎤 hoặc chọn một đề luyện):"}</p>
+      <div class="row" style="margin:0;align-items:flex-start"><textarea class="field" id="wrPrompt" rows="2" maxlength="400" style="flex:1" placeholder="${en?"Ví dụ: Write about your family":"Ví dụ: Thuật lại một hoạt động em đã tham gia"}">${esc(R.prompt)}</textarea>
+        <button class="btn" id="wrPromptMic" title="Nói đề bài">🎤</button></div>
+      <div class="chips">${WR_SAMPLES[R.subject].map(t=>`<button class="chip" data-p="${esc(t)}">${esc(t)}</button>`).join("")}</div>
+      <div class="row"><button class="btn primary" id="wrStart">Lập dàn ý cùng Mây ✨</button></div>
+      ${hist?`<div class="card"><h3>Bài viết gần đây</h3><div class="convlist">${hist}</div></div>`:""}`;
+  } else if(!W.outline){
+    const Q = W.questions;
+    body = `${err}<div class="pnote">💡 ${esc(Q.tip||"")}</div>
+      <p style="margin:12px 0 4px"><b>2.</b> Trả lời ngắn từng câu (nói 🎤 hoặc gõ vài chữ). Đây là ý <b>của bạn</b>, Mây chỉ giúp sắp xếp.</p>
+      ${Q.list.map((q,i)=>`<div class="wrq"><label for="wa${i}">${i+1}. ${esc(q)} <button class="speak" data-say="${i}" aria-label="Đọc câu hỏi">🔊</button></label>
+        <div class="row" style="margin:0"><input class="field" id="wa${i}" data-i="${i}" value="${esc(R.answers[i]||"")}" style="flex:1"><button class="btn" data-mic="${i}">🎤</button></div></div>`).join("")}
+      <div class="row"><button class="btn primary" id="wrOutline">Xếp thành dàn ý 📝</button></div>`;
+  } else if(!W.result){
+    const O = W.outline, left = wrLeft(W), started = !!W.started_at;
+    body = `${err}${O.warning?`<div class="notice">⚠️ ${esc(O.warning)}</div>`:""}
+      <div class="card wrol"><h3>Dàn ý của bạn</h3>
+        <b>Mở bài</b><ul>${O.mo_bai.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+        <b>Thân bài</b><ul>${O.than_bai.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+        <b>Kết bài</b><ul>${O.ket_bai.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
+        ${O.words.length?`<div class="muted">Từ ngữ hay có thể dùng: ${O.words.map(esc).join(", ")}</div>`:""}</div>
+      ${started ? `<div class="wrclock ${left===0?"over":""}"><span id="wrClock">${wrClock(left)}</span><small>${left===0?"Hết giờ! Chụp bài gửi Mây nhé":"Thời gian còn lại"}</small></div>`
+                : `<p style="margin:12px 0 4px"><b>3.</b> Lấy vở, nhìn dàn ý và tự viết thành đoạn văn trong <b>${W.minutes} phút</b>.</p>
+                   <div class="row"><button class="btn primary" id="wrBegin">⏱ Bắt đầu viết (${W.minutes} phút)</button></div>`}
+      ${started ? wrPhotoPicker(R, "Viết xong thì chụp bài (mỗi trang một ảnh, tối đa 4)", "Gửi Mây nhận xét ✨") : ""}`;
+  } else {
+    body = err + wrResultHtml(W) + `<p style="margin:14px 0 4px"><b>Sửa bài:</b> sửa ngay trong vở theo góp ý, rồi chụp lại để Mây xem bạn đã sửa được gì.</p>`
+      + wrPhotoPicker(R, "Chụp bài đã sửa", "Gửi bài đã sửa ✨")
+      + `<div class="row"><button class="btn" id="wrNew">Viết bài khác</button></div>`;
+  }
+  app.innerHTML = head + body;
+  document.getElementById("back").onclick=()=>{ state.subject=R.subject; go("subject"); };
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  // bước 1
+  const pr=document.getElementById("wrPrompt"); if(pr) pr.oninput=e=>{ R.prompt=e.target.value; };
+  app.querySelectorAll("[data-p]").forEach(c=>c.onclick=()=>{ R.prompt=c.dataset.p; document.getElementById("wrPrompt").value=R.prompt; });
+  on("wrPromptMic", e=>wrDictate("wrPrompt", en?"en":"vi", e.currentTarget));
+  on("wrStart", ()=>wrCall("/api/write_start",{subject:R.subject, prompt:R.prompt}, "Mây đang nghĩ câu hỏi gợi ý cho bạn…"));
+  app.querySelectorAll("[data-open]").forEach(b=>b.onclick=async()=>{ try{ const d=await api("/api/write_list",{open:+b.dataset.open}); d.writing.skew=d.writing.now-Math.floor(Date.now()/1000); R.w=d.writing; R.answers=d.writing.answers||[]; render(); }catch(e){} });
+  // bước 2
+  app.querySelectorAll(".wrq input").forEach(inp=>inp.oninput=()=>{ R.answers[+inp.dataset.i]=inp.value; });
+  app.querySelectorAll("[data-mic]").forEach(b=>b.onclick=()=>wrDictate("wa"+b.dataset.mic, en?"en":"vi", b));
+  app.querySelectorAll("[data-say]").forEach(b=>b.onclick=()=>speak(W.questions.list[+b.dataset.say], en?"en-only":"vi-only", .9));
+  on("wrOutline", ()=>wrCall("/api/write_outline",{id:W.id, answers:W.questions.list.map((_,i)=>R.answers[i]||"")}, "Mây đang xếp ý của bạn thành dàn ý…"));
+  // bước 3
+  on("wrBegin", ()=>wrCall("/api/write_begin",{id:W.id}, "Bắt đầu nào…"));
+  if(W && W.started_at && !W.result && wrLeft(W)>0){
+    wrTimer = setInterval(()=>{ const el=document.getElementById("wrClock"); if(!el){ clearInterval(wrTimer); wrTimer=null; return; }
+      const l=wrLeft(W); el.textContent=wrClock(l); if(l===0){ clearInterval(wrTimer); wrTimer=null; speak(en?"Time is up! Chụp bài gửi Mây nhé.":"Hết giờ rồi! Bạn chụp bài gửi Mây nhé.", "vi"); render(); } }, 1000);
+  }
+  wrWirePhotos(R);
+  on("wrNew", ()=>openWrite(R.subject));
+}
+function wrPhotoPicker(R, label, sendLabel){
+  return `<p style="margin:12px 0 4px">${esc(label)}</p>
+    <div class="photos">${R.photos.map((p,i)=>`<div class="ph"><img src="${p}" alt="Ảnh ${i+1}"><button class="rm" data-rmph="${i}" aria-label="Bỏ ảnh ${i+1}">×</button><span class="no">${i+1}</span></div>`).join("")}
+      ${R.photos.length<4?`<label class="addph"><span>📷</span>${R.photos.length?"Thêm trang":"Chụp bài"}<input type="file" id="wrPh" accept="image/*" multiple hidden></label>`:""}</div>
+    <div class="row"><button class="btn primary" id="wrSend" ${(!R.photos.length||R.shrinking)?"disabled":""}>${R.shrinking?"Đang xử lý ảnh…":esc(sendLabel)}</button></div>`;
+}
+function wrWirePhotos(R){
+  app.querySelectorAll("[data-rmph]").forEach(b=>b.onclick=()=>{ R.photos.splice(+b.dataset.rmph,1); render(); });
+  const inp=document.getElementById("wrPh");
+  if(inp) inp.onchange=async()=>{ const files=[...inp.files].slice(0,4-R.photos.length); if(!files.length) return;
+    R.shrinking=true; render(); try{ for(const f of files) R.photos.push(await shrinkPhoto(f)); }catch(e){ R.err="Ảnh chưa đọc được. Chụp lại nhé."; } R.shrinking=false; render(); };
+  const send=document.getElementById("wrSend");
+  if(send) send.onclick=async()=>{ const d = await wrCall("/api/write_submit",{id:R.w.id, photos:R.photos}, "Mây đang đọc bài viết của bạn… (khoảng một phút)");
+    if(d && d.readable===false){ R.err="Mây chưa đọc được ảnh. Chụp lại thật rõ, đủ sáng, thẳng trang nhé."; render(); }
+    else if(d){ R.photos=[]; render(); window.scrollTo(0,0); } };
+}
+const WR_LV = {great:"🌟 Bài viết rất tốt!", good:"👍 Bài viết khá tốt", try_again:"💪 Sửa thêm một chút nhé"};
+const WR_ST = {"ok":"✅", "thiếu":"❌ thiếu", "cần thêm":"➕ cần thêm"};
+function wrResultHtml(W){
+  const r = W.result;
+  return `<div class="card"><h3>${WR_LV[r.overall]||""}</h3>
+    ${r.minutes?`<div class="muted">Bạn viết trong khoảng ${r.minutes} phút${r.minutes>W.minutes?` (quá ${W.minutes} phút, lần sau viết nhanh hơn chút nhé)`:""}.</div>`:""}
+    ${!r.on_topic?`<div class="notice">⚠️ <b>Chưa đúng yêu cầu đề.</b> ${esc(r.topic_note)}</div>`:""}
+    ${r.fixed.length?`<div class="pnote">🎉 Bạn đã sửa được: ${r.fixed.map(esc).join("; ")}</div>`:""}
+    ${r.strengths.length?`<p style="margin:8px 0 4px"><b>Điểm hay:</b></p><ul>${r.strengths.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`:""}
+    <p style="margin:8px 0 4px"><b>Bố cục:</b> Mở bài ${WR_ST[r.structure.mo_bai]} · Thân bài ${WR_ST[r.structure.than_bai]} · Kết bài ${WR_ST[r.structure.ket_bai]}</p>
+    ${r.structure.note?`<div class="muted">${esc(r.structure.note)}</div>`:""}
+    ${r.fixes.length?`<p style="margin:10px 0 4px"><b>Cần sửa:</b></p>${r.fixes.map(f=>`<div class="fix">${f.quote?`“${esc(f.quote)}” – `:""}${esc(f.issue)}${f.hint?`<br><span class="muted">💡 ${esc(f.hint)}</span>`:""}</div>`).join("")}`:""}
+    ${r.spelling.length?`<p style="margin:10px 0 4px"><b>Chính tả:</b> ${r.spelling.map(x=>`<s>${esc(x.wrong)}</s> → <b>${esc(x.right)}</b>`).join(" · ")}</p>`:""}
+    ${r.encourage?`<p style="margin:10px 0 0">${esc(r.encourage)}</p>`:""}</div>`;
 }
 
 /* ---------- kế hoạch học: hôm nay, tuần, tháng, quý ---------- */
@@ -1846,6 +1987,14 @@ function reportHtml(R){
     <div class="card" id="driveCard">
       <h3>Lưu ảnh bài tập lên Google Drive</h3>
       <p class="muted" style="margin:0">Đang tải…</p>
+    </div>
+    <div class="card"><h3>✍️ Bài viết của bé</h3>
+      ${(R.writings||[]).map(w=>{ const r=w.last||{}; return `<div class="req"><span><b>${esc(subjById(w.subject)?.name||"")}: ${esc(w.prompt)}</b><br>
+        <span class="muted">${fmtDate(w.created_at)} · nộp ${w.submits} lần${r.minutes?` · viết ${r.minutes} phút`:""}${r.on_topic===false?` · ⚠️ lạc đề: ${esc(r.topic_note||"")}`:""}</span>
+        ${(r.fixes||[]).length?`<br><span class="muted">Cần sửa: ${r.fixes.map(f=>esc(f.issue)).join("; ")}</span>`:""}
+        ${(r.spelling||[]).length?`<br><span class="muted">Chính tả: ${r.spelling.map(x=>esc(x.wrong)+" → "+esc(x.right)).join(", ")}</span>`:""}
+        ${(r.fixed||[]).length?`<br><span class="muted">Đã sửa được: ${r.fixed.map(esc).join("; ")}</span>`:""}</span>
+        <span class="st ${r.overall==="great"?"approved":r.overall==="good"?"pending":""}">${{great:"Rất tốt",good:"Khá",try_again:"Cần sửa"}[r.overall]||""}</span></div>`; }).join("") || `<p class="muted" style="margin:0">Chưa có. Bé vào Tiếng Việt hoặc English → ✍️ Viết đoạn văn.</p>`}
     </div>
     <div class="card"><h3>Tiến bộ theo kỹ năng</h3>
       <p class="muted" style="margin:0 0 6px">Dựa trên các lần bé tự giải thích và làm bài kiểm tra lại. Thành thạo = đạt 2 lần liên tiếp. Không so sánh với bạn khác.</p>

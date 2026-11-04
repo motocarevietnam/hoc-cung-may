@@ -16,7 +16,7 @@ if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
 // Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
-$maxBody = $route === 'homework' ? 9 * 1024 * 1024 : 65536;
+$maxBody = in_array($route, ['homework', 'write_submit'], true) ? 9 * 1024 * 1024 : 65536;
 $raw = file_get_contents('php://input', false, null, 0, $maxBody);
 $body = json_decode($raw !== false && $raw !== '' ? $raw : '{}', true);
 if (!is_array($body)) $body = [];
@@ -29,6 +29,11 @@ $routes = [
     'review_list'         => 'r_review_list',
     'review_answer'       => 'r_review_answer',
     'homework'            => 'r_homework',
+    'write_start'         => 'r_write_start',
+    'write_outline'       => 'r_write_outline',
+    'write_begin'         => 'r_write_begin',
+    'write_submit'        => 'r_write_submit',
+    'write_list'          => 'r_write_list',
     'homework_list'       => 'r_homework_list',
     'plan'                => 'r_plan',
     'task'                => 'r_task',
@@ -433,6 +438,127 @@ function r_homework(array $b): never
         error_log('[hoc-cung-may] Drive: ' . $e->getMessage());
     }
     exit;
+}
+
+/* ---------------- Viết đoạn văn (Tiếng Việt, English) ---------------- */
+
+function writing_or_fail(array $b): array
+{
+    $w = q('SELECT * FROM writings WHERE id = ?', [(int)($b['id'] ?? 0)])->fetch();
+    if (!$w) out(['error' => 'bad_request'], 400);
+    return $w;
+}
+
+function writing_for_kid(array $w): array
+{
+    return ['id' => (int)$w['id'], 'subject' => $w['subject'], 'prompt' => $w['prompt'],
+            'questions' => json_decode((string)$w['questions'], true) ?: null, 'answers' => json_decode((string)$w['answers'], true) ?: [],
+            'outline' => json_decode((string)$w['outline'], true) ?: null, 'started_at' => $w['started_at'] !== null ? (int)$w['started_at'] : null,
+            'result' => (function ($r) { if (is_array($r)) unset($r['transcript']); return $r ?: null; })(json_decode((string)$w['result'], true)),
+            'submits' => (int)$w['submits'],
+            'minutes' => WRITING_MINUTES, 'now' => time(), 'created_at' => (int)$w['created_at']];
+}
+
+// Bước 1: bé nhập đề → Mây soạn câu hỏi gợi ý để bé tự nghĩ ý
+function r_write_start(array $b): never
+{
+    $subject = (string)($b['subject'] ?? '');
+    if (!in_array($subject, ['tv', 'ceng'], true)) out(['error' => 'bad_request'], 400);
+    $prompt = clean($b['prompt'] ?? '', 400);
+    if (mb_strlen($prompt) < 5) out(['error' => 'write_no_prompt'], 400);
+    spend(2);
+    $d = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => writing_questions_prompt($subject, $prompt)]], 4000, 60, 'low')) ?? [];
+    $qs = array_values(array_filter(array_map(fn($x) => clean($x, 200), is_array($d['questions'] ?? null) ? array_slice($d['questions'], 0, 7) : []), fn($x) => $x !== ''));
+    if (count($qs) < 3) out(['error' => 'upstream'], 502);
+    $questions = ['type' => clean($d['type'] ?? '', 80), 'list' => $qs, 'tip' => clean($d['tip'] ?? '', 200)];
+    q('INSERT INTO writings (subject, prompt, questions, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        [$subject, $prompt, json_encode($questions, JSON_UNESCAPED_UNICODE), time(), time()]);
+    $id = (int)db()->lastInsertId();
+    out(['writing' => writing_for_kid(writing_or_fail(['id' => $id]))]);
+}
+
+// Bước 2: bé trả lời ngắn (nói hoặc gõ) → Mây xếp ý của bé thành dàn ý
+function r_write_outline(array $b): never
+{
+    $w = writing_or_fail($b);
+    $qs = json_decode((string)$w['questions'], true)['list'] ?? [];
+    $ans = is_array($b['answers'] ?? null) ? $b['answers'] : [];
+    $qa = [];
+    foreach ($qs as $i => $q) $qa[] = ['q' => $q, 'a' => clean($ans[$i] ?? '', 300)];
+    if (count(array_filter($qa, fn($x) => $x['a'] !== '')) < 2) out(['error' => 'write_few_answers'], 400);
+    spend(2);
+    $d = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => writing_outline_prompt($w['subject'], $w['prompt'], $qa)]], 4000, 60, 'low')) ?? [];
+    $list = fn($k, $n) => array_values(array_filter(array_map(fn($x) => clean($x, 160), is_array($d[$k] ?? null) ? array_slice($d[$k], 0, $n) : []), fn($x) => $x !== ''));
+    $outline = ['mo_bai' => $list('mo_bai', 3), 'than_bai' => $list('than_bai', 8), 'ket_bai' => $list('ket_bai', 3),
+                'words' => $list('words', 6), 'warning' => clean($d['warning'] ?? '', 300)];
+    if (!$outline['than_bai']) out(['error' => 'upstream'], 502);
+    q('UPDATE writings SET answers = ?, outline = ?, updated_at = ? WHERE id = ?',
+        [json_encode(array_column($qa, 'a'), JSON_UNESCAPED_UNICODE), json_encode($outline, JSON_UNESCAPED_UNICODE), time(), $w['id']]);
+    out(['writing' => writing_for_kid(writing_or_fail($b))]);
+}
+
+// Bước 3: bé bấm bắt đầu viết → máy chủ ghi giờ bắt đầu (đồng hồ 35 phút tính theo giờ máy chủ, tải lại trang không mất)
+function r_write_begin(array $b): never
+{
+    $w = writing_or_fail($b);
+    if ($w['started_at'] === null) q('UPDATE writings SET started_at = ?, updated_at = ? WHERE id = ?', [time(), time(), $w['id']]);
+    out(['writing' => writing_for_kid(writing_or_fail($b))]);
+}
+
+// Bước 4: chụp bài viết tay → Mây nhận xét theo tiêu chí; nộp lại sau khi sửa → so với lần trước
+function r_write_submit(array $b): never
+{
+    $w = writing_or_fail($b);
+    [$images, $imageBins] = homework_images($b['photos'] ?? null);
+    $previous = json_decode((string)$w['result'], true) ?: null;
+    $minutes = $w['started_at'] !== null ? (int)ceil((time() - (int)$w['started_at']) / 60) : 0;
+    spend(5);
+    $content = $images;
+    $content[] = ['type' => 'text', 'text' => writing_review_prompt($w['prompt'], json_decode((string)$w['outline'], true) ?: null, $previous, $previous ? 0 : $minutes)];
+    $d = claude_json(ask_claude((string)cfg('homework_model', cfg('quiz_model', 'claude-sonnet-5-5')),
+        writing_review_system($w['subject'], setting('nick')), [['role' => 'user', 'content' => $content]], 16000, 100, 'medium')) ?? [];
+    if (($d['readable'] ?? true) === false) out(['readable' => false]);
+    $st = fn($v) => in_array($v, ['ok', 'thiếu', 'cần thêm'], true) ? $v : 'ok';
+    $strList = fn($k, $n, $len) => array_values(array_filter(array_map(fn($x) => clean($x, $len), is_array($d[$k] ?? null) ? array_slice($d[$k], 0, $n) : []), fn($x) => $x !== ''));
+    $fixes = [];
+    foreach (is_array($d['fixes'] ?? null) ? array_slice($d['fixes'], 0, 3) : [] as $f) {
+        if (is_array($f) && clean($f['issue'] ?? '', 200) !== '') $fixes[] = ['quote' => clean($f['quote'] ?? '', 160), 'issue' => clean($f['issue'], 200), 'hint' => clean($f['hint'] ?? '', 240)];
+    }
+    $spelling = [];
+    foreach (is_array($d['spelling'] ?? null) ? array_slice($d['spelling'], 0, 6) : [] as $x) {
+        if (is_array($x) && clean($x['wrong'] ?? '', 40) !== '') $spelling[] = ['wrong' => clean($x['wrong'], 40), 'right' => clean($x['right'] ?? '', 40)];
+    }
+    $s = is_array($d['structure'] ?? null) ? $d['structure'] : [];
+    $result = ['on_topic' => ($d['on_topic'] ?? true) !== false, 'topic_note' => clean($d['topic_note'] ?? '', 300),
+               'structure' => ['mo_bai' => $st($s['mo_bai'] ?? ''), 'than_bai' => $st($s['than_bai'] ?? ''), 'ket_bai' => $st($s['ket_bai'] ?? ''), 'note' => clean($s['note'] ?? '', 300)],
+               'strengths' => $strList('strengths', 2, 240), 'fixes' => $fixes, 'spelling' => $spelling,
+               'fixed' => $previous ? $strList('fixed', 3, 200) : [],
+               'overall' => in_array($d['overall'] ?? '', ['great', 'good', 'try_again'], true) ? $d['overall'] : 'good',
+               'encourage' => clean($d['encourage'] ?? '', 200), 'minutes' => $previous ? ($previous['minutes'] ?? $minutes) : $minutes,
+               'transcript' => clean_multiline($d['transcript'] ?? '', 4000)];
+    q('UPDATE writings SET result = ?, first_result = COALESCE(first_result, ?), submits = submits + 1, updated_at = ? WHERE id = ?',
+        [json_encode($result, JSON_UNESCAPED_UNICODE), json_encode($result, JSON_UNESCAPED_UNICODE), time(), $w['id']]);
+    if (!$previous) log_activity($w['subject'], mb_substr($w['prompt'], 0, 120), 'writing');
+    elseif ($result['fixed']) award('self_fix', 'fix:write:' . $w['id'], 'Sửa bài viết: ' . mb_substr($w['prompt'], 0, 60));
+    $response = ['readable' => true, 'writing' => writing_for_kid(writing_or_fail($b)), 'stars' => stars()];
+    if (!drive_connected()) out($response);
+    respond_now($response);
+    try {
+        drive_upload_homework(0, $w['subject'], 'Bài viết – ' . mb_substr($w['prompt'], 0, 50), $imageBins);
+    } catch (Throwable $e) {
+        error_log('[hoc-cung-may] Drive: ' . $e->getMessage());
+    }
+    exit;
+}
+
+function r_write_list(array $b): never
+{
+    if (!empty($b['open'])) out(['writing' => writing_for_kid(writing_or_fail(['id' => $b['open']]))]);
+    $rows = q('SELECT id, subject, prompt, submits, result, created_at FROM writings ORDER BY id DESC LIMIT 10')->fetchAll();
+    out(['list' => array_map(fn($r) => ['id' => (int)$r['id'], 'subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'],
+        'overall' => (json_decode((string)$r['result'], true) ?: [])['overall'] ?? null, 'created_at' => (int)$r['created_at']], $rows)]);
 }
 
 function respond_now(array $data): void
@@ -1027,6 +1153,9 @@ function r_parent_report(array $b): never
         'today' => day_plan(today()),
         'shop_pending' => (int)q("SELECT COUNT(*) FROM redemptions WHERE status = 'pending'")->fetchColumn(),
         'skills' => q('SELECT subject, skill, checks, passed, explained, last_score, level, updated_at FROM skill_mastery ORDER BY updated_at DESC LIMIT 30')->fetchAll(),
+        'writings' => array_map(fn($r) => ['subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'], 'created_at' => (int)$r['created_at'],
+            'first' => json_decode((string)$r['first_result'], true) ?: null, 'last' => json_decode((string)$r['result'], true) ?: null],
+            q('SELECT subject, prompt, submits, first_result, result, created_at FROM writings WHERE submits > 0 ORDER BY id DESC LIMIT 8')->fetchAll()),
         'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
