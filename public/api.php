@@ -160,11 +160,12 @@ function r_quiz(array $b): never
     $subject = subject_or_fail($b);
     $topic = clean($b['topic'] ?? '', 200);
     spend(5);
+    $recent = recent_quiz_questions($subject, $topic);
 
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject))]],
+        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . quiz_avoid_text($recent))]],
         16000,
         60,
         (string)cfg('quiz_effort', 'medium')
@@ -200,7 +201,15 @@ function r_quiz(array $b): never
             error_log('[hoc-cung-may] quiz verify lỗi: ' . $e->getMessage());   // không kiểm được thì vẫn dùng đề, không chặn bé
         }
     }
-    $questions = array_slice($questions, 0, 10);
+    // Bỏ câu trùng với câu đã hỏi gần đây hoặc trùng nhau trong cùng đề
+    $kept = [];
+    foreach ($questions as $x) {
+        $dup = false;
+        foreach (array_merge($recent, array_column($kept, 'q')) as $old) if (quiz_same($x['q'], $old)) { $dup = true; break; }
+        if (!$dup) $kept[] = $x;
+    }
+    if (count($kept) < count($questions)) error_log('[hoc-cung-may] quiz bỏ ' . (count($questions) - count($kept)) . ' câu trùng câu cũ');
+    $questions = array_slice($kept, 0, 10);
     if (count($questions) < 6) out(['error' => 'bad_quiz'], 502);
 
     q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
@@ -610,8 +619,11 @@ function r_read_start(array $b): never
     [$subject, $topic] = read_topic(today());
     $level = read_level();
     spend(3);
+    $titles = array_values(array_filter(array_map(fn($r) => (json_decode((string)$r['data'], true) ?: [])['title'] ?? '',
+        q('SELECT data FROM readings ORDER BY id DESC LIMIT 15')->fetchAll())));
+    $avoid = $titles ? "\nBài đọc gần đây (viết bài MỚI, khác nội dung và nhân vật; không lặp tiêu đề): " . implode('; ', $titles) : '';
     $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => read_prompt($subject, $topic, $level, quiz_context($subject))]], 6000, 75, 'low')) ?? [];
+        [['role' => 'user', 'content' => read_prompt($subject, $topic, $level, quiz_context($subject) . $avoid)]], 6000, 75, 'low')) ?? [];
     $data = read_clean($d);
     if (!$data) out(['error' => 'upstream'], 502);
     q('INSERT INTO readings (day, subject, topic, level, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
