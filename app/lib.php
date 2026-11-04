@@ -183,7 +183,7 @@ const TASK_STATUSES = ['planned', 'started', 'paused', 'completed', 'needs_help'
 // Luật sao mặc định (theo issue #5). Ba mẹ chỉnh trong Góc ba mẹ; đây chỉ là giá trị khởi tạo.
 const DEFAULT_REWARD_RULES = [
     ['self_start', 'Tự bắt đầu học', 2, 1, null, 1],
-    ['task_complete', 'Hoàn thành nhiệm vụ', 5, 4, null, 2],
+    ['task_complete', 'Hoàn thành nhiệm vụ', 5, 6, null, 2],
     ['self_fix', 'Tự sửa sai', 3, 5, null, 3],
     ['explain', 'Giải thích đúng cách làm', 3, 5, null, 4],
     ['progress', 'Tiến bộ có bằng chứng', 5, 3, null, 5],
