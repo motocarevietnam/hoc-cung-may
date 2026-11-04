@@ -653,6 +653,46 @@ function quiz_context(string $id): string
     return $lines ? "Bối cảnh chương trình của bé (bám sát phần này):\n- " . implode("\n- ", $lines) : '';
 }
 
+// Câu đố đã hỏi gần đây (cùng môn, ưu tiên cùng chủ đề) để Mây không hỏi lại câu cũ
+function recent_quiz_questions(string $subject, string $topic, int $max = 40): array
+{
+    $rows = q('SELECT topic, questions FROM quizzes WHERE subject = ? AND created_at >= ? ORDER BY (topic = ?) DESC, id DESC LIMIT 12',
+        [$subject, time() - 30 * 86400, $topic])->fetchAll();
+    $out = [];
+    foreach ($rows as $r) {
+        foreach (json_decode((string)$r['questions'], true) ?: [] as $x) {
+            $t = trim((string)($x['q'] ?? ''));
+            if ($t !== '') $out[] = $t;
+            if (count($out) >= $max) return $out;
+        }
+    }
+    return $out;
+}
+
+// So hai câu hỏi: trùng hoặc gần trùng (chỉ khác dấu câu, khoảng trắng, chữ hoa)
+function quiz_norm(string $t): string
+{
+    return trim(preg_replace('/[^\p{L}\p{N}]+/u', ' ', mb_strtolower($t)) ?? '');
+}
+function quiz_same(string $a, string $b): bool
+{
+    $a = quiz_norm($a); $b = quiz_norm($b);
+    if ($a === '' || $b === '') return false;
+    if ($a === $b) return true;
+    // Khác số liệu (2 tấn / 3 tấn) là câu khác, vẫn giữ
+    preg_match_all('/\d+/', $a, $na); preg_match_all('/\d+/', $b, $nb);
+    if ($na[0] !== $nb[0]) return false;
+    similar_text($a, $b, $pct);
+    return $pct >= 90;
+}
+
+function quiz_avoid_text(array $recent): string
+{
+    if (!$recent) return '';
+    $list = implode("\n", array_map(fn($q) => '- ' . mb_substr($q, 0, 160), $recent));
+    return "\nCác câu bé ĐÃ được hỏi gần đây (KHÔNG hỏi lại câu giống hoặc gần giống: đổi số liệu, đổi bối cảnh, đổi dạng bài; ưu tiên ý/dạng bài chưa hỏi):\n{$list}";
+}
+
 function quiz_prompt(string $id, string $topic, string $focus, string $context = '', int $count = 12): string
 {
     $s = SUBJECTS[$id];
