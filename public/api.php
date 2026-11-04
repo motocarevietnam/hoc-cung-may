@@ -16,7 +16,7 @@ if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET'
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
 // Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
-$maxBody = in_array($route, ['homework', 'write_submit', 'speak_pron'], true) ? 9 * 1024 * 1024 : 65536;
+$maxBody = in_array($route, ['homework', 'write_submit', 'speak_pron', 'read_pron'], true) ? 9 * 1024 * 1024 : 65536;
 $raw = file_get_contents('php://input', false, null, 0, $maxBody);
 $body = json_decode($raw !== false && $raw !== '' ? $raw : '{}', true);
 if (!is_array($body)) $body = [];
@@ -34,6 +34,9 @@ $routes = [
     'write_begin'         => 'r_write_begin',
     'write_submit'        => 'r_write_submit',
     'write_list'          => 'r_write_list',
+    'read_start'          => 'r_read_start',
+    'read_answer'         => 'r_read_answer',
+    'read_pron'           => 'r_read_pron',
     'speak_pron'          => 'r_speak_pron',
     'video_for'           => 'r_video_for',
     'video_watched'       => 'r_video_watched',
@@ -586,6 +589,68 @@ function r_speak_pron(array $b): never
     $res = speechsuper_eval($audio, $target);
     unset($audio, $b);
     out(['pron' => pron_from_speechsuper($res)]);
+}
+
+/* ---------------- Đọc tiếng Anh mỗi ngày ---------------- */
+
+function reading_or_fail(array $b): array
+{
+    $r = q('SELECT * FROM readings WHERE id = ?', [(int)($b['id'] ?? 0)])->fetch();
+    if (!$r) out(['error' => 'bad_request'], 400);
+    return $r;
+}
+
+// Mở bài đọc hôm nay (chưa làm xong thì làm tiếp); "new" = bé muốn đọc thêm một bài khác
+function r_read_start(array $b): never
+{
+    if (empty($b['new'])) {
+        $r = q('SELECT * FROM readings WHERE day = ? ORDER BY (score IS NULL) DESC, id DESC LIMIT 1', [today()])->fetch();
+        if ($r) out(['reading' => reading_for_kid($r), 'level' => read_level()]);
+    }
+    [$subject, $topic] = read_topic(today());
+    $level = read_level();
+    spend(3);
+    $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => read_prompt($subject, $topic, $level, quiz_context($subject))]], 6000, 75, 'low')) ?? [];
+    $data = read_clean($d);
+    if (!$data) out(['error' => 'upstream'], 502);
+    q('INSERT INTO readings (day, subject, topic, level, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [today(), $subject, $topic, $level, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
+    out(['reading' => reading_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId()])), 'level' => $level]);
+}
+
+function r_read_answer(array $b): never
+{
+    $r = reading_or_fail($b);
+    if ($r['score'] !== null) out(['reading' => reading_for_kid($r), 'level' => read_level()]);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $ans = is_array($b['answers'] ?? null) ? array_map('intval', array_slice($b['answers'], 0, count($d['questions']))) : [];
+    if (count($ans) !== count($d['questions'])) out(['error' => 'bad_request'], 400);
+    $score = 0;
+    foreach ($d['questions'] as $i => $x) if ($ans[$i] === (int)$x['answer']) $score++;
+    q('UPDATE readings SET answers = ?, score = ?, updated_at = ? WHERE id = ?', [implode(',', $ans), $score, time(), $r['id']]);
+    $lv = read_adjust_level($score);
+    log_activity('ceng', mb_substr('Reading: ' . ($d['title'] ?? ''), 0, 200), 'reading', $score, count($d['questions']));
+    out(['reading' => reading_for_kid(reading_or_fail($b)), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
+}
+
+// Đọc to câu luyện âm trong bài → SpeechSuper chấm từng từ
+function r_read_pron(array $b): never
+{
+    if (!speechsuper_enabled()) out(['error' => 'pron_off'], 404);
+    $r = reading_or_fail($b);
+    $audio = base64_decode((string)($b['audio'] ?? ''), true);
+    if ($audio === false || strlen($audio) < 2000 || strlen($audio) > 4 * 1024 * 1024 || substr($audio, 0, 4) !== 'RIFF' || substr($audio, 8, 4) !== 'WAVE') {
+        out(['error' => 'bad_audio'], 400);
+    }
+    $target = (string)((json_decode((string)$r['data'], true) ?: [])['read_aloud'] ?? '');
+    if ($target === '') out(['error' => 'bad_request'], 400);
+    spend(1);
+    $res = speechsuper_eval($audio, $target);
+    unset($audio, $b);
+    $p = pron_from_speechsuper($res);
+    if ($p['overall'] !== 'unclear') q('UPDATE readings SET pron_score = GREATEST(COALESCE(pron_score, 0), ?), updated_at = updated_at WHERE id = ?', [(int)$p['score'], $r['id']]);
+    out(['pron' => $p]);
 }
 
 /* ---------------- Video bài giảng ---------------- */
@@ -1217,7 +1282,7 @@ function r_parent_report(array $b): never
     unset($c);
 
     out([
-        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus')],
+        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level()],
         'stars' => stars(),
         'days' => $days,
         'subjects' => $subjects,
@@ -1231,6 +1296,9 @@ function r_parent_report(array $b): never
         'writings' => array_map(fn($r) => ['subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'], 'created_at' => (int)$r['created_at'],
             'first' => json_decode((string)$r['first_result'], true) ?: null, 'last' => json_decode((string)$r['result'], true) ?: null],
             q('SELECT subject, prompt, submits, first_result, result, created_at FROM writings WHERE submits > 0 ORDER BY id DESC LIMIT 8')->fetchAll()),
+        'readings' => array_map(fn($r) => ['day' => $r['day'], 'level' => (int)$r['level'], 'score' => $r['score'] !== null ? (int)$r['score'] : null,
+            'pron_score' => $r['pron_score'] !== null ? (int)$r['pron_score'] : null, 'title' => (json_decode((string)$r['data'], true) ?: [])['title'] ?? ''],
+            q('SELECT day, level, score, pron_score, data FROM readings ORDER BY id DESC LIMIT 10')->fetchAll()),
         'speaking' => $speaking,
         'retention_days' => (int)cfg('chat_retention_days', 30),
     ]);
@@ -1375,6 +1443,8 @@ function r_parent_settings(array $b): never
 {
     set_setting('nick', clean($b['nick'] ?? '', 30));
     set_setting('focus', clean($b['focus'] ?? '', 400));
+    if (isset($b['read_daily'])) set_setting('read_daily', $b['read_daily'] ? '1' : '0');
+    if (isset($b['read_level'])) set_setting('read_level', (string)max(1, min(5, (int)$b['read_level'])));
     out(['ok' => true]);
 }
 

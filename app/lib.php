@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -167,6 +167,13 @@ const SCHEMA = [
        result MEDIUMTEXT NULL, first_result MEDIUMTEXT NULL, submits INT NOT NULL DEFAULT 0,
        created_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL,
        KEY idx_writings_created (created_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Đọc hiểu tiếng Anh mỗi ngày: bài đọc ngắn theo mức của bé, 3 câu hỏi, 3 từ mới, một câu đọc to chấm phát âm
+    "CREATE TABLE IF NOT EXISTS readings (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, day CHAR(10) NOT NULL, subject VARCHAR(10) NOT NULL,
+       topic VARCHAR(200) NOT NULL DEFAULT '', level TINYINT NOT NULL DEFAULT 1, data MEDIUMTEXT NOT NULL,
+       answers VARCHAR(100) NULL, score INT NULL, pron_score INT NULL, created_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL,
+       KEY idx_readings_day (day)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     // Thư viện video bài giảng (YouTube) do ba mẹ duyệt; Mây chỉ gợi ý video đã duyệt, khớp bài đang học
     "CREATE TABLE IF NOT EXISTS videos (
@@ -1251,6 +1258,12 @@ function day_plan(string $day): array
         $items[] = ['key' => 'homework', 'icon' => '📸', 'title' => 'Làm bài cô giao rồi chụp gửi Mây chấm', 'minutes' => $classes ? 20 : 25,
                     'reason' => 'Ưu tiên số 1: bài cô giao hôm nay', 'action' => ['view' => 'homework']];
     }
+    // Đọc tiếng Anh 10 phút mỗi ngày (ba mẹ tắt được trong Cài đặt)
+    if (setting('read_daily', '1') !== '0') {
+        $items[] = ['key' => 'reading', 'icon' => '📖', 'title' => 'Đọc tiếng Anh 10 phút', 'minutes' => 10,
+                    'reason' => 'Đọc hiểu tiếng Anh mỗi ngày: đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu',
+                    'action' => ['view' => 'read']];
+    }
 
     // Phần yếu cần bổ sung
     $endOfDay = strtotime($day . ' 23:59:59');
@@ -2194,4 +2207,102 @@ function skill_record(string $subject, string $skill, int $score, int $total, bo
     q('UPDATE skill_mastery SET checks = checks + 1, passed = passed + ?, streak = ?, last_score = ?, level = ?, updated_at = ? WHERE id = ?',
         [$passed ? 1 : 0, $streak, "{$score}/{$total}", $level, time(), $m['id']]);
     return $level;
+}
+
+/* ---------------- Đọc hiểu tiếng Anh mỗi ngày ---------------- */
+
+// Mức đọc 1–5 (tự lên khi bé đúng hết 2 bài liền, tự xuống khi sai từ 2 câu). Ba mẹ đặt mức khởi đầu trong cài đặt.
+const READ_LEVELS = [
+    1 => ['words' => '60–90', 'sent' => 8,  'desc' => 'Pre-A1/A1, US Grade 1: very common words, present simple, one idea per sentence'],
+    2 => ['words' => '90–120', 'sent' => 10, 'desc' => 'A1, US Grade 2: common words, simple past allowed, "and/but/because"'],
+    3 => ['words' => '120–150', 'sent' => 12, 'desc' => 'A1+/A2, US Grade 3: a few new topic words explained by context'],
+    4 => ['words' => '150–190', 'sent' => 14, 'desc' => 'A2, US Grade 4 (Cambridge Primary Stage 4)'],
+    5 => ['words' => '190–230', 'sent' => 16, 'desc' => 'A2+, US Grade 4–5: some longer sentences, simple inference'],
+];
+
+function read_level(): int
+{
+    return max(1, min(5, (int)(setting('read_level') ?: 1)));
+}
+
+// Chủ đề bài đọc: bám bài English/Science tuần này (kế hoạch ba mẹ duyệt), xen kẽ theo ngày
+function read_topic(string $day): array
+{
+    $week = plan_week(approved_plan($day), $day) ?: [];
+    $doy = (int)date('z', strtotime($day));
+    $subject = $doy % 3 === 2 ? 'csci' : 'ceng';
+    return [$subject, clean($week[$subject] ?? '', 120)];
+}
+
+function read_prompt(string $subject, string $topic, int $level, string $context): string
+{
+    $L = READ_LEVELS[$level];
+    $topicText = $topic !== '' ? $topic : 'a topic from the unit the class is studying now (see context), or a fun everyday topic for a 9-year-old';
+    $subj = $subject === 'csci' ? 'Science (Cambridge Primary Stage 4)' : 'English (Our World 4)';
+    $ctx = $context !== '' ? "\n" . $context : '';
+    return <<<TXT
+Write one short English reading passage for a 9-year-old Vietnamese child who is still building English reading skills.
+Linked subject: {$subj}. Topic: {$topicText}.{$ctx}
+Reading level {$level}/5: {$L['desc']}. Length {$L['words']} words. Every sentence at most {$L['sent']} words. Clear, friendly, true facts only (no invented science), child-safe, a small story or a simple information text with a title.
+Then make:
+- "words": exactly 3 useful words from the passage (the exact form used in the text), each with "vi" (Vietnamese meaning, short) and "ex" (a new very simple English example sentence).
+- "questions": exactly 3 multiple-choice questions in simple English, 3 options each, only one correct, answerable from the passage: 1) a detail question, 2) a vocabulary-in-context or sequence question, 3) a simple "why/main idea" question. Vary the position of the correct answer. "explain": one short sentence in Vietnamese saying where in the text the answer is.
+- "read_aloud": copy exactly ONE sentence (6–14 words) from the passage that has useful sounds to practise (th, final consonants, s/sh, r/l).
+Return JSON only: {"title":"...","passage":"...","words":[{"w":"...","vi":"...","ex":"..."}],"questions":[{"q":"...","options":["...","...","..."],"answer":0,"explain":"..."}],"read_aloud":"..."}
+TXT;
+}
+
+// Kiểm tra và làm sạch bài đọc Claude trả về; null nếu thiếu phần quan trọng
+function read_clean(array $d): ?array
+{
+    $passage = trim(preg_replace("/[ \t]+/u", ' ', clean($d['passage'] ?? '', 2500)) ?? '');
+    if (str_word_count($passage) < 40) return null;
+    $qs = [];
+    foreach (is_array($d['questions'] ?? null) ? array_slice($d['questions'], 0, 3) : [] as $x) {
+        $opts = array_values(array_filter(array_map(fn($o) => clean($o, 160), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
+        $a = (int)($x['answer'] ?? -1);
+        if (clean($x['q'] ?? '', 300) === '' || count($opts) < 2 || $a < 0 || $a >= count($opts)) continue;
+        $qs[] = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300)];
+    }
+    if (count($qs) < 3) return null;
+    $words = [];
+    foreach (is_array($d['words'] ?? null) ? array_slice($d['words'], 0, 3) : [] as $x) {
+        $w = clean($x['w'] ?? '', 40);
+        if ($w !== '') $words[] = ['w' => $w, 'vi' => clean($x['vi'] ?? '', 120), 'ex' => clean($x['ex'] ?? '', 200)];
+    }
+    // Câu đọc to phải nằm trong bài; nếu không thì lấy câu vừa độ dài đầu tiên trong bài
+    $ra = trim(clean($d['read_aloud'] ?? '', 300));
+    if ($ra === '' || mb_stripos($passage, $ra) === false) {
+        $ra = '';
+        foreach (preg_split('/(?<=[.!?])\s+/u', $passage) as $sent) {
+            $n = str_word_count($sent);
+            if ($n >= 5 && $n <= 16) { $ra = trim($sent); break; }
+        }
+        if ($ra === '') $ra = trim((preg_split('/(?<=[.!?])\s+/u', $passage))[0]);
+    }
+    return ['title' => clean($d['title'] ?? '', 120) ?: 'Reading', 'passage' => $passage, 'words' => $words, 'questions' => $qs, 'read_aloud' => $ra];
+}
+
+// Phần gửi cho bé: chưa nộp thì giấu đáp án
+function reading_for_kid(array $r): array
+{
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $done = $r['score'] !== null;
+    $qs = array_map(fn($x) => $done ? $x : ['q' => $x['q'], 'options' => $x['options']], $d['questions'] ?? []);
+    return ['id' => (int)$r['id'], 'subject' => $r['subject'], 'topic' => $r['topic'], 'level' => (int)$r['level'], 'title' => $d['title'] ?? '',
+            'passage' => $d['passage'] ?? '', 'words' => $d['words'] ?? [], 'questions' => $qs, 'read_aloud' => $d['read_aloud'] ?? '',
+            'answers' => $r['answers'] !== null ? array_map('intval', explode(',', $r['answers'])) : null,
+            'score' => $r['score'] !== null ? (int)$r['score'] : null, 'pron_score' => $r['pron_score'] !== null ? (int)$r['pron_score'] : null];
+}
+
+// Sau mỗi bài: đúng 3/3 hai bài liền thì lên một mức, sai từ 2 câu thì xuống một mức
+function read_adjust_level(int $score): array
+{
+    $lv = read_level();
+    $prev = q('SELECT score FROM readings WHERE score IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT 1 OFFSET 1')->fetchColumn();
+    $new = $lv;
+    if ($score >= 3 && $prev !== false && (int)$prev >= 3) $new = min(5, $lv + 1);
+    elseif ($score <= 1) $new = max(1, $lv - 1);
+    if ($new !== $lv) set_setting('read_level', (string)$new);
+    return ['from' => $lv, 'to' => $new];
 }
