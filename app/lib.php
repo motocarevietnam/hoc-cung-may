@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -168,6 +168,14 @@ const SCHEMA = [
        created_at INT UNSIGNED NOT NULL, updated_at INT UNSIGNED NOT NULL,
        KEY idx_writings_created (created_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Thư viện video bài giảng (YouTube) do ba mẹ duyệt; Mây chỉ gợi ý video đã duyệt, khớp bài đang học
+    "CREATE TABLE IF NOT EXISTS videos (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, lesson VARCHAR(160) NOT NULL,
+       keywords VARCHAR(300) NOT NULL DEFAULT '', yt_id VARCHAR(16) NOT NULL, title VARCHAR(255) NOT NULL DEFAULT '',
+       channel VARCHAR(120) NOT NULL DEFAULT '', seconds INT NOT NULL DEFAULT 0, status VARCHAR(10) NOT NULL DEFAULT 'candidate',
+       added_by VARCHAR(10) NOT NULL DEFAULT 'may', watched INT NOT NULL DEFAULT 0, created_at INT UNSIGNED NOT NULL,
+       UNIQUE KEY uq_videos_yt (yt_id), KEY idx_videos_subject (subject, status)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
 const TASK_STATUSES = ['planned', 'started', 'paused', 'completed', 'needs_help'];
@@ -228,6 +236,9 @@ function ensure_schema(PDO $pdo): void
         // chưa có bảng settings: tạo mới bên dưới
     }
     foreach (SCHEMA as $sql) $pdo->exec($sql);
+    // Video ứng viên Mây tìm sẵn (chưa duyệt): ba mẹ xem rồi duyệt hoặc loại trong Cổng ba mẹ → Video bài giảng
+    $vid = $pdo->prepare('INSERT IGNORE INTO videos (subject, lesson, keywords, yt_id, title, channel, seconds, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, \'candidate\', \'may\', ?)');
+    foreach (VIDEO_SEEDS as $v) $vid->execute([...$v, time()]);
     // Luật sao mặc định (không ghi đè luật ba mẹ đã chỉnh)
     $ins = $pdo->prepare('INSERT IGNORE INTO reward_rules (code, label, stars, daily_cap, weekly_cap, sort, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
     foreach (DEFAULT_REWARD_RULES as [$code, $label, $n, $d, $w, $sort]) $ins->execute([$code, $label, $n, $d, $w, $sort, time()]);
@@ -713,6 +724,71 @@ Cách chấm:
 - Chỉ nhận xét về bài học. Không nhắc tới tên thật, tên trường hay thông tin cá nhân nếu thấy trong ảnh.
 Chỉ trả lời bằng JSON.
 TXT;
+}
+
+/* ---------------- Video bài giảng (YouTube) ---------------- */
+// Giới hạn độ dài phát: Toán, Tiếng Việt 15 phút (bài giảng tiếng Việt thường dài); Maths, English, Science 8 phút.
+const VIDEO_MAX = ['toan' => 900, 'tv' => 900, 'cmath' => 480, 'ceng' => 480, 'csci' => 480];
+// subject, lesson, keywords (phân cách bằng dấu phẩy, khớp với chủ đề bé đang học), yt_id, title, channel, seconds
+const VIDEO_SEEDS = [
+    ['toan', 'Bài 17: Yến, tạ, tấn', 'yến,tạ,tấn', 'ICdaRlFgjGU', 'Toán lớp 4 Bài 17: Yến, tạ, tấn - Kết nối tri thức (DỄ HIỂU NHẤT)', 'VietJack Tiểu học & THCS', 1628],
+    ['toan', 'Bài 17: Yến, tạ, tấn', 'yến,tạ,tấn', 'mkfvWt9VAzM', 'Toán Lớp 4 Bài 17 | Yến Tạ Tấn | Tiết 1 | Trang 56 – 57', 'THẦY KIỆT', 963],
+    ['toan', 'Bài 18: Đề-xi-mét vuông, mét vuông, mi-li-mét vuông', 'mét vuông,dm²,m²,mm²,đề-xi-mét vuông,mi-li-mét vuông,diện tích', 'Px_hkfRQqzU', 'Toán lớp 4 Bài 18 Đề-xi-mét vuông, mét vuông, mi-li-mét vuông - Kết nối tri thức', 'VietJack Tiểu học & THCS', 771],
+    ['toan', 'Bài 19: Giây, thế kỉ', 'giây,thế kỉ,thế kỷ', 'XcRwENZcX-Y', 'Toán lớp 4 kết nối tri thức Bài 19 Tiết 1 giây, thế kỉ trang 66', 'Thành Đô Vlog', 564],
+    ['toan', 'Bài 19: Giây, thế kỉ', 'giây,thế kỉ,thế kỷ', 'oU2yrxq2FyA', 'Bài 19: Giây, thế kỉ - Toán 4, hoạt động Khám phá - sách Kết nối', 'Ứng Dụng Tin Học', 27],
+    ['toan', 'Bài 21: Luyện tập chung (Chủ đề 4)', 'luyện tập chung chủ đề 4,đơn vị đo đại lượng', 'Id86WD2JPfA', 'Toán lớp 4 Bài 21: Luyện tập chung - Trang 73, 75 - Kết nối tri thức', 'VietJack Tiểu học & THCS', 746],
+    ['tv', 'Luyện từ và câu: Danh từ chung, danh từ riêng', 'danh từ chung,danh từ riêng', '4HtoKHSZDQw', 'Luyện từ và câu: Danh từ chung, danh từ riêng - Tiếng Việt lớp 4 - Kết nối tri thức', 'VietJack Tiểu học & THCS', 321],
+    ['tv', 'Luyện từ và câu: Danh từ chung, danh từ riêng', 'danh từ chung,danh từ riêng', 'W5_dIVzobzg', 'Tiếng việt lớp 4 trang 18 - 19 | Danh từ chung danh từ riêng | Kết nối tri thức', 'THẦY KIỆT', 722],
+    ['cmath', 'Rounding to the nearest thousand', 'rounding,round,làm tròn,nearest thousand,hàng nghìn', 'DUyLQJXqytI', 'How Do You Round to the Nearest 1000? | KS2 Maths Concept for Kids', 'Twinkl Educational Publishing', 206],
+    ['cmath', 'Rounding to the nearest thousand', 'rounding,round,làm tròn,nearest thousand,hàng nghìn', 'iITHGv6U37s', 'Round Numbers up to 10,000 to the Nearest Thousand | 4th Grade Math', 'Underwater Math', 122],
+    ['csci', 'Unit 1 Matter: states of matter', 'matter,states of matter,solid,liquid,gas,trạng thái', 'wclY8F-UoTE', '3 States of Matter for Kids (Solid, Liquid, Gas) - FreeSchool', 'Free School', 275],
+    ['csci', 'Unit 1 Matter: states of matter', 'matter,states of matter,solid,liquid,gas,trạng thái', 'JQ4WduVp9k4', 'States of matter for kids - Solid, liquid and gas', 'Smile and Learn - English', 193],
+];
+
+function youtube_id(string $s): string
+{
+    $s = trim($s);
+    if (preg_match('/^[A-Za-z0-9_-]{11}$/', $s)) return $s;
+    if (preg_match('#(?:youtu\.be/|youtube(?:-nocookie)?\.com/(?:watch\?(?:.*&)?v=|embed/|shorts/|live/))([A-Za-z0-9_-]{11})#', $s, $m)) return $m[1];
+    return '';
+}
+
+// Video đã duyệt khớp với chủ đề bé đang học (từ khoá hoặc tên bài xuất hiện trong chủ đề), video ngắn trước
+function videos_for(string $subject, string $topic): array
+{
+    if (trim($topic) === '') return [];
+    $out = [];
+    foreach (q("SELECT * FROM videos WHERE subject = ? AND status = 'approved' ORDER BY seconds", [$subject])->fetchAll() as $v) {
+        $keys = array_filter(array_map('trim', explode(',', $v['keywords'])));
+        $keys[] = preg_replace('/^Bài \d+:\s*/u', '', $v['lesson']);
+        foreach ($keys as $k) {
+            if ($k !== '' && mb_stripos($topic, $k) !== false) { $out[] = video_public($v); break; }
+        }
+        if (count($out) >= 2) break;
+    }
+    return $out;
+}
+
+function video_public(array $v): array
+{
+    return ['id' => (int)$v['id'], 'yt' => $v['yt_id'], 'title' => $v['title'], 'channel' => $v['channel'], 'lesson' => $v['lesson'],
+            'seconds' => (int)$v['seconds'], 'play_seconds' => min((int)$v['seconds'] ?: VIDEO_MAX[$v['subject']], VIDEO_MAX[$v['subject']])];
+}
+
+// Lấy tiêu đề, kênh (oEmbed) và độ dài (trang xem) của một video YouTube khi ba mẹ dán link
+function youtube_info(string $id): array
+{
+    $get = function (string $url): string {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 15, CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER => ['User-Agent: Mozilla/5.0 (hoc-cung-may)', 'Accept-Language: vi-VN,vi;q=0.9']]);
+        $r = curl_exec($ch); curl_close($ch);
+        return $r === false ? '' : (string)$r;
+    };
+    $o = json_decode($get('https://www.youtube.com/oembed?format=json&url=' . rawurlencode('https://www.youtube.com/watch?v=' . $id)), true) ?: [];
+    $page = $get('https://www.youtube.com/watch?v=' . $id . '&hl=vi');
+    $sec = preg_match('/"lengthSeconds":"(\d+)"/', $page, $m) ? (int)$m[1] : 0;
+    return ['title' => clean($o['title'] ?? '', 255), 'channel' => clean($o['author_name'] ?? '', 120), 'seconds' => $sec];
 }
 
 /* ---------------- Viết đoạn văn (Tiếng Việt, English) ---------------- */
