@@ -183,7 +183,7 @@ const TASK_STATUSES = ['planned', 'started', 'paused', 'completed', 'needs_help'
 // Luật sao mặc định (theo issue #5). Ba mẹ chỉnh trong Góc ba mẹ; đây chỉ là giá trị khởi tạo.
 const DEFAULT_REWARD_RULES = [
     ['self_start', 'Tự bắt đầu học', 2, 1, null, 1],
-    ['task_complete', 'Hoàn thành nhiệm vụ', 5, 4, null, 2],
+    ['task_complete', 'Hoàn thành nhiệm vụ', 5, 6, null, 2],
     ['self_fix', 'Tự sửa sai', 3, 5, null, 3],
     ['explain', 'Giải thích đúng cách làm', 3, 5, null, 4],
     ['progress', 'Tiến bộ có bằng chứng', 5, 3, null, 5],
@@ -724,6 +724,126 @@ Cách chấm:
 - Chỉ nhận xét về bài học. Không nhắc tới tên thật, tên trường hay thông tin cá nhân nếu thấy trong ảnh.
 Chỉ trả lời bằng JSON.
 TXT;
+}
+
+/* ---------------- Mây nghe phát âm: SpeechSuper (chấm theo từng âm, giọng Anh-Anh, trẻ 6–12 tuổi) ---------------- */
+// Âm thanh chỉ gửi tới SpeechSuper để chấm (họ xoá sau khi chấm), VPS không lưu.
+
+function speechsuper_enabled(): bool
+{
+    return trim((string)cfg('speechsuper_app_key', '')) !== '' && trim((string)cfg('speechsuper_secret_key', '')) !== '';
+}
+
+function speechsuper_eval(string $wav, string $refText): array
+{
+    $ak = trim((string)cfg('speechsuper_app_key', ''));
+    $sk = trim((string)cfg('speechsuper_secret_key', ''));
+    $ts = (string)time();
+    $uid = 'kem';
+    $words = preg_split('/\s+/u', trim($refText)) ?: [];
+    $core = count($words) <= 1 ? 'word.eval.promax' : 'sent.eval.promax';
+    $text = json_encode([
+        'connect' => ['cmd' => 'connect', 'param' => ['sdk' => ['version' => 16777472, 'source' => 9, 'protocol' => 2],
+            'app' => ['applicationId' => $ak, 'sig' => sha1($ak . $ts . $sk), 'timestamp' => $ts]]],
+        'start' => ['cmd' => 'start', 'param' => [
+            'app' => ['applicationId' => $ak, 'sig' => sha1($ak . $ts . $uid . $sk), 'userId' => $uid, 'timestamp' => $ts],
+            'audio' => ['audioType' => 'wav', 'channel' => 1, 'sampleBytes' => 2, 'sampleRate' => 16000],
+            'request' => ['coreType' => $core, 'refText' => $refText, 'tokenId' => bin2hex(random_bytes(6)),
+                          'dict_dialect' => 'en_br', 'agegroup' => 2, 'phoneme_output' => 1]]],
+    ], JSON_UNESCAPED_UNICODE);
+    $tmp = tempnam(sys_get_temp_dir(), 'pron');
+    file_put_contents($tmp, $wav);
+    $ch = curl_init((string)cfg('speechsuper_api_base', 'https://api.speechsuper.com/') . $core);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_TIMEOUT => 40,
+        CURLOPT_HTTPHEADER => ['Request-Index: 0'], CURLOPT_POSTFIELDS => ['text' => $text, 'audio' => new CURLFile($tmp, 'audio/wav', 'a.wav')]]);
+    $raw = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    @unlink($tmp);
+    $d = json_decode((string)$raw, true);
+    if ($code !== 200 || !is_array($d['result'] ?? null)) {
+        throw new UpstreamError('SpeechSuper ' . $code . ' ' . substr(json_encode($d['error'] ?? $d['errId'] ?? substr((string)$raw, 0, 200)), 0, 200));
+    }
+    return $d['result'];
+}
+
+// Mẹo phát âm cho các âm trẻ Việt hay sai (viết sẵn, không để AI đoán)
+const PRON_TIPS = [
+    'θ' => 'Âm /θ/ (th trong three): đặt đầu lưỡi giữa hai hàm răng rồi thổi hơi nhẹ, đừng đọc thành "t" hay "tr".',
+    'ð' => 'Âm /ð/ (th trong this, mother): lưỡi giữa hai răng, thổi hơi và rung cổ họng, đừng đọc thành "d" hay "đ".',
+    's' => 'Âm /s/: răng gần khít, thổi hơi "xì" rõ, nhất là ở CUỐI từ như cats, books.',
+    'z' => 'Âm /z/: như "s" nhưng rung cổ họng ("dzzz"), nhớ đọc ở cuối từ như has, dogs.',
+    't' => 'Âm /t/ cuối từ: chạm đầu lưỡi lên lợi trên rồi bật nhẹ, đừng bỏ âm cuối.',
+    'd' => 'Âm /d/ cuối từ: như /t/ nhưng rung cổ họng, nhớ đọc ở cuối từ như played, red.',
+    'k' => 'Âm /k/ cuối từ: bật hơi nhẹ ở cuống lưỡi, đừng nuốt mất âm cuối như trong book, cake.',
+    'p' => 'Âm /p/ cuối từ: mím môi rồi bật nhẹ, đừng bỏ âm cuối như trong cup, map.',
+    'ʃ' => 'Âm /ʃ/ (sh): chu môi tròn ra phía trước, thổi "suỵt" nhẹ.',
+    'tʃ' => 'Âm /tʃ/ (ch trong chair): như "ch" nhưng chu môi và bật hơi mạnh hơn.',
+    'dʒ' => 'Âm /dʒ/ (j trong juice): như /tʃ/ nhưng rung cổ họng.',
+    'ʒ' => 'Âm /ʒ/ (s trong television): như /ʃ/ nhưng rung cổ họng.',
+    'v' => 'Âm /v/: răng trên chạm nhẹ môi dưới rồi rung, đừng đọc thành "b" hay "w".',
+    'w' => 'Âm /w/: chu tròn môi như "u" rồi mở nhanh, khác với /v/.',
+    'r' => 'Âm /r/: cong đầu lưỡi lên nhưng KHÔNG chạm vòm miệng, môi hơi tròn.',
+    'l' => 'Âm /l/ cuối từ: đầu lưỡi chạm lợi trên, giữ lại một chút như trong school, ball.',
+    'n' => 'Âm /n/ cuối từ: đầu lưỡi chạm lợi trên, đừng đọc thành "ng".',
+    'ŋ' => 'Âm /ŋ/ (ng): cuống lưỡi chạm vòm mềm, không bật thêm "g".',
+    'h' => 'Âm /h/: thở hơi nhẹ ra như khi hà hơi vào kính.',
+    'æ' => 'Âm /æ/ (a trong cat): mở miệng rộng, kéo khoé môi sang hai bên, giữa "a" và "e".',
+    'iː' => 'Âm /iː/ (ee trong sheep): kéo dài "iiii" và cười mỉm.',
+    'i' => 'Âm /i/: kéo môi sang hai bên như cười mỉm.',
+    'ɪ' => 'Âm /ɪ/ (i trong ship): "i" ngắn và thả lỏng, không kéo dài.',
+    'uː' => 'Âm /uː/ (oo trong food): chu môi tròn, kéo dài "uuuu".',
+    'ʊ' => 'Âm /ʊ/ (oo trong book): "u" ngắn, môi hơi tròn.',
+    'ə' => 'Âm /ə/: âm "ơ" rất nhẹ và ngắn, không nhấn.',
+    'ɜː' => 'Âm /ɜː/ (ir trong bird): "ơ" dài, miệng thả lỏng.',
+    'ɑː' => 'Âm /ɑː/ (ar trong car): "a" dài, mở rộng miệng.',
+    'ɔː' => 'Âm /ɔː/ (or trong horse): "o" dài, môi tròn.',
+    'eɪ' => 'Âm /eɪ/ (ay trong day): trượt từ "ê" sang "i".',
+    'aɪ' => 'Âm /aɪ/ (i trong five): trượt từ "a" sang "i".',
+    'əʊ' => 'Âm /əʊ/ (o trong go, giọng Anh): trượt từ "ơ" sang "u".',
+    'aʊ' => 'Âm /aʊ/ (ow trong cow): trượt từ "a" sang "u".',
+];
+
+// Đổi kết quả SpeechSuper thành nhận xét cho bé: từ xanh/vàng/đỏ, tối đa 3 âm cần luyện kèm mẹo
+function pron_from_speechsuper(array $res): array
+{
+    $words = [];
+    $weak = [];
+    foreach (is_array($res['words'] ?? null) ? $res['words'] : [] as $w) {
+        $word = trim((string)($w['word'] ?? ''), " \t.,!?;:\"");
+        if ($word === '') continue;
+        $sc = (int)round((float)($w['scores']['overall'] ?? $w['scores']['pronunciation'] ?? 0));
+        $st = $sc >= 80 ? 'good' : ($sc >= 60 ? 'ok' : 'bad');
+        $worst = null;
+        foreach (is_array($w['phonemes'] ?? null) ? $w['phonemes'] : [] as $ph) {
+            $p = (string)($ph['phoneme'] ?? '');
+            $ps = (float)($ph['pronunciation'] ?? 100);
+            if ($p !== '' && $ps < 60 && ($worst === null || $ps < $worst[1])) $worst = [$p, $ps];
+            if ($p !== '' && $ps < 60) {
+                $weak[$p]['score'] = min($weak[$p]['score'] ?? 100, $ps);
+                $weak[$p]['words'][$word] = true;
+            }
+        }
+        if ($st === 'good' && $worst) $st = 'ok';   // từ nghe ổn nhưng có âm yếu (thường là âm cuối như /s/ trong cats) → vàng
+        $tip = '';
+        if ($st !== 'good' && $worst) $tip = PRON_TIPS[$worst[0]] ?? "Âm /{$worst[0]}/ chưa rõ, nghe mẫu rồi đọc chậm lại.";
+        elseif ($st !== 'good') $tip = 'Nghe mẫu rồi đọc chậm, rõ từng âm.';
+        $words[] = ['w' => clean($word, 40), 's' => $st, 'tip' => clean($tip, 200), 'score' => $sc];
+    }
+    uasort($weak, fn($a, $b) => $a['score'] <=> $b['score']);
+    $sounds = [];
+    foreach (array_slice($weak, 0, 3, true) as $p => $x) {
+        $sounds[] = ['sound' => "/{$p}/", 'words' => array_slice(array_keys($x['words']), 0, 4),
+                     'tip' => PRON_TIPS[$p] ?? "Âm /{$p}/ chưa rõ: nghe mẫu rồi đọc chậm lại."];
+    }
+    $total = (int)round((float)($res['overall'] ?? 0));
+    $complete = (float)($res['integrity'] ?? $res['completeness'] ?? 100);
+    $overall = !$words || $complete < 40 ? 'unclear' : ($total >= 85 ? 'great' : ($total >= 70 ? 'good' : 'try_again'));
+    $good = array_column(array_filter($words, fn($w) => $w['s'] === 'good'), 'w');
+    $praise = $overall === 'unclear' ? '' : ($good ? 'Bạn đọc rõ: ' . implode(', ', array_slice($good, 0, 5)) . '. Giỏi lắm!' : 'Bạn đã cố gắng đọc cả câu, cố thêm chút nữa nhé!');
+    $next = $sounds ? 'Nghe mẫu từ ' . implode(', ', $sounds[0]['words']) . ' rồi luyện âm ' . $sounds[0]['sound'] . ' 3 lần, sau đó đọc lại cả câu.'
+                    : ($overall === 'great' ? 'Thử đọc nhanh và tự nhiên hơn một chút nhé.' : '');
+    return ['overall' => $overall, 'score' => $total, 'words' => $words, 'sounds' => $sounds, 'praise' => $praise, 'next' => $next];
 }
 
 /* ---------------- Video bài giảng (YouTube) ---------------- */

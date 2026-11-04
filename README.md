@@ -21,7 +21,8 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
 - **Luyện nói tiếng Anh (Speaking)** 🗣️: môn English → Luyện nói, 3 dạng: đọc to câu mẫu, trả lời câu hỏi (kiểu thi nói Cambridge),
   kể/miêu tả ngắn. Bé nghe mẫu (có đọc chậm), bấm 🎤 để nói; iPad chuyển giọng thành chữ, Mây so từng từ với câu mẫu
   và góp ý ngữ pháp, từ vựng, câu mẫu để nói lại. Bé nghe lại giọng mình ngay trên iPad (không gửi âm thanh lên máy chủ).
-  Mây chỉ có phần chữ máy chép lại nên không chấm chi tiết từng âm; chấm phát âm chuyên sâu (Microsoft Azure) sẽ thêm sau.
+  **👂 Mây nghe phát âm** (khi có key SpeechSuper, chỉ iPad): đoạn ghi âm (WAV 16 kHz) gửi SpeechSuper chấm từng âm theo
+  giọng Anh-Anh, chế độ trẻ 6–12 tuổi; mỗi từ tô xanh/vàng/đỏ, tối đa 3 âm cần luyện kèm mẹo tiếng Việt viết sẵn. VPS không lưu âm thanh.
 - **Sao và luật thưởng** ⭐: sao ghi vào **sổ sao** (chỉ thêm dòng, không sửa/xoá; số dư = tổng sổ). Luật mặc định:
   tự bắt đầu +2, hoàn thành nhiệm vụ trong "Hôm nay" +5, tự sửa sai +3, giải thích đúng +3, tiến bộ có bằng chứng +5,
   đạt mục tiêu tuần +10; sai không bao giờ bị trừ. Ba mẹ chỉnh mức sao, số lần tối đa mỗi ngày/tuần, mức sao tối đa mỗi ngày
