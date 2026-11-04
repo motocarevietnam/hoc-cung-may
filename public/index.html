@@ -1160,7 +1160,7 @@ function startSpeakCapture(){
   let finalText="", heard=false;
   // Bật nhận giọng NGAY trong lần bấm (trước mọi việc khác) để trình duyệt cho dùng micro
   try{
-    spRec = new SR(); spRec.lang="en-US"; spRec.interimResults=true; spRec.continuous = S.type==="tell"; spRec.maxAlternatives=1;
+    spRec = new SR(); spRec.lang="en-US"; spRec.interimResults=true; spRec.continuous = S.type==="tell" && !IS_ANDROID; spRec.maxAlternatives=1;
   }catch(e){ spRec=null; S.listening=false; S.note="Máy này chưa nghe trực tiếp được. Bạn bấm vào ô bên dưới và dùng micro trên bàn phím nhé."; render(); return; }
   spRec.onresult = ev=>{ heard=true; let interim=""; for(let i=ev.resultIndex;i<ev.results.length;i++){ const r=ev.results[i]; if(r.isFinal) finalText+=(finalText?" ":"")+r[0].transcript.trim(); else interim+=r[0].transcript; }
     S.live=(finalText+" "+interim).trim(); const el=document.getElementById("spLive"); if(el) el.textContent=S.live||"…"; };
@@ -1903,6 +1903,19 @@ async function startCheck(source, ref){
   if(state.view==="check") render();
 }
 let ckRec = null;
+// Ghép kết quả nhận giọng nói thành một đoạn: thêm dấu cách giữa các đoạn, bỏ các bản nháp bị lặp
+// (Chrome Android hay trả "1", "1 tấn", "1 tấn bằng"… như các kết quả riêng)
+function joinSR(results){
+  const parts=[];
+  for(let i=0;i<results.length;i++){
+    const t=(results[i][0]?.transcript||"").trim(); if(!t) continue;
+    const last=parts[parts.length-1], lo=t.toLowerCase();
+    if(last!==undefined && lo.startsWith(last.toLowerCase())) parts[parts.length-1]=t;
+    else if(last!==undefined && last.toLowerCase().startsWith(lo)) continue;
+    else parts.push(t);
+  }
+  return parts.join(" ");
+}
 // Câu hỏi bước 1 theo từng môn: Toán/Maths giải thích các bước; môn chữ thì nói lại ý chính và cho ví dụ
 const CK_ASK = {
   toan:"Bạn giải thích lại cách làm bằng lời của mình nhé: làm bước nào trước, bước nào sau, vì sao?",
@@ -1961,9 +1974,10 @@ function renderCheck(){
   const ta=document.getElementById("ckText"); if(ta) ta.oninput=e=>{ C.text=e.target.value; };
   on("ckMic",()=>{
     if(ckRec){ try{ckRec.stop()}catch(e){} return; }
-    try{ ckRec = new SR(); ckRec.lang = s?.lang==="en" ? "en-US" : "vi-VN"; ckRec.interimResults=true; ckRec.continuous=true; }catch(e){ ckRec=null; return; }
+    // Android: chế độ nghe liên tục trả về các bản nháp chồng lên nhau → nghe từng câu, bấm 🎤 lần nữa để nói tiếp
+    try{ ckRec = new SR(); ckRec.lang = s?.lang==="en" ? "en-US" : "vi-VN"; ckRec.interimResults=true; ckRec.continuous=!IS_ANDROID; }catch(e){ ckRec=null; return; }
     const base = (C.text||"").trim();
-    ckRec.onresult = ev=>{ let t=""; for(let i=0;i<ev.results.length;i++) t+=ev.results[i][0].transcript; C.text=(base?base+" ":"")+t.trim(); const el=document.getElementById("ckText"); if(el) el.value=C.text; };
+    ckRec.onresult = ev=>{ const t=joinSR(ev.results); C.text=(base?base+" ":"")+t; const el=document.getElementById("ckText"); if(el) el.value=C.text; };
     ckRec.onend = ()=>{ ckRec=null; if(state.view==="check") render(); };
     try{ ckRec.start(); }catch(e){ ckRec=null; }
     render();
