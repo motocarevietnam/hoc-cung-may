@@ -1775,8 +1775,20 @@ function tts_cache(string $key, callable $make): string
     return $mp3;
 }
 
+// Tên giọng đọc tiếng Anh hay đọc nhầm thành chữ viết tắt (Mia → "M-I-A"): chỉ đổi cách viết khi đọc, chữ trên màn hình giữ nguyên
+const TTS_EN_ALIAS = ['Mia' => 'Meeya', 'Leo' => 'Lio'];
+// Tên nhân vật dễ đọc cho bài đọc / bài nghe (giọng đọc phát âm chuẩn)
+const STORY_NAMES = 'Tom, Ben, Sam, Max, Jack, Lily, Anna, Emma, Lucy, Kate, Lan';
+
+function tts_en_fix(string $t): string
+{
+    foreach (TTS_EN_ALIAS as $from => $to) $t = preg_replace('/\b' . $from . '\b/u', $to, $t) ?? $t;
+    return $t;
+}
+
 function tts_mp3(array $chunks, array $voices, float $rate): string
 {
+    $chunks = array_map(fn($c) => $c['l'] === 'en' ? ['l' => 'en', 't' => tts_en_fix($c['t'])] : $c, $chunks);
     if (tts_provider() === 'google') {
         $out = '';
         foreach ($chunks as $i => $c) {
@@ -2384,7 +2396,7 @@ function read_prompt(string $subject, string $topic, int $level, string $context
     } else {
         $topicText = $topic !== '' ? $topic : 'a topic from the unit the class is studying now (see context), or a fun everyday topic for a 9-year-old';
         $subj = $subject === 'csci' ? 'Science (Cambridge Primary Stage 4)' : 'English (Our World 4)';
-        $what = "A short story or simple information text. Linked subject: {$subj}. Topic: {$topicText}. True facts only (no invented science).";
+        $what = "A short story or simple information text. Linked subject: {$subj}. Topic: {$topicText}. True facts only (no invented science). If there are characters, use names ONLY from: " . STORY_NAMES . '.';
     }
     $ctx = $context !== '' ? "\n" . $context : '';
     return <<<TXT
@@ -2560,6 +2572,7 @@ const LISTEN_VOICES = ['A' => 'en-GB-Chirp3-HD-Leda', 'B' => 'en-GB-Chirp3-HD-Pu
 
 function listen_prompt(string $topic, int $level, string $context): string
 {
+    $names = STORY_NAMES;
     $L = LISTEN_LEVELS[$level];
     $topicText = $topic !== '' ? $topic : 'the unit the class is studying now (see context), or an everyday situation for a 9-year-old';
     $ctx = $context !== '' ? "\n" . $context : '';
@@ -2567,7 +2580,7 @@ function listen_prompt(string $topic, int $level, string $context): string
 Write a short English LISTENING task (audio only, the child will not see the text) for a 9-year-old Vietnamese learner, in the style of Cambridge English Young Learners listening.
 Topic: {$topicText}.{$ctx}
 Level {$level}/5: {$L['desc']}. Total length {$L['words']} words. Each sentence at most {$L['sent']} words. Natural spoken English, child-safe, true facts only.
-Usually a dialogue between two speakers: A is a woman or girl, B is a man or boy (give them names, say the names in the dialogue). Sometimes (1 in 4) a short talk by one narrator "N". Lines must be speakable (no stage directions, no emojis).
+Usually a dialogue between two speakers: A is a woman or girl, B is a man or boy (give them names ONLY from this list: {$names}; say the names in the dialogue). Sometimes (1 in 4) a short talk by one narrator "N". Lines must be speakable (no stage directions, no emojis).
 Then make:
 - "questions": exactly 4 multiple-choice questions in simple English, 3 short options each, only one correct, each answerable ONLY by listening (detail: who/what/where/when/how many/colour; at level ≥3 one question with a distractor that is mentioned but not correct). Questions in the order the answers appear. Vary the position of the correct answer. "explain": one short Vietnamese sentence quoting what was said.
 - "dictation": copy exactly ONE sentence (5–10 words) spoken in the script, with common words, for the child to listen and write down.
@@ -2615,7 +2628,7 @@ function listen_mp3(array $data, int $level, bool $slow): string
     }
     $out = '';
     foreach ($data['lines'] as $i => $l) {
-        $mp3 = google_tts_chunk($l['text'], 'en', LISTEN_VOICES[$l['who']] ?? LISTEN_VOICES['N'], $rate);
+        $mp3 = google_tts_chunk(tts_en_fix($l['text']), 'en', LISTEN_VOICES[$l['who']] ?? LISTEN_VOICES['N'], $rate);
         $out .= $i === 0 ? $mp3 : mp3_strip_id3($mp3);
     }
     return $out;
