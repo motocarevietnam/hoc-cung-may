@@ -14,6 +14,17 @@ $route = preg_replace('#^/api/#', '', $path) ?? '';
 // Google chuyển ba mẹ về đây sau khi đồng ý cấp quyền (GET, kiểm tra bằng mã state một lần)
 if ($route === 'google/callback' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') google_callback();
 
+// Ảnh minh hoạ bài đọc (ảnh công khai đã lưu trên máy chủ, mã sha1): GET /api/img?id=…
+if ($route === 'img' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
+    $id = (string)($_GET['id'] ?? '');
+    $file = img_dir() . '/' . $id . '.jpg';
+    if (!preg_match('/^[0-9a-f]{40}$/', $id) || !is_file($file)) { http_response_code(404); exit; }
+    header('Content-Type: image/jpeg');
+    header('Cache-Control: public, max-age=2592000, immutable');
+    header('Content-Length: ' . filesize($file));
+    readfile($file);
+    exit;
+}
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
 // Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
 $maxBody = in_array($route, ['homework', 'write_submit', 'speak_pron', 'read_pron'], true) ? 9 * 1024 * 1024 : 65536;
@@ -639,6 +650,7 @@ function r_read_start(array $b): never
         $data = read_clean_parts($d);
     }
     if (!$data) out(['error' => 'upstream'], 502);
+    $data = read_attach_images($data, $topic);
     q('INSERT INTO readings (day, subject, topic, level, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [today(), $subject, $topic, $level, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
     out(['reading' => reading_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId()])), 'level' => $level]);
