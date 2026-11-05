@@ -1310,6 +1310,12 @@ function day_plan(string $day): array
                     'reason' => 'Đọc hiểu tiếng Anh mỗi ngày: đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu',
                     'action' => ['view' => 'read']];
     }
+    // Word problems (Maths Cambridge) 15 phút: thứ 2 và thứ 6
+    if (setting('wp_on', '1') !== '0' && in_array($n, [1, 5], true)) {
+        $items[] = ['key' => 'wordprob', 'icon' => '🧮', 'title' => 'Word problems 15 phút', 'minutes' => 15,
+                    'reason' => 'Toán có lời văn tiếng Anh (Maths Cambridge): hiểu đề hỏi gì, chọn phép tính, nói bước đầu tiên, tự giải',
+                    'action' => ['view' => 'wp']];
+    }
     // Nghe tiếng Anh 10 phút: thứ 2, 4, 6 (ba mẹ tắt được trong Cài đặt)
     if (setting('listen_on', '1') !== '0' && in_array($n, [1, 3, 5], true)) {
         $items[] = ['key' => 'listening', 'icon' => '🎧', 'title' => 'Nghe tiếng Anh 10 phút', 'minutes' => 10,
@@ -2350,6 +2356,7 @@ const READ_LEVELS = [
 
 function read_level(string $kind = 'read'): int
 {
+    if ($kind === 'wp') return max(1, min(5, (int)(setting('wp_level') ?: 3)));   // word problems: mặc định đúng mức lớp 4
     return max(1, min(5, (int)(setting($kind === 'listen' ? 'listen_level' : 'read_level') ?: 1)));
 }
 
@@ -2513,7 +2520,7 @@ Các ý chính cần có (đánh số từ 1):
 {$points}
 Bé kể: "{$text}"
 Đánh giá bé đã HIỂU bài chưa: đếm số ý chính bé nêu đúng (diễn đạt khác vẫn tính), và bé có nói sai nội dung không.
-Viết nhận xét bằng TIẾNG ANH thật đơn giản (trình độ A1, câu ngắn), kèm bản tiếng Việt.
+Viết nhận xét bằng TIẾNG ANH thật đơn giản (trình độ A1, câu ngắn), kèm bản tiếng Việt (tiếng Việt gọi bé là "bạn", xưng "Mây", không dùng "con").
 Trả về JSON: {"hit":[SỐ THỨ TỰ (1, 2, 3…) của các ý chính bé nêu đúng],"wrong":"(English) what the child got wrong, empty if nothing","wrong_vi":"(tiếng Việt)","praise":"(English) one specific praise","praise_vi":"(tiếng Việt)","missing":"(English) a short hint about the missing idea, empty if complete","missing_vi":"(tiếng Việt)"}
 TXT;
 }
@@ -2683,4 +2690,161 @@ function day_plan_keys(string $day): array
     $keys = array_column(day_plan($day)['items'], 'key');
     $depth--;
     return $memo[$day] = $keys;
+}
+
+/* ---------------- Word problems (Maths Cambridge, tiếng Anh) ---------------- */
+// Mỗi buổi 2 bài toán có lời văn đúng mức lớp 4, bám Unit Maths đang học. Mỗi bài đi theo các bước giải:
+// đề hỏi gì (Q1) → dùng số nào, phép tính gì (Q2) → bé nói bước đầu tiên → bé tự gõ đáp số → lời giải từng bước.
+const WP_LEVELS = [
+    1 => 'one-step problems, numbers up to 1,000, +, −, × by 1-digit',
+    2 => 'one-step problems, numbers up to 10,000 (Stage 4 easy)',
+    3 => 'two-step problems at Cambridge Primary Stage 4 standard (numbers up to 10,000; ×, ÷ facts to 10×10; simple measures, money, time)',
+    4 => 'two-step problems with rounding/estimating, remainders or unit conversion (Stage 4 hard)',
+    5 => 'two- or three-step problems, Stage 4/5 challenge',
+];
+
+// Điểm một bài: Q1 đúng ngay + Q2 đúng ngay + đáp số đúng ngay lần đầu + nói đúng bước đầu tiên
+const WP_POINTS = 4;
+
+function wp_prompt(string $topic, int $level, string $context, int $count = 2): string
+{
+    $L = WP_LEVELS[$level];
+    $t = $topic !== '' ? $topic : 'the Cambridge Maths unit the class is studying now (see context)';
+    $ctx = $context !== '' ? "\n" . $context : '';
+    $names = STORY_NAMES;
+    return <<<TXT
+Write {$count} English maths WORD PROBLEMS for a 9-year-old Vietnamese child in Cambridge Primary Maths Stage 4 (Grade 4). She reads English fluently but often does not understand word problems.
+Maths topic: {$t}.{$ctx}
+Difficulty: {$L}. Use real-life contexts a child knows (school, shop, family, sport, food). Characters only from: {$names}. Each problem 2–4 short sentences of simple English and it MUST END with one clear question sentence ending with "?" (e.g. "How many stickers do they have altogether?"). Do not tell the child the calculation steps in the text (no "Then they add…") – she must work out what to do. The answer must be ONE number (with a unit if needed). Check every calculation carefully.
+For each problem give:
+- "text": the problem.
+- "q1": a multiple-choice question "What do we need to find?" with 3 options (only one correct), "explain" one very simple English sentence, "explain_vi" the same in Vietnamese.
+- "q2": a multiple-choice question about which numbers and operation(s) to use, e.g. "Which calculation do we need?" with 3 options written as calculations like "350 + 275" (only one correct; the wrong ones are common mistakes), "explain", "explain_vi".
+- "first_step": the first step of the solution in one short English sentence.
+- "answer": the final answer as a number (no units, no commas, e.g. 625 or 4.5), "unit": the unit word or "" (e.g. "kg", "children", "dong").
+- "wrong_answers": 2 common wrong final answers (numbers).
+- "solution": 2–4 short English steps showing the working; "solution_vi": the same steps in Vietnamese.
+Also "words": exactly 3 key maths words used in the problems (e.g. altogether, each, left, round, estimate) with "vi" (short Vietnamese meaning) and "ex" (a very simple example sentence).
+Return JSON only: {"title":"short title","words":[{"w":"...","vi":"...","ex":"..."}],"problems":[{"text":"...","q1":{"q":"What do we need to find?","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."},"q2":{"q":"...","options":["...","...","..."],"answer":1,"explain":"...","explain_vi":"..."},"first_step":"...","answer":0,"unit":"...","wrong_answers":[0,0],"solution":["..."],"solution_vi":["..."]}]}
+TXT;
+}
+
+// Lượt kiểm tra lại: giải độc lập từng bài, trả về đáp số để so với đáp số Mây đã ghi
+function wp_verify_prompt(array $problems): string
+{
+    $list = json_encode(array_map(fn($i, $p) => ['i' => $i, 'text' => $p['text']], array_keys($problems), $problems), JSON_UNESCAPED_UNICODE);
+    return <<<TXT
+You are a careful Grade 4 maths teacher. Solve each word problem yourself from scratch, step by step, and give only the final numeric answer.
+If a problem is ambiguous, has missing information, or has more than one reasonable answer, mark it "bad": true.
+Problems: {$list}
+Return JSON only: {"answers":[{"i":0,"answer":0,"bad":false}]}
+TXT;
+}
+
+function wp_num(mixed $v): ?float
+{
+    $s = trim(str_replace(["\u{00A0}", ' '], '', (string)$v));
+    if ($s === '') return null;
+    if (preg_match('/^-?\d{1,3}([.,]\d{3})+$/', $s)) $s = preg_replace('/[.,]/', '', $s);   // 10,000 / 10.000
+    $s = str_replace(',', '.', $s);
+    if (!preg_match('/^-?\d+(\.\d+)?/', $s, $m)) return null;
+    return (float)$m[0];
+}
+
+function wp_clean(array $d): ?array
+{
+    $mcq = function ($x) {
+        if (!is_array($x)) return null;
+        $opts = array_values(array_filter(array_map(fn($o) => clean($o, 160), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
+        $a = (int)($x['answer'] ?? -1);
+        if (clean($x['q'] ?? '', 200) === '' || count($opts) < 2 || $a < 0 || $a >= count($opts)) return null;
+        return ['q' => clean($x['q'], 200), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300), 'explain_vi' => clean($x['explain_vi'] ?? '', 300)];
+    };
+    $probs = [];
+    foreach (is_array($d['problems'] ?? null) ? array_slice($d['problems'], 0, 3) : [] as $p) {
+        $q1 = $mcq($p['q1'] ?? null); $q2 = $mcq($p['q2'] ?? null); $ans = wp_num($p['answer'] ?? '');
+        $text = clean($p['text'] ?? '', 600);
+        if (!$q1 || !$q2 || $ans === null || $text === '' || !str_ends_with(rtrim($text), '?')) continue;   // đề phải kết thúc bằng câu hỏi
+        $wrong = array_values(array_filter(array_map('wp_num', is_array($p['wrong_answers'] ?? null) ? $p['wrong_answers'] : []), fn($x) => $x !== null && abs($x - $ans) > 1e-9));
+        $probs[] = ['text' => $text, 'q1' => $q1, 'q2' => $q2, 'first_step' => clean($p['first_step'] ?? '', 200), 'answer' => $ans,
+                    'unit' => clean($p['unit'] ?? '', 30), 'wrong' => array_slice($wrong, 0, 2),
+                    'solution' => array_values(array_filter(array_map(fn($x) => clean($x, 200), is_array($p['solution'] ?? null) ? array_slice($p['solution'], 0, 5) : []))),
+                    'solution_vi' => array_values(array_filter(array_map(fn($x) => clean($x, 200), is_array($p['solution_vi'] ?? null) ? array_slice($p['solution_vi'], 0, 5) : [])))];
+    }
+    if (!$probs) return null;
+    $words = [];
+    foreach (is_array($d['words'] ?? null) ? array_slice($d['words'], 0, 3) : [] as $w) {
+        $x = ['w' => clean($w['w'] ?? '', 40), 'vi' => clean($w['vi'] ?? '', 120), 'ex' => clean($w['ex'] ?? '', 200)];
+        if ($x['w'] !== '') $words[] = $x;
+    }
+    return ['title' => clean($d['title'] ?? '', 120) ?: 'Word problems', 'words' => $words, 'problems' => $probs];
+}
+
+function wp_fmt(float $n): string
+{
+    return floor($n) == $n ? number_format($n, 0, '.', ',') : rtrim(rtrim(number_format($n, 2, '.', ','), '0'), '.');
+}
+
+// Phần gửi cho bé: chỉ mở bài tiếp theo khi bài trước xong; chỉ mở bước tiếp theo khi bước trước xong
+function wp_for_kid(array $r): array
+{
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: [];
+    $done = $r['score'] !== null;
+    $out = [];
+    foreach ($d['problems'] ?? [] as $i => $p) {
+        $s = $st['probs'][$i] ?? [];
+        $prevDone = $i === 0 || !empty($st['probs'][$i - 1]['ans']['solved']);
+        if (!$done && !$prevDone) break;
+        $mc = function ($q, $res) { $o = ['q' => $q['q'], 'options' => $q['options'], 'res' => $res];
+            if ($res && !empty($res['solved'])) $o += ['answer' => $q['answer'], 'explain' => $q['explain'], 'explain_vi' => $q['explain_vi']];
+            return $o; };
+        $x = ['text' => $p['text'], 'q1' => $mc($p['q1'], $s['q1'] ?? null)];
+        if (!empty($s['q1']['solved']) || $done) $x['q2'] = $mc($p['q2'], $s['q2'] ?? null);
+        if (!empty($s['q2']['solved']) || $done) $x['first'] = $s['first'] ?? null;
+        if (isset($s['first']) || $done) $x['ans'] = $s['ans'] ?? null;
+        if (!empty($s['ans']['solved']) || $done) $x += ['answer' => wp_fmt($p['answer']), 'unit' => $p['unit'], 'first_step' => $p['first_step'],
+                                                        'solution' => $p['solution'], 'solution_vi' => $p['solution_vi']];
+        $out[] = $x;
+    }
+    return ['id' => (int)$r['id'], 'level' => (int)$r['level'], 'title' => $d['title'] ?? '', 'words' => $d['words'] ?? [],
+            'problems' => $out, 'total_problems' => count($d['problems'] ?? []), 'score' => $done ? (int)$r['score'] : null,
+            'max' => count($d['problems'] ?? []) * WP_POINTS];
+}
+
+// Bé nói bước đầu tiên: Mây xem đã đúng hướng chưa (không chấm chính tả, tiếng Việt hay tiếng Anh đều được)
+function wp_first_prompt(array $p, string $text): string
+{
+    return <<<TXT
+A Grade 4 child (Vietnamese) is solving this English maths word problem and says the FIRST STEP in her own words (English or Vietnamese, maybe from speech-to-text, ignore spelling).
+Problem: "{$p['text']}"
+Expected first step: "{$p['first_step']}"
+Child: "{$text}"
+Is her first step correct (same idea, any wording)? "good" = correct, "partial" = right direction but unclear/incomplete, "no" = wrong or unrelated.
+Give feedback in very simple English (A1, one or two short sentences) and the same in Vietnamese (in Vietnamese call the child "bạn", call yourself "Mây"; never "con"). Do not give the final answer.
+Return JSON only: {"verdict":"good|partial|no","feedback":"...","feedback_vi":"..."}
+TXT;
+}
+
+// Mức word problems tự lên khi đạt ≥ 90% hai buổi liền, tự xuống khi ≤ 50%
+function wp_adjust_level(int $score, int $max): array
+{
+    $lv = read_level('wp');
+    $prev = q("SELECT score, data FROM readings WHERE kind = 'wp' AND score IS NOT NULL ORDER BY updated_at DESC, id DESC LIMIT 1 OFFSET 1")->fetch();
+    $prevMax = $prev ? count((json_decode((string)$prev['data'], true) ?: [])['problems'] ?? []) * WP_POINTS : 0;
+    $new = $lv;
+    if ($max > 0 && $score >= 0.9 * $max && $prev && $prevMax > 0 && (int)$prev['score'] >= 0.9 * $prevMax) $new = min(5, $lv + 1);
+    elseif ($max > 0 && $score <= 0.5 * $max) $new = max(1, $lv - 1);
+    if ($new !== $lv) set_setting('wp_level', (string)$new);
+    return ['from' => $lv, 'to' => $new];
+}
+
+// Tổng điểm tối đa của một bài đọc / nghe / word problems (cho Cổng ba mẹ)
+function reading_total(array $r): int
+{
+    $d = json_decode((string)$r['data'], true) ?: [];
+    if ($r['kind'] === 'wp') return count($d['problems'] ?? []) * WP_POINTS;
+    if ($r['kind'] === 'listen') return count($d['questions'] ?? []) + 1;
+    if (!empty($d['parts'])) return count(array_filter(array_column($d['parts'], 'q'))) + 1;
+    return count($d['questions'] ?? []) ?: 3;
 }

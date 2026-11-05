@@ -524,6 +524,7 @@ function render(){
   else if(state.view==="write") renderWrite();
   else if(state.view==="read") renderRead();
   else if(state.view==="listen") renderListen();
+  else if(state.view==="wp") renderWp();
   else if(state.view==="parent") renderParent();
 }
 function go(view){
@@ -534,6 +535,7 @@ function go(view){
   if(wrTimer){ clearInterval(wrTimer); wrTimer=null; }
   stopReadRec();
   if(rtRec){ try{rtRec.abort()}catch(e){} rtRec=null; }
+  if(typeof wpRec!=="undefined" && wpRec){ try{wpRec.abort()}catch(e){} wpRec=null; }
   stopVoice();
   if(view!=="parent"){ parentPin=""; state.devOk=false; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; state.ps=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
@@ -582,6 +584,7 @@ function renderSubject(){
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 10 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
       ${["tv","ceng"].includes(s.id) ? `<button class="mode" id="toWrite"><div class="big">✍️</div><h3>${s.id==="ceng"?"Writing":"Viết đoạn văn"}</h3><div class="muted">Lập dàn ý cùng Mây, viết vào vở 35 phút rồi chụp gửi Mây nhận xét</div></button>` : ""}
+      ${s.id==="cmath" ? `<button class="mode" id="toWp"><div class="big">🧮</div><h3>Word problems</h3><div class="muted">Toán có lời văn tiếng Anh: đề hỏi gì, chọn phép tính, nói bước đầu tiên, tự giải</div></button>` : ""}
       ${s.id==="ceng" && me.tts ? `<button class="mode" id="toListen"><div class="big">🎧</div><h3>Listening</h3><div class="muted">Nghe hội thoại, trả lời 4 câu, nghe và chép 1 câu</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toRead"><div class="big">📖</div><h3>Reading</h3><div class="muted">Đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
@@ -602,6 +605,7 @@ function renderSubject(){
   const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
   const trd=document.getElementById("toRead"); if(trd) trd.onclick=()=>openRead();
   const tli=document.getElementById("toListen"); if(tli) tli.onclick=()=>openListen();
+  const twp=document.getElementById("toWp"); if(twp) twp.onclick=()=>openWp();
   app.querySelectorAll("[data-ww]").forEach(b=>b.onclick=()=>{ const w=me.weekWords[+b.dataset.ww]; speak(w.w+". "+(w.ex||""),"en-only",.8); });
 }
 
@@ -1270,6 +1274,109 @@ function renderRead(){
   on("rdHome", ()=>{ go("home"); refreshState(); });
 }
 
+/* ---------- Word problems (Maths Cambridge) ---------- */
+// 2 bài toán có lời văn; mỗi bài: đề hỏi gì → số nào, phép tính gì → bé nói bước đầu tiên → bé tự gõ đáp số → lời giải.
+let wpRec = null;
+function openWp(isNew){
+  state.wp = {phase:"loading", err:"", first:{}, val:{}};
+  go("wp");
+  loadWp(!!isNew);
+}
+async function loadWp(isNew){
+  const W=state.wp;
+  try{
+    const d = await api("/api/wp_start", isNew?{new:1}:{});
+    if(state.wp!==W) return;
+    Object.assign(W, {r:d.wp, level:d.level, phase: d.wp.score!==null ? "done" : "work", wordsSeen: d.wp.problems.some(p=>p.q1.res)});
+  }catch(e){ W.phase="error"; W.err=copyFor(e&&e.code); }
+  if(state.view==="wp" && state.wp===W) render();
+}
+async function wpCall(path, body){
+  const W=state.wp; if(W.busy) return; W.busy=true; W.err=""; render();
+  try{
+    const d = await api(path, {id:W.r.id, ...body});
+    W.r=d.wp;
+    if(d.level!==undefined && d.wp.score!==null){ Object.assign(W, {level:d.level, change:d.level_change||0, vocab:d.vocab_added||0, phase:"done"}); }
+  }catch(e){ W.err = e&&e.code==="wp_number" ? "Please type a number, e.g. 625. · Gõ một con số nhé, ví dụ 625." : copyFor(e&&e.code); }
+  W.busy=false; if(state.view==="wp" && state.wp===W) render();
+}
+function wpMcq(i, step, q, done){
+  const res=q.res;
+  return `<div class="qcard" style="margin:10px 0 4px"><div class="q">${step==="q1"?"❓":"🔢"} ${esc(q.q)}</div><div class="opts">
+    ${q.options.map((o,j)=>{ let c=""; if(res&&res.solved){ if(j===q.answer) c=" right"; else if(res.last===j) c=" wrong"; } else if(res&&res.last===j) c=" wrong";
+      return `<button class="opt${c}" data-wp="${i}" data-step="${step}" data-o="${j}" ${(res&&res.solved)||done?"disabled":""}>${esc(o)}</button>`; }).join("")}</div>
+    ${res&&!res.solved?`<div class="notice" style="margin-top:8px">${VI("Not quite. Read the problem again slowly and try again 🔍","Chưa đúng. Đọc lại đề thật chậm rồi chọn lại nhé.")}</div>`:""}
+    ${res&&res.solved?`<p class="muted" style="margin:8px 0 0">${res.ok?(res.first?VI("🎉 Right first time!","Đúng ngay lần đầu!"):VI("👍 Correct!","Đúng rồi!")):VI("The right answer is green.","Đáp án đúng là ô màu xanh.")}${q.explain?` 💡 ${VI(esc(q.explain), esc(q.explain_vi||""))}`:""}</p>`:""}</div>`;
+}
+function renderWp(){
+  const W=state.wp;
+  const head = `<button class="back" id="back">‹ Home</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l1)">🧮</div><div><h2>Word problems</h2><div class="muted">${VI(`Maths in English${W.level?` · level ${W.level}/5`:""}`, "Toán có lời văn tiếng Anh")}</div></div>${viToggle()}</div>`;
+  const wireBack=()=>{ document.getElementById("back").onclick=()=>{ go("home"); refreshState(); }; wireViToggle(); };
+  if(W.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">${VI("Mây is writing your problems and checking every answer… ☁️","Mây đang soạn bài và tự giải lại để kiểm tra đáp án…")}</div>`; return wireBack(); }
+  if(W.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(W.err)}</div><button class="btn primary" id="wpRetry">Try again</button>`; wireBack(); document.getElementById("wpRetry").onclick=()=>openWp(); return; }
+  const r=W.r, done=W.phase==="done";
+  if(!done && !W.wordsSeen){
+    app.innerHTML = head + `<div class="card"><h3>${VI("Step 1: Learn 3 maths words","Bước 1: Học 3 từ khóa toán")}</h3>
+      <p class="muted" style="margin:0 0 8px">${VI("These words tell you which calculation to do. Tap to listen.","Những từ này cho biết phải làm phép tính gì. Bấm để nghe.")}</p>
+      <div class="vocab">${r.words.map((w,i)=>`<button data-w="${i}"><b lang="en" style="font-size:22px">🔊 ${esc(w.w)}</b><br>${esc(w.vi)}${w.ex?`<br><span class="muted" lang="en">${esc(w.ex)}</span>`:""}</button>`).join("")}</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="wpGo">I'm ready – let's solve 🧮</button></div></div>`;
+    wireBack();
+    app.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>{ const w=r.words[+b.dataset.w]; speak(w.w+". "+(w.ex||""),"en-only",.8); });
+    document.getElementById("wpGo").onclick=()=>{ W.wordsSeen=true; stopVoice(); render(); window.scrollTo(0,0); };
+    return;
+  }
+  const probs = r.problems.map((p,i)=>{
+    const f=p.first, a=p.ans;
+    const firstHtml = p.first===undefined ? "" : (f ? `<div class="fix" style="border-left-color:${f.verdict==="good"?"var(--mint)":f.verdict==="partial"?"var(--sun)":"var(--coral)"}">
+        <b>${VI("Your first step:","Bước đầu tiên của bạn:")}</b> “${esc(f.text)}”<br>${f.verdict==="good"?"🌟":f.verdict==="partial"?"👍":"💪"} ${VI(esc(f.fb), esc(f.fb_vi||""))}</div>`
+      : `<div class="card" style="margin:10px 0 4px;background:var(--surface-2)"><b>${VI("🗣️ Tell Mây your first step","Nói cho Mây bước đầu tiên")}</b>
+        <p class="muted" style="margin:4px 0 8px">${VI("What will you do first? Say or write it in your own words (English or Vietnamese).","Bạn sẽ làm gì đầu tiên? Nói hoặc viết bằng lời của bạn (tiếng Anh hay tiếng Việt đều được).")}</p>
+        <textarea class="field" id="wpFirst${i}" rows="2" placeholder="First, I… / Đầu tiên mình…">${esc(W.first[i]||"")}</textarea>
+        <div class="row">${SR?`<button class="btn" data-wpmic="${i}">${wpRec?"⏹️ Stop":"🎤 Speak (VI)"}</button>`:""}<button class="btn primary" data-wpfirst="${i}" ${W.busy?"disabled":""}>${W.busy?"Mây is reading…":"Send ✅"}</button></div></div>`);
+    const ansHtml = p.ans===undefined ? "" : `<div style="margin-top:10px"><b>${VI("✏️ Solve it and type the answer","Tự giải rồi gõ đáp số")}</b>
+        ${a&&a.solved ? `<p style="margin:6px 0">${a.ok?(a.first?VI("🎉 Correct first time!","Đúng ngay lần đầu!"):VI("👍 Correct!","Đúng rồi!")):VI("The answer is:","Đáp số là:")} <b>${esc(p.answer)} ${esc(p.unit||"")}</b>${a.ok?"":` <span class="muted">(${VI("you wrote","bạn gõ")} ${esc(a.last||"")})</span>`}</p>`
+          : `${a&&!a.solved?`<div class="notice" style="margin:6px 0">${VI(`Not quite (you wrote ${esc(a.last||"")}). Check your calculation and try once more 🔍`, "Chưa đúng. Kiểm tra lại phép tính rồi thử lần nữa nhé.")}</div>`:""}
+            <div class="row" style="align-items:center"><input class="field" id="wpVal${i}" inputmode="decimal" autocomplete="off" placeholder="e.g. 625" style="max-width:180px;margin:0" value="${esc(W.val[i]||"")}"><button class="btn primary" data-wpans="${i}" ${W.busy?"disabled":""}>Check ✅</button></div>`}</div>`;
+    const solHtml = !p.solution ? "" : `<div class="card" style="margin:10px 0 0;background:var(--surface-2)"><b>${VI("📝 How to solve it","Cách giải")}</b>
+        <ol style="margin:6px 0 0;padding-left:22px">${p.solution.map((x,k)=>`<li>${VI(esc(x), esc((p.solution_vi||[])[k]||""))}</li>`).join("")}</ol></div>`;
+    return `<div class="card" style="margin-top:12px"><div class="muted" style="font-size:14px">${VI(`Problem ${i+1}/${r.total_problems}`,"")} <button class="btn" data-wpl="${i}" style="padding:2px 10px;margin-left:6px">🔊</button></div>
+      <div class="passage" lang="en">${markWords(p.text, r.words)}</div>
+      ${wpMcq(i,"q1",p.q1,done)}${p.q2?wpMcq(i,"q2",p.q2,done):""}${firstHtml}${ansHtml}${solHtml}</div>`;
+  }).join("");
+  const last = r.problems[r.problems.length-1];
+  const locked = !done && r.problems.length<r.total_problems ? `<p class="muted" style="margin:10px 4px">${VI("🔒 Finish this problem to open the next one.","Làm xong bài này để mở bài tiếp theo.")}</p>` : "";
+  const lvMsg = W.change>0 ? `<div class="notice">${VI(`🎉 Great work two times in a row! Next time: <b>level ${W.level}</b>.`, `Làm rất tốt 2 buổi liền! Lần sau lên mức ${W.level}.`)}</div>`
+              : W.change<0 ? `<div class="notice">${VI(`Next time the problems will be a little easier (level ${W.level}).`, `Lần sau bài dễ hơn một chút (mức ${W.level}).`)}</div>` : "";
+  app.innerHTML = head + `
+    ${done?`<div class="score"><div class="stars">${"⭐".repeat(Math.round(5*r.score/Math.max(1,r.max)))}${"☆".repeat(5-Math.round(5*r.score/Math.max(1,r.max)))}</div><p>${VI(`You got <b>${r.score}/${r.max}</b> points.`, `Bạn được ${r.score}/${r.max} điểm.`)}</p></div>${lvMsg}${W.vocab?`<p class="muted">${VI(`📒 ${W.vocab} maths words are in your Review Book.`,`Đã ghi ${W.vocab} từ toán vào Sổ ôn tập.`)}</p>`:""}`
+          :`<p class="muted" style="margin:6px 0 0">${VI("For each problem: find what the question asks → choose the calculation → say your first step → solve it.","Mỗi bài: tìm đề hỏi gì → chọn phép tính → nói bước đầu tiên → tự giải.")}</p>`}
+    ${probs}${locked}
+    ${W.err?`<div class="notice">${esc(W.err)}</div>`:""}
+    ${done?`<div class="row" style="margin-top:12px"><button class="btn" id="wpNew">🧮 More problems</button><button class="btn primary" id="wpHome">Finish 🏠</button></div>`:""}`;
+  wireBack();
+  app.querySelectorAll("[data-wp]").forEach(b=>b.onclick=()=>wpCall("/api/wp_check",{prob:+b.dataset.wp, step:b.dataset.step, pick:+b.dataset.o}));
+  app.querySelectorAll("[data-wpl]").forEach(b=>b.onclick=()=>speak(r.problems[+b.dataset.wpl].text,"en-only",.85));
+  app.querySelectorAll("textarea[id^=wpFirst]").forEach(t=>t.oninput=e=>{ W.first[+t.id.slice(7)]=e.target.value; });
+  app.querySelectorAll("input[id^=wpVal]").forEach(t=>{ t.oninput=e=>{ W.val[+t.id.slice(5)]=e.target.value; }; t.onkeydown=e=>{ if(e.key==="Enter") wpCall("/api/wp_answer",{prob:+t.id.slice(5), value:t.value}); }; });
+  app.querySelectorAll("[data-wpfirst]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.wpfirst; if(wpRec){ try{wpRec.stop()}catch(e){} }
+    const t=(W.first[i]||"").trim(); if(t.length<4){ W.err="Please write a little more. · Viết dài hơn một chút nhé."; return render(); } wpCall("/api/wp_first",{prob:i, text:t}); });
+  app.querySelectorAll("[data-wpans]").forEach(b=>b.onclick=()=>{ const i=+b.dataset.wpans; wpCall("/api/wp_answer",{prob:i, value:W.val[i]||""}); });
+  app.querySelectorAll("[data-wpmic]").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.wpmic;
+    if(wpRec){ try{wpRec.stop()}catch(e){} return; }
+    try{ wpRec = new SR(); wpRec.lang="vi-VN"; wpRec.interimResults=true; wpRec.continuous=!IS_ANDROID; }catch(e){ wpRec=null; return; }
+    const base=(W.first[i]||"").trim();
+    wpRec.onresult = ev=>{ W.first[i]=(base?base+" ":"")+joinSR(ev.results); const el=document.getElementById("wpFirst"+i); if(el) el.value=W.first[i]; };
+    wpRec.onend = ()=>{ wpRec=null; if(state.view==="wp") render(); };
+    try{ wpRec.start(); }catch(e){ wpRec=null; }
+    render();
+  });
+  const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("wpNew", ()=>openWp(true));
+  on("wpHome", ()=>{ go("home"); refreshState(); });
+}
+
 /* ---------- Nghe tiếng Anh (Listening) ---------- */
 // Bé nghe (không thấy chữ), đọc trước 4 câu hỏi, trả lời, rồi nghe và chép 1 câu. Nộp xong mới hiện lời thoại.
 function openListen(isNew){
@@ -1754,6 +1861,7 @@ function runAction(a){
   if(a.view==="speak") return openSpeak(a.type, a.topic||"");
   if(a.view==="read") return openRead();
   if(a.view==="listen") return openListen();
+  if(a.view==="wp") return openWp();
   state.subject = a.subject; state.topic = a.topic || "";
   if(a.view==="quiz") return startQuiz();
   if(a.view==="chat"){ state.turns=[]; state.convId=null;
@@ -2588,8 +2696,8 @@ function pResults(R){
   const LV = {great:"🌟", good:"👍", try_again:"💪"};
   return `<div class="phead"><div><h2>Kết quả học tập</h2><div class="sub">Đọc, nghe, viết, kỹ năng và phần bé hay sai</div></div></div>
     <div class="pgrid">
-      <div class="card"><h3>📖 Đọc & 🎧 nghe tiếng Anh</h3>
-        ${pager("rd", R.readings, 6, x=>`<div class="req"><span><b>${x.kind==="listen"?"🎧":"📖"} ${esc(x.title)}</b><br><span class="muted">${ddmm2(x.day)} · mức ${x.level}${x.pron_score!==null?` · phát âm ${x.pron_score}/100`:""}</span></span>
+      <div class="card"><h3>📖 Đọc · 🎧 Nghe · 🧮 Word problems</h3>
+        ${pager("rd", R.readings, 6, x=>`<div class="req"><span><b>${x.kind==="listen"?"🎧":x.kind==="wp"?"🧮":"📖"} ${esc(x.title)}</b><br><span class="muted">${ddmm2(x.day)} · mức ${x.level}${x.pron_score!==null?` · phát âm ${x.pron_score}/100`:""}</span></span>
           <span class="st ${x.score!==null&&x.score>=(x.total||3)?"approved":x.score!==null&&x.score>=(x.total||3)-1?"pending":""}">${x.score===null?"Chưa xong":x.score+"/"+(x.total||3)}</span></div>`, `<p class="muted" style="margin:0">Chưa có bài nào.</p>`)}</div>
       <div class="card"><h3>📒 Sổ ôn tập & phần hay sai</h3>
         <p style="margin:0 0 6px">Đang ôn <b>${R.review.pending}</b> câu · đến hạn hôm nay <b>${R.review.due}</b> · đã thuộc <b>${R.review.mastered}</b>.</p>
@@ -2643,6 +2751,11 @@ function pSettings(R){
           <label for="famousList">Danh sách người nổi tiếng (mỗi dòng một người)</label>
           <textarea class="field" id="famousList" rows="5">${esc(S.famous_people||"")}</textarea>
         </div>
+        <div class="fsec"><h4>🧮 Word problems (Maths)</h4>
+          <label><input type="checkbox" id="wpOn" ${S.wp_on?"checked":""}>Thứ 2 và thứ 6 có việc “Word problems 15 phút”</label>
+          <label for="wpLevel">Mức bài toán (Mây tự lên/xuống theo kết quả)</label>
+          <select class="field" id="wpLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${S.wp_level===n?"selected":""}>Mức ${n}${[""," – 1 bước, số đến 1.000"," – 1 bước, số đến 10.000"," – 2 bước, đúng mức lớp 4"," – 2 bước, có làm tròn/ước lượng"," – nhiều bước, nâng cao"][n]}</option>`).join("")}</select>
+        </div>
         <div class="fsec"><h4>🎧 Nghe tiếng Anh</h4>
           <label><input type="checkbox" id="listenOn" ${S.listen_on?"checked":""}>Thứ 2, 4, 6 có việc “Nghe tiếng Anh 10 phút”</label>
           <label for="listenLevel">Mức bài nghe</label>
@@ -2666,7 +2779,7 @@ function wireSettings(R){
     const msg=document.getElementById("setMsg"); msg.textContent="Đang lưu…";
     const v=id=>document.getElementById(id);
     const S={nick:v("nick").value.trim(), focus:v("focus").value.trim(), read_daily:v("readDaily").checked, read_level:+v("readLevel").value,
-             listen_on:v("listenOn").checked, listen_level:+v("listenLevel").value, famous_on:v("famousOn").checked, famous_people:v("famousList").value};
+             listen_on:v("listenOn").checked, listen_level:+v("listenLevel").value, wp_on:v("wpOn").checked, wp_level:+v("wpLevel").value, famous_on:v("famousOn").checked, famous_people:v("famousList").value};
     try{ await api("/api/parent/settings",S,true); me.nick=S.nick; LS.set("nick",S.nick); R.settings={...R.settings,...S}; msg.textContent="✅ Đã lưu"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };

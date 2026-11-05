@@ -37,6 +37,10 @@ $routes = [
     'read_start'          => 'r_read_start',
     'read_answer'         => 'r_read_answer',
     'read_check'          => 'r_read_check',
+    'wp_start'            => 'r_wp_start',
+    'wp_check'            => 'r_wp_check',
+    'wp_first'            => 'r_wp_first',
+    'wp_answer'           => 'r_wp_answer',
     'read_pron'           => 'r_read_pron',
     'listen_start'        => 'r_listen_start',
     'listen_answer'       => 'r_listen_answer',
@@ -778,6 +782,141 @@ function r_read_pron(array $b): never
     out(['pron' => $p]);
 }
 
+/* ---------------- Word problems (Maths Cambridge) ---------------- */
+
+function r_wp_start(array $b): never
+{
+    if (empty($b['new'])) {
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'wp' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
+        if ($r) out(['wp' => wp_for_kid($r), 'level' => read_level('wp')]);
+    }
+    $topic = clean((plan_week(approved_plan(today()), today()) ?: [])['cmath'] ?? '', 120);
+    $level = read_level('wp');
+    spend(5);
+    $recent = recent_quiz_questions('cmath', $topic);
+    foreach (q("SELECT data FROM readings WHERE kind = 'wp' ORDER BY id DESC LIMIT 6")->fetchAll() as $o)
+        foreach ((json_decode((string)$o['data'], true) ?: [])['problems'] ?? [] as $p) $recent[] = $p['text'];
+    $ctx = quiz_context('cmath') . quiz_avoid_text(array_slice($recent, 0, 30));
+    $good = []; $meta = null;
+    for ($try = 0; $try < 2 && count($good) < 2; $try++) {
+        $d = wp_clean(claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+            [['role' => 'user', 'content' => wp_prompt($topic, $level, $ctx, 3)]], 12000, 90, 'medium')) ?? []);
+        if (!$d) continue;
+        $meta = $meta ?? $d;
+        // Kiểm tra lại: tự giải độc lập, chỉ giữ bài có đáp số khớp và không mơ hồ
+        try {
+            $v = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+                [['role' => 'user', 'content' => wp_verify_prompt($d['problems'])]], 8000, 60, 'medium')) ?? [];
+            foreach (is_array($v['answers'] ?? null) ? $v['answers'] : [] as $a) {
+                $i = (int)($a['i'] ?? -1); $p = $d['problems'][$i] ?? null; $n = wp_num($a['answer'] ?? '');
+                if ($p && empty($a['bad']) && $n !== null && abs($n - $p['answer']) < 1e-6 && count($good) < 2) $good[] = $p;
+                elseif ($p) error_log('[hoc-cung-may] wp verify bỏ bài: ' . mb_substr($p['text'], 0, 80) . ' | ' . json_encode($a));
+            }
+        } catch (Throwable $e) { error_log('[hoc-cung-may] wp verify lỗi: ' . $e->getMessage()); }
+    }
+    if (!$good || !$meta) out(['error' => 'upstream'], 502);
+    $data = ['title' => $meta['title'], 'words' => $meta['words'], 'problems' => $good];
+    q("INSERT INTO readings (day, kind, subject, topic, level, data, created_at, updated_at) VALUES (?, 'wp', 'cmath', ?, ?, ?, ?, ?)",
+        [today(), $topic, $level, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
+    out(['wp' => wp_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId(), '_kind' => 'wp'])), 'level' => $level]);
+}
+
+function wp_state(array $b): array
+{
+    $r = reading_or_fail(['id' => $b['id'] ?? 0, '_kind' => 'wp']);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: ['probs' => []];
+    $i = (int)($b['prob'] ?? -1);
+    if ($r['score'] !== null || !isset($d['problems'][$i]) || ($i > 0 && empty($st['probs'][$i - 1]['ans']['solved']))) out(['error' => 'bad_request'], 400);
+    return [$r, $d, $st, $i];
+}
+
+function wp_save(array $r, array $st): void
+{
+    q('UPDATE readings SET answers = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), time(), $r['id']]);
+}
+
+// Q1 / Q2: đúng thì mở bước sau; sai lần 1 gợi ý đọc lại đề; sai lần 2 hiện đáp án rồi mở bước sau
+function r_wp_check(array $b): never
+{
+    [$r, $d, $st, $i] = wp_state($b);
+    $step = ($b['step'] ?? '') === 'q2' ? 'q2' : 'q1';
+    if ($step === 'q2' && empty($st['probs'][$i]['q1']['solved'])) out(['error' => 'bad_request'], 400);
+    $q = $d['problems'][$i][$step];
+    $res = $st['probs'][$i][$step] ?? ['tries' => 0, 'first' => null, 'solved' => false];
+    if (empty($res['solved'])) {
+        $ok = (int)($b['pick'] ?? -1) === (int)$q['answer'];
+        $res['tries']++; $res['last'] = (int)($b['pick'] ?? -1);
+        if ($res['first'] === null) $res['first'] = $ok;
+        if ($ok || $res['tries'] >= 2) { $res['solved'] = true; $res['ok'] = $ok; }
+        $st['probs'][$i][$step] = $res;
+        wp_save($r, $st);
+    }
+    out(['wp' => wp_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'wp']))]);
+}
+
+// Bé nói bước đầu tiên (gõ hoặc nói) → Mây nhận xét; nói xong một lần thì mở ô nhập đáp số
+function r_wp_first(array $b): never
+{
+    [$r, $d, $st, $i] = wp_state($b);
+    if (empty($st['probs'][$i]['q2']['solved']) || isset($st['probs'][$i]['first'])) out(['error' => 'bad_request'], 400);
+    $text = clean($b['text'] ?? '', 600);
+    if (mb_strlen($text) < 4) out(['error' => 'retell_short'], 400);
+    spend(1);
+    $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => wp_first_prompt($d['problems'][$i], $text)]], 2500, 40, 'low')) ?? [];
+    $verdict = in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true) ? $j['verdict'] : 'partial';
+    $st['probs'][$i]['first'] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300), 'fb_vi' => clean($j['feedback_vi'] ?? '', 300)];
+    wp_save($r, $st);
+    out(['wp' => wp_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'wp']))]);
+}
+
+// Đáp số: bé tự gõ số. Sai lần 1 → gợi ý kiểm tra phép tính; sai lần 2 → hiện lời giải. Xong bài cuối thì chấm cả buổi.
+function r_wp_answer(array $b): never
+{
+    [$r, $d, $st, $i] = wp_state($b);
+    if (!isset($st['probs'][$i]['first'])) out(['error' => 'bad_request'], 400);
+    $p = $d['problems'][$i];
+    $res = $st['probs'][$i]['ans'] ?? ['tries' => 0, 'first' => null, 'solved' => false];
+    if (empty($res['solved'])) {
+        $n = wp_num($b['value'] ?? '');
+        if ($n === null) out(['error' => 'wp_number'], 400);
+        $ok = abs($n - $p['answer']) < 1e-6;
+        $res['tries']++; $res['last'] = clean($b['value'] ?? '', 30);
+        if ($res['first'] === null) $res['first'] = $ok;
+        if ($ok || $res['tries'] >= 2) { $res['solved'] = true; $res['ok'] = $ok; }
+        $st['probs'][$i]['ans'] = $res;
+        // Sai cả 2 lần: bài này vào Sổ ôn tập (dạng trắc nghiệm đáp số) để làm lại sau 1 → 3 → 7 ngày
+        if ($res['solved'] && !$ok) {
+            $opts = array_map('wp_fmt', array_merge([$p['answer']], $p['wrong']));
+            if (count($opts) >= 2) {
+                $opts = array_map(fn($x) => trim($x . ' ' . $p['unit']), $opts); $right = $opts[0]; shuffle($opts);
+                q('INSERT INTO mistakes (subject, topic, q, options, answer, `explain`, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    ['cmath', mb_substr('Word problem: ' . ($d['title'] ?? ''), 0, 200), $p['text'] . "\nWhat is the answer?", json_encode($opts, JSON_UNESCAPED_UNICODE),
+                     array_search($right, $opts, true), implode(' ', $p['solution']), 'First step: ' . $p['first_step'], strtotime('tomorrow'), time()]);
+            }
+        }
+        wp_save($r, $st);
+    }
+    // Xong hết các bài: tính điểm cả buổi
+    $all = true; $score = 0;
+    foreach ($d['problems'] as $k => $_) {
+        $s = $st['probs'][$k] ?? [];
+        if (empty($s['ans']['solved'])) { $all = false; break; }
+        $score += (!empty($s['q1']['first']) ? 1 : 0) + (!empty($s['q2']['first']) ? 1 : 0) + (!empty($s['ans']['first']) ? 1 : 0) + (($s['first']['verdict'] ?? '') === 'good' ? 1 : 0);
+    }
+    $extra = [];
+    if ($all && $r['score'] === null) {
+        $max = count($d['problems']) * WP_POINTS;
+        q('UPDATE readings SET score = ?, updated_at = ? WHERE id = ?', [$score, time(), $r['id']]);
+        $lv = wp_adjust_level($score, $max);
+        $vocab = words_to_review($d['words'] ?? [], 'Maths – ' . ($d['title'] ?? ''));
+        log_activity('cmath', mb_substr('Word problems: ' . ($d['title'] ?? ''), 0, 200), 'wordprob', $score, $max);
+        $extra = ['level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab, 'stars' => stars(), 'awards' => $GLOBALS['AWARDS']];
+    }
+    out(['wp' => wp_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'wp']))] + $extra);
+}
+
 /* ---------------- Nghe tiếng Anh (Listening) ---------------- */
 
 function r_listen_start(array $b): never
@@ -1476,7 +1615,7 @@ function r_parent_report(array $b): never
 
     out([
         'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen'),
-                       'famous_on' => setting('famous_on', '1') !== '0', 'famous_people' => implode("\n", famous_list())],
+                       'famous_on' => setting('famous_on', '1') !== '0', 'wp_on' => setting('wp_on', '1') !== '0', 'wp_level' => read_level('wp'), 'famous_people' => implode("\n", famous_list())],
         'stars' => stars(),
         'days' => $days,
         'subjects' => $subjects,
@@ -1490,7 +1629,7 @@ function r_parent_report(array $b): never
         'writings' => array_map(fn($r) => ['subject' => $r['subject'], 'prompt' => $r['prompt'], 'submits' => (int)$r['submits'], 'created_at' => (int)$r['created_at'],
             'first' => json_decode((string)$r['first_result'], true) ?: null, 'last' => json_decode((string)$r['result'], true) ?: null],
             q('SELECT subject, prompt, submits, first_result, result, created_at FROM writings WHERE submits > 0 ORDER BY id DESC LIMIT 8')->fetchAll()),
-        'readings' => array_map(fn($r) => ['day' => $r['day'], 'kind' => $r['kind'], 'total' => $r['kind'] === 'listen' ? count((json_decode((string)$r['data'], true) ?: [])['questions'] ?? []) + 1 : 3, 'level' => (int)$r['level'], 'score' => $r['score'] !== null ? (int)$r['score'] : null,
+        'readings' => array_map(fn($r) => ['day' => $r['day'], 'kind' => $r['kind'], 'total' => reading_total($r), 'level' => (int)$r['level'], 'score' => $r['score'] !== null ? (int)$r['score'] : null,
             'pron_score' => $r['pron_score'] !== null ? (int)$r['pron_score'] : null, 'title' => (json_decode((string)$r['data'], true) ?: [])['title'] ?? ''],
             q('SELECT day, kind, level, score, pron_score, data FROM readings ORDER BY id DESC LIMIT 12')->fetchAll()),
         'speaking' => $speaking,
@@ -1641,6 +1780,8 @@ function r_parent_settings(array $b): never
     if (isset($b['read_level'])) set_setting('read_level', (string)max(1, min(5, (int)$b['read_level'])));
     if (isset($b['listen_on'])) set_setting('listen_on', $b['listen_on'] ? '1' : '0');
     if (isset($b['famous_on'])) set_setting('famous_on', $b['famous_on'] ? '1' : '0');
+    if (isset($b['wp_on'])) set_setting('wp_on', $b['wp_on'] ? '1' : '0');
+    if (isset($b['wp_level'])) set_setting('wp_level', (string)max(1, min(5, (int)$b['wp_level'])));
     if (isset($b['famous_people'])) set_setting('famous_people', implode("\n", array_slice(array_values(array_filter(array_map(fn($x) => clean($x, 80), preg_split('/\R/u', (string)$b['famous_people'])))), 0, 60)));
     if (isset($b['listen_level'])) set_setting('listen_level', (string)max(1, min(5, (int)$b['listen_level'])));
     out(['ok' => true]);
