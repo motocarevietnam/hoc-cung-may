@@ -227,6 +227,18 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .today{background:var(--surface);border:2.5px solid var(--ink);border-radius:20px;padding:14px 16px;margin:0 0 18px;box-shadow:4px 4px 0 var(--ink)}
 .today .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .today .head h3{font-size:24px}
+.fdots{display:flex;gap:6px;margin:6px 0 10px;flex-wrap:wrap}
+.fdot{width:22px;height:8px;border-radius:999px;background:var(--line)}
+.fdot.ok{background:var(--mint)}
+.fdot.cur{background:var(--ink)}
+.focus{text-align:center;background:var(--surface-2);border:2px solid var(--line);border-radius:16px;padding:16px 14px 12px}
+.focus .fnum{font-size:14px;color:var(--ink-soft);font-weight:600}
+.focus .fic{font-size:52px;line-height:1.2;margin:4px 0}
+.focus .ftt{font-family:var(--display);font-weight:800;font-size:22px;line-height:1.25;margin-bottom:2px}
+.focus .fgo{display:inline-block;width:auto;margin:12px auto 4px;font-size:20px;padding:12px 28px;justify-content:center}
+.focus .frow{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:4px}
+.focus .flink{background:none;border:0;color:var(--ink-soft);font-size:15px;text-decoration:underline;padding:4px}
+.focus.done .ftt{color:var(--mint)}
 .task{background:var(--surface-2);border:2px solid var(--line);border-radius:14px;margin:8px 0}
 .task .tmain{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:0;padding:10px 12px;font-size:16px}
 .task .rs{display:block;font-size:13px;color:var(--ink-soft);margin-top:2px}
@@ -1826,20 +1838,45 @@ function taskList(day, clickable){
       ${st!=="needs_help"?`<button data-op="help" data-k="${esc(it.key)}">🙋 Cần ba mẹ giúp</button>`:""}</div>` : ""}
     </div>`; }).join("");
 }
+// Thẻ "Hôm nay" của bé: mỗi lúc chỉ hiện MỘT việc (đỡ ngợp). Xong việc này thì tự hiện việc tiếp theo;
+// bé có thể bấm "Đổi việc khác" để chọn việc khác chưa làm. Danh sách đầy đủ vẫn có ở 📅 Lịch học.
+function focusIndex(day){
+  const open = day.items.map((it,i)=>i).filter(i=>!day.items[i].done);
+  if(!open.length) return -1;
+  const f = state.focusIdx;
+  return (f!==undefined && open.includes(f)) ? f : open[0];
+}
 function todayCard(day){
-  const done = day.items.filter(x=>x.done).length;
-  // Thẻ của bé: gọn, chỉ tên + danh sách việc. Ghi chú lịch học (TKB, kế hoạch tuần) Mây vẫn biết khi trò chuyện;
-  // chỉ giữ một dòng ngắn đếm ngược khi sắp kiểm tra.
-  const exam = day.notes.find(n=>/^(Còn \d+ ngày tới|Hôm nay kiểm tra)/.test(n));
+  const n = day.items.length, done = day.items.filter(x=>x.done).length;
+  const exam = day.notes.find(x=>/^(Còn \d+ ngày tới|Hôm nay kiểm tra)/.test(x));
+  const i = focusIndex(day), it = i>=0 ? day.items[i] : null;
+  const st = it ? (it.status||"planned") : "";
+  const dots = day.items.map((x,k)=>`<span class="fdot ${x.done?"ok":k===i?"cur":""}" title="${esc(x.title)}"></span>`).join("");
+  const left = day.items.filter(x=>!x.done).length;
   return `<div class="today">
-    <div class="head"><h3>Hôm nay của ${esc(nick())}</h3></div>
+    <div class="head"><h3>Hôm nay của ${esc(nick())}</h3><span class="muted" style="margin-left:auto;font-size:14px">${done}/${n} việc</span></div>
     ${exam ? `<div class="pnote">📅 ${esc(exam.split(". ")[0])}</div>` : ""}
-    ${taskList(day, true)}
-    ${done===day.items.length && day.items.length ? `<div class="pnote">🎉 Xong hết việc hôm nay rồi! Giỏi quá.</div>` : ""}
+    ${n ? `<div class="fdots" aria-label="Đã xong ${done} trên ${n} việc">${dots}</div>` : ""}
+    ${it ? `<div class="focus ${st}">
+        <div class="fnum">${done===0?"Việc đầu tiên":"Việc tiếp theo"}${st==="paused"?" · đang tạm dừng":st==="started"?" · đang làm":st==="needs_help"?" · 🙋 đã nhờ ba mẹ":""}</div>
+        <div class="fic">${it.icon}</div>
+        <div class="ftt">${esc(it.title.replace(/^\S+\s/, m=>/^\p{Extended_Pictographic}/u.test(m)?"":m))}</div>
+        <div class="muted">khoảng ${it.minutes} phút</div>
+        <button class="btn primary tmain fgo" data-i="${i}">${st==="started"||st==="paused"?"Làm tiếp ▶":"Bắt đầu ▶"}</button>
+        <div class="frow">
+          ${left>1?`<button class="flink" id="focusSkip">↻ Đổi việc khác</button>`:""}
+          ${st!=="needs_help"?`<span class="tops" style="padding:0;display:inline"><button class="flink" data-op="help" data-k="${esc(it.key)}">🙋 Cần ba mẹ giúp</button></span>`:""}
+        </div>
+      </div>`
+      : (n ? `<div class="focus done"><div class="fic">🎉</div><div class="ftt">Xong hết việc hôm nay rồi!</div><div class="muted">Giỏi quá ${esc(nick())} ơi. Nghỉ ngơi thôi nào 🌙</div></div>` : "")}
   </div>`;
 }
 function wireTasks(day){
   if(!day) return;
+  // Đổi việc khác: sang việc chưa làm kế tiếp (vòng lại từ đầu)
+  const sk=document.getElementById("focusSkip");
+  if(sk) sk.onclick=()=>{ const open=day.items.map((x,i)=>i).filter(i=>!day.items[i].done); const cur=focusIndex(day);
+    state.focusIdx = open[(open.indexOf(cur)+1)%open.length]; render(); };
   // Bé tự chọn việc nào làm trước; bấm vào là "bắt đầu" (được sao tự bắt đầu, mỗi ngày một lần)
   app.querySelectorAll(".tmain[data-i]").forEach(b=>b.onclick=async()=>{
     const it = day.items[+b.dataset.i];
