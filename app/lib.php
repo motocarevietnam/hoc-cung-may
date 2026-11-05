@@ -2416,7 +2416,8 @@ Then make:
 - For EACH of the 3 parts: "q" = one multiple-choice comprehension question in simple English about THAT part (who/what/where/why; for part 3 prefer "why" or the main result), 3 options, only one correct, "explain" = one very simple English sentence quoting the sentence in that part that gives the answer, "explain_vi" = the same in Vietnamese.
 - "retell_points": exactly 3 short key ideas of the whole text in very simple English that a good retelling should mention; "retell_points_vi": the same 3 ideas in Vietnamese.
 - "read_aloud": copy exactly ONE sentence (6–14 words) from the passage with useful sounds (th, final consonants, s/sh, r/l).
-Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."}},{"text":"...","q":{...}},{"text":"...","q":{...}}],"retell_points":["...","...","..."],"retell_points_vi":["...","...","..."],"read_aloud":"..."}
+- For EACH part: "img" = 2–4 simple English words to search a real PHOTO that illustrates that part (concrete things, animals, places or objects, e.g. "ice cubes melting", "old science laboratory"; no people's names, nothing scary).
+Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."}},{"text":"...","q":{...},"img":"..."},{"text":"...","q":{...},"img":"..."}],"retell_points":["...","...","..."],"retell_points_vi":["...","...","..."],"read_aloud":"..."}
 TXT;
 }
 
@@ -2436,7 +2437,7 @@ function read_clean_parts(array $d): ?array
             if (clean($x['q'] ?? '', 300) !== '' && count($opts) >= 2 && $a >= 0 && $a < count($opts))
                 $q = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300), 'explain_vi' => clean($x['explain_vi'] ?? '', 300)];
         }
-        $parts[] = ['text' => $t, 'q' => $q];
+        $parts[] = ['text' => $t, 'q' => $q, 'img' => clean($p['img'] ?? '', 60)];
     }
     if (count($parts) < 3) return null;
     $qs = array_values(array_filter(array_column($parts, 'q')));
@@ -2498,7 +2499,7 @@ function reading_for_kid(array $r): array
             $q = $p['q'] ? ['q' => $p['q']['q'], 'options' => $p['q']['options']] : null;
             $res = $st['parts'][$k] ?? null;
             if ($q && $res && !empty($res['solved'])) $q += ['answer' => $p['q']['answer'], 'explain' => $p['q']['explain'], 'explain_vi' => $p['q']['explain_vi'] ?? ''];
-            $parts[] = ['text' => $p['text'], 'q' => $q, 'res' => $res];
+            $parts[] = ['text' => $p['text'], 'q' => $q, 'res' => $res, 'image' => $p['image'] ?? null];
         }
         return $base + ['format' => 'parts', 'parts' => $parts, 'total_parts' => count($d['parts']), 'retell' => $st['retell'] ?? null,
                         'retell_points' => $done ? ($d['retell_points'] ?? []) : [], 'retell_points_vi' => $done ? ($d['retell_points_vi'] ?? []) : [], 'max' => count(array_filter(array_column($d['parts'], 'q'))) + 1];
@@ -2847,4 +2848,91 @@ function reading_total(array $r): int
     if ($r['kind'] === 'listen') return count($d['questions'] ?? []) + 1;
     if (!empty($d['parts'])) return count(array_filter(array_column($d['parts'], 'q'))) + 1;
     return count($d['questions'] ?? []) ?: 3;
+}
+
+/* ---------------- Hình minh hoạ cho bài đọc ---------------- */
+// Chỉ lấy ảnh được phép dùng lại: người nổi tiếng → ảnh trên Wikipedia; bài khác → ảnh Creative Commons từ Openverse
+// (đã bật lọc nội dung người lớn). Ảnh được tải về, thu nhỏ, lưu trên máy chủ của gia đình (máy bé không gọi ra ngoài).
+function img_http(string $url, int $timeout = 12): array
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => $timeout, CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 3,
+        CURLOPT_HTTPHEADER => ['User-Agent: HocCungMay/1.0 (family study app; images with attribution)']]);
+    $r = curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $ct = (string)curl_getinfo($ch, CURLINFO_CONTENT_TYPE); curl_close($ch);
+    return [$code, $r === false ? '' : (string)$r, $ct];
+}
+
+function img_dir(): string { return __DIR__ . '/cache/img'; }
+
+// Tải ảnh, thu nhỏ còn tối đa 720px, lưu JPEG; trả về mã ảnh (sha1) hoặc null
+function img_store(string $url): ?string
+{
+    [$code, $data, $ct] = img_http($url);
+    if ($code !== 200 || strlen($data) < 2000 || strlen($data) > 6 * 1024 * 1024 || !preg_match('#^image/(jpeg|png|webp)#', $ct)) return null;
+    $im = @imagecreatefromstring($data);
+    if (!$im) return null;
+    $w = imagesx($im); $h = imagesy($im);
+    if ($w < 120 || $h < 90) { imagedestroy($im); return null; }
+    $k = min(1, 720 / max($w, $h));
+    $out = imagecreatetruecolor(max(1, (int)($w * $k)), max(1, (int)($h * $k)));
+    imagefill($out, 0, 0, imagecolorallocate($out, 255, 255, 255));
+    imagecopyresampled($out, $im, 0, 0, 0, 0, imagesx($out), imagesy($out), $w, $h);
+    if (!is_dir(img_dir())) @mkdir(img_dir(), 0750, true);
+    $id = sha1($url);
+    $ok = imagejpeg($out, img_dir() . "/{$id}.jpg", 82);
+    imagedestroy($im); imagedestroy($out);
+    return $ok ? $id : null;
+}
+
+// Ảnh chân dung người nổi tiếng từ Wikipedia (tiếng Anh)
+function img_for_person(string $name): ?array
+{
+    $title = rawurlencode(str_replace(' ', '_', trim($name)));
+    [$code, $r] = img_http("https://en.wikipedia.org/api/rest_v1/page/summary/{$title}", 8);
+    $d = $code === 200 ? (json_decode($r, true) ?: []) : [];
+    $src = $d['thumbnail']['source'] ?? '';
+    if ($src === '' || ($d['type'] ?? '') === 'disambiguation') return null;
+    $id = img_store($src);
+    return $id ? ['id' => $id, 'credit' => 'Photo: Wikipedia', 'link' => (string)($d['content_urls']['desktop']['page'] ?? '')] : null;
+}
+
+// Ảnh Creative Commons từ Openverse: chọn ảnh có tiêu đề/thẻ khớp nhiều từ khoá nhất
+function img_for_query(string $q): ?array
+{
+    $q = trim(preg_replace('/[^a-z0-9 ]+/i', ' ', $q) ?? '');
+    if ($q === '') return null;
+    [$code, $r] = img_http('https://api.openverse.org/v1/images/?' . http_build_query(['q' => $q, 'page_size' => 12, 'mature' => 'false', 'extension' => 'jpg,png']), 10);
+    $res = $code === 200 ? ((json_decode($r, true) ?: [])['results'] ?? []) : [];
+    $words = array_filter(explode(' ', strtolower($q)), fn($w) => strlen($w) > 2);
+    usort($res, function ($a, $b) use ($words) {
+        $sc = function ($x) use ($words) { $t = strtolower(($x['title'] ?? '') . ' ' . implode(' ', array_column($x['tags'] ?? [], 'name')));
+            return array_sum(array_map(fn($w) => str_contains($t, $w) ? 1 : 0, $words)); };
+        return $sc($b) <=> $sc($a);
+    });
+    foreach (array_slice($res, 0, 4) as $x) {
+        if (empty($x['thumbnail'])) continue;
+        $id = img_store($x['thumbnail']);
+        if ($id) {
+            $lic = strtoupper((string)($x['license'] ?? '')) . (($x['license_version'] ?? '') !== '' ? ' ' . $x['license_version'] : '');
+            return ['id' => $id, 'credit' => 'Photo: ' . clean($x['creator'] ?? 'unknown', 60) . ' · ' . ($lic === 'CC0 1.0' || $lic === 'PDM 1.0' ? $lic : "CC {$lic}"),
+                    'link' => (string)($x['foreign_landing_url'] ?? '')];
+        }
+    }
+    return null;
+}
+
+// Gắn ảnh cho từng đoạn của bài đọc (lỗi mạng thì bỏ qua, bài vẫn dùng được)
+function read_attach_images(array $data, string $topic): array
+{
+    $famous = str_starts_with($topic, 'Famous: ') ? trim(preg_replace('/\s*\(.*$/u', '', mb_substr($topic, 8)) ?? '') : '';
+    foreach ($data['parts'] as $k => &$p) {
+        try {
+            $img = null;
+            if ($k === 0 && $famous !== '') $img = img_for_person($famous);
+            if (!$img && ($p['img'] ?? '') !== '') $img = img_for_query($p['img']);
+            if ($img) $p['image'] = $img;
+        } catch (Throwable $e) { error_log('[hoc-cung-may] ảnh minh hoạ lỗi: ' . $e->getMessage()); }
+    }
+    unset($p);
+    return $data;
 }

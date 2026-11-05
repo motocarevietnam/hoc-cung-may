@@ -281,6 +281,10 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .pron{margin-top:12px;padding-top:10px;border-top:2px dashed var(--line)}
 .wd.pw{border:0;cursor:pointer;font:inherit;font-size:19px}
 .passage{font-size:20px;line-height:1.75;white-space:pre-line}
+.rimg{margin:8px 0 10px;text-align:center}
+.rimg img{max-width:100%;max-height:260px;border-radius:14px;border:2px solid var(--line);object-fit:cover}
+.rimg figcaption{font-size:11px;color:var(--ink-soft);margin-top:2px}
+.rimg figcaption a{color:inherit}
 .vi{display:none;font-size:14px;color:var(--ink-soft);font-style:italic;margin-top:2px}
 body.show-vi .vi{display:block}
 span.vi{font-weight:400}
@@ -1216,6 +1220,7 @@ function renderRead(){
           ${res&&!res.solved?`<div class="notice" style="margin-top:8px">${VI(`Not quite. Read <b>Part ${k+1}</b> again slowly and find the answer 🔍`, `Chưa đúng. Đọc lại đoạn ${k+1} thật chậm, tìm câu trả lời rồi chọn lại nhé.`)}</div>`:""}
           ${res&&res.solved?`<p class="muted" style="margin:8px 0 0">${res.ok?(res.first?VI("🎉 Right first time!","Đúng ngay lần đầu!"):VI("👍 Correct!","Đúng rồi!")):VI("The right answer is green.","Đáp án đúng là ô màu xanh.")}</p>${q.explain?`<p class="muted" style="margin:4px 0 0">💡 ${q.explain_vi?VI(esc(q.explain), esc(q.explain_vi)):`<span class="vi">${esc(q.explain)}</span>`}</p>`:""}`:""}</div>`;
         return `<div class="card" style="margin-top:12px"><div class="muted" style="font-size:14px">Part ${k+1}/${r.total_parts} <button class="btn" data-lp="${k}" style="padding:2px 10px;margin-left:6px">🔊</button></div>
+          ${p.image?`<figure class="rimg"><img src="/api/img?id=${esc(p.image.id)}" alt="" loading="lazy" onerror="this.parentNode.remove()"><figcaption>${p.image.link?`<a href="${esc(p.image.link)}" target="_blank" rel="noopener">${esc(p.image.credit)}</a>`:esc(p.image.credit)}</figcaption></figure>`:""}
           <div class="passage" lang="en">${markWords(p.text, r.words)}</div>${qHtml}</div>`;
       }).join("");
       const allOpen = r.parts.length>=r.total_parts && r.parts.every(p=>!p.q || (p.res&&p.res.solved));
