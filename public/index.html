@@ -231,7 +231,12 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .fdot{width:22px;height:8px;border-radius:999px;background:var(--line)}
 .fdot.ok{background:var(--mint)}
 .fdot.cur{background:var(--ink)}
-.focus{text-align:center;background:var(--surface-2);border:2px solid var(--line);border-radius:16px;padding:16px 14px 12px}
+.focus{position:relative;text-align:center;background:var(--surface-2);border:2px solid var(--line);border-radius:16px;padding:16px 34px 12px;touch-action:pan-y}
+.focus .farr{position:absolute;top:50%;transform:translateY(-50%);background:none;border:0;font-size:34px;line-height:1;color:var(--ink-soft);padding:8px 6px}
+.focus .farr.l{left:2px}.focus .farr.r{right:2px}
+.focus.in-r{animation:fin-r .25s ease}.focus.in-l{animation:fin-l .25s ease}
+@keyframes fin-r{from{transform:translateX(40px);opacity:.3}to{transform:none;opacity:1}}
+@keyframes fin-l{from{transform:translateX(-40px);opacity:.3}to{transform:none;opacity:1}}
 .focus .fnum{font-size:14px;color:var(--ink-soft);font-weight:600}
 .focus .fic{font-size:52px;line-height:1.2;margin:4px 0}
 .focus .ftt{font-family:var(--display);font-weight:800;font-size:22px;line-height:1.25;margin-bottom:2px}
@@ -1857,14 +1862,14 @@ function todayCard(day){
     <div class="head"><h3>Hôm nay của ${esc(nick())}</h3><span class="muted" style="margin-left:auto;font-size:14px">${done}/${n} việc</span></div>
     ${exam ? `<div class="pnote">📅 ${esc(exam.split(". ")[0])}</div>` : ""}
     ${n ? `<div class="fdots" aria-label="Đã xong ${done} trên ${n} việc">${dots}</div>` : ""}
-    ${it ? `<div class="focus ${st}">
+    ${it ? `<div class="focus ${st}" id="focusCard">${left>1?`<button class="farr l" id="focusPrev" aria-label="Việc trước">‹</button><button class="farr r" id="focusNext" aria-label="Việc sau">›</button>`:""}
         <div class="fnum">${done===0?"Việc đầu tiên":"Việc tiếp theo"}${st==="paused"?" · đang tạm dừng":st==="started"?" · đang làm":st==="needs_help"?" · 🙋 đã nhờ ba mẹ":""}</div>
         <div class="fic">${it.icon}</div>
         <div class="ftt">${esc(it.title.replace(/^\S+\s/, m=>/^\p{Extended_Pictographic}/u.test(m)?"":m))}</div>
         <div class="muted">khoảng ${it.minutes} phút</div>
         <button class="btn primary tmain fgo" data-i="${i}">${st==="started"||st==="paused"?"Làm tiếp ▶":"Bắt đầu ▶"}</button>
         <div class="frow">
-          ${left>1?`<button class="flink" id="focusSkip">↻ Đổi việc khác</button>`:""}
+          ${left>1?`<span class="muted" style="font-size:14px;padding:4px">👈 Vuốt ngang để đổi việc 👉</span>`:""}
           ${st!=="needs_help"?`<span class="tops" style="padding:0;display:inline"><button class="flink" data-op="help" data-k="${esc(it.key)}">🙋 Cần ba mẹ giúp</button></span>`:""}
         </div>
       </div>`
@@ -1873,10 +1878,18 @@ function todayCard(day){
 }
 function wireTasks(day){
   if(!day) return;
-  // Đổi việc khác: sang việc chưa làm kế tiếp (vòng lại từ đầu)
-  const sk=document.getElementById("focusSkip");
-  if(sk) sk.onclick=()=>{ const open=day.items.map((x,i)=>i).filter(i=>!day.items[i].done); const cur=focusIndex(day);
-    state.focusIdx = open[(open.indexOf(cur)+1)%open.length]; render(); };
+  // Đổi việc: vuốt ngang thẻ (hoặc bấm ‹ ›) để sang việc chưa làm trước/sau (vòng lại)
+  const move = d => { const open=day.items.map((x,i)=>i).filter(i=>!day.items[i].done); if(open.length<2) return; const cur=focusIndex(day);
+    state.focusIdx = open[(open.indexOf(cur)+d+open.length)%open.length]; state.focusAnim = d>0 ? "in-r" : "in-l"; render(); };
+  const fp=document.getElementById("focusPrev"), fn=document.getElementById("focusNext"), fc=document.getElementById("focusCard");
+  if(fp) fp.onclick=()=>move(-1); if(fn) fn.onclick=()=>move(1);
+  if(fc){
+    if(state.focusAnim){ fc.classList.add(state.focusAnim); state.focusAnim=null; }
+    let x0=null, y0=null;
+    fc.addEventListener("touchstart", e=>{ x0=e.touches[0].clientX; y0=e.touches[0].clientY; }, {passive:true});
+    fc.addEventListener("touchend", e=>{ if(x0===null) return; const dx=e.changedTouches[0].clientX-x0, dy=e.changedTouches[0].clientY-y0; x0=null;
+      if(Math.abs(dx)>50 && Math.abs(dx)>1.5*Math.abs(dy)) move(dx<0 ? 1 : -1); }, {passive:true});
+  }
   // Bé tự chọn việc nào làm trước; bấm vào là "bắt đầu" (được sao tự bắt đầu, mỗi ngày một lần)
   app.querySelectorAll(".tmain[data-i]").forEach(b=>b.onclick=async()=>{
     const it = day.items[+b.dataset.i];
