@@ -880,9 +880,8 @@ function r_wp_first(array $b): never
     $text = clean($b['text'] ?? '', 600);
     if (mb_strlen($text) < 4) out(['error' => 'retell_short'], 400);
     spend(1);
-    $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => wp_first_prompt($d['problems'][$i], $text)]], 2500, 40, 'low')) ?? [];
-    $verdict = in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true) ? $j['verdict'] : 'partial';
+    $j = judge_json(wp_first_prompt($d['problems'][$i], $text));
+    $verdict = $j['verdict'];
     $st['probs'][$i]['first'] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300), 'fb_vi' => clean($j['feedback_vi'] ?? '', 300)];
     wp_save($r, $st);
     out(['wp' => wp_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'wp']))]);
@@ -937,6 +936,19 @@ function r_wp_answer(array $b): never
 }
 
 /* ---------------- Tiếng Việt: Luyện từ và câu ---------------- */
+
+// Gọi Haiku chấm / nhận xét; trả lời hỏng (không có verdict) thì thử lại 1 lần; vẫn hỏng → báo lỗi để bé gửi lại (không ghi kết quả rỗng)
+function judge_json(string $prompt): array
+{
+    for ($i = 0; $i < 2; $i++) {
+        try {
+            $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(), [['role' => 'user', 'content' => $prompt]], 2500, 40, 'low')) ?? [];
+            if (in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true)) return $j;
+        } catch (Throwable $e) { error_log('[hoc-cung-may] judge lỗi: ' . $e->getMessage()); }
+    }
+    out(['error' => 'upstream'], 502);
+}
+
 
 function r_tvw_start(array $b): never
 {
@@ -1003,9 +1015,8 @@ function r_tvw_join(array $b): never
     $text = clean($b['text'] ?? '', 400);
     if (mb_strlen($text) < 6) out(['error' => 'retell_short'], 400);
     spend(1);
-    $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => tvw_join_prompt($d['pairs'][$i], $text)]], 2500, 40, 'low')) ?? [];
-    $verdict = in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true) ? $j['verdict'] : 'partial';
+    $j = judge_json(tvw_join_prompt($d['pairs'][$i], $text));
+    $verdict = $j['verdict'];
     $st['joins'][$i] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300),
                         'better' => clean($j['better'] ?? '', 300) ?: $d['pairs'][$i]['example']];
     $extra = [];
@@ -1055,9 +1066,8 @@ function r_sci_answer(array $b): never
     $text = clean($b['text'] ?? '', 600);
     if (mb_strlen($text) < 8) out(['error' => 'retell_short'], 400);
     spend(1);
-    $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => sci_judge_prompt($d, $text)]], 2500, 40, 'low')) ?? [];
-    $verdict = in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true) ? $j['verdict'] : 'partial';
+    $j = judge_json(sci_judge_prompt($d, $text));
+    $verdict = $j['verdict'];
     $st['tries'][] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300), 'fb_vi' => clean($j['feedback_vi'] ?? '', 300)];
     $extra = [];
     if ($verdict === 'good' || count($st['tries']) >= 2) {
