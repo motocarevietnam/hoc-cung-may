@@ -421,7 +421,7 @@ async function refreshState(){
   try{
     const s = await api("/api/state");
     me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
-    me.pron = !!s.pron; me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; me.nowTopics = s.now_topics || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
+    me.pron = !!s.pron; me.weekWords = s.week_words || []; me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; me.nowTopics = s.now_topics || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
   if(state.view==="home") renderHome();
@@ -448,6 +448,7 @@ function copyFor(code){
     reward_unavailable: "Món quà này hiện không đổi được.",
     check_too_early: "Bạn hỏi Mây thêm vài câu rồi hẵng kiểm tra nhé.",
     explain_too_short: "Bạn giải thích dài hơn một chút nhé.",
+    retell_short: "Bạn kể dài hơn một chút nhé (2–3 câu).",
     explain_limit: "Bạn đã giải thích 3 lần rồi, giờ làm bài kiểm tra nhé.",
     already_decided: "Yêu cầu này ba mẹ đã xử lý rồi.",
     cancelled: ""
@@ -483,6 +484,7 @@ function go(view){
   if(wrRec){ try{wrRec.abort()}catch(e){} wrRec=null; }
   if(wrTimer){ clearInterval(wrTimer); wrTimer=null; }
   stopReadRec();
+  if(rtRec){ try{rtRec.abort()}catch(e){} rtRec=null; }
   stopVoice();
   if(view!=="parent"){ parentPin=""; state.devOk=false; state.report=null; state.transcript=null; state.hwDetail=null; state.parentPage=null; state.sched=null; state.pplan=null; state.rw=null; state.ps=null; } // rời Góc ba mẹ là khoá báo cáo
   state.view=view; render(); window.scrollTo(0,0);
@@ -524,6 +526,9 @@ function renderSubject(){
     <div class="chips">${s.topics.map(t=>`<button class="chip" aria-pressed="${state.topic===t}" data-t="${esc(t)}">${esc(t)}</button>`).join("")}</div>
     <input class="field" id="ownTopic" placeholder="Hoặc gõ tên bài của bạn…" value="${allT.includes(state.topic)?"":esc(state.topic)}">
     ${noSampleNotice()}
+    ${s.id==="ceng" && (me.weekWords||[]).length ? `<div class="card" style="margin-top:12px"><h3>📚 Từ của tuần</h3>
+      <p class="muted" style="margin:0 0 6px">Bấm vào từ để nghe. Các từ này sẽ gặp lại trong bài đọc, bài nghe và đố vui tuần này.</p>
+      <div class="chips">${me.weekWords.map((w,i)=>`<button class="chip" data-ww="${i}" title="${esc(w.ex||"")}"><b lang="en">${esc(w.w)}</b> · ${esc(w.vi)}</button>`).join("")}</div></div>` : ""}
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 10 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
@@ -533,14 +538,14 @@ function renderSubject(){
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
-  app.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{
+  app.querySelectorAll(".chip[data-t]").forEach(c=>c.onclick=()=>{
     state.topic = state.topic===c.dataset.t ? "" : c.dataset.t;
     document.getElementById("ownTopic").value="";
-    app.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed", x.dataset.t===state.topic));
+    app.querySelectorAll(".chip[data-t]").forEach(x=>x.setAttribute("aria-pressed", x.dataset.t===state.topic));
   });
   document.getElementById("ownTopic").oninput=e=>{
     state.topic=e.target.value.trim();
-    app.querySelectorAll(".chip").forEach(x=>x.setAttribute("aria-pressed","false"));
+    app.querySelectorAll(".chip[data-t]").forEach(x=>x.setAttribute("aria-pressed","false"));
   };
   document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; state.vidShown=null; state.pendingMsg=null; go("chat"); };
   document.getElementById("toQuiz").onclick=()=>startQuiz();
@@ -548,6 +553,7 @@ function renderSubject(){
   const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
   const trd=document.getElementById("toRead"); if(trd) trd.onclick=()=>openRead();
   const tli=document.getElementById("toListen"); if(tli) tli.onclick=()=>openListen();
+  app.querySelectorAll("[data-ww]").forEach(b=>b.onclick=()=>{ const w=me.weekWords[+b.dataset.ww]; speak(w.w+". "+(w.ex||""),"en-only",.8); });
 }
 
 /* ---------- chat ---------- */
@@ -1039,9 +1045,27 @@ async function loadRead(isNew){
   try{
     const d = await api("/api/read_start", isNew?{new:1}:{});
     if(state.rd!==R) return;
-    Object.assign(R, {r:d.reading, level:d.level, phase: d.reading.score!==null ? "done" : "read", sel: d.reading.answers || []});
+    Object.assign(R, {r:d.reading, level:d.level, phase: d.reading.score!==null ? "done" : "read", sel: (d.reading.format==="classic" && d.reading.answers) || []});
   }catch(e){ R.phase="error"; R.err=copyFor(e&&e.code); }
   if(state.view==="read" && state.rd===R) render();
+}
+let rtRec = null;
+async function readCheck(part, pick){
+  const R=state.rd; if(R.busy) return; R.busy=true; R.err="";
+  try{ const d = await api("/api/read_check",{id:R.r.id, part, pick}); R.r=d.reading; }
+  catch(e){ R.err=copyFor(e&&e.code); }
+  R.busy=false; if(state.view==="read" && state.rd===R) render();
+}
+async function submitRetell(){
+  const R=state.rd; if(rtRec){ try{rtRec.stop()}catch(e){} }
+  const text=(R.retell||"").trim();
+  if(text.length<8){ R.err="Bạn kể dài hơn một chút nhé (2–3 câu)."; return render(); }
+  R.busy=true; R.err=""; render();
+  try{
+    const d = await api("/api/read_answer",{id:R.r.id, retell:text});
+    Object.assign(R, {r:d.reading, level:d.level, change:d.level_change||0, vocab:d.vocab_added||0, phase:"done"});
+  }catch(e){ R.err=copyFor(e&&e.code); }
+  R.busy=false; if(state.view==="read" && state.rd===R){ render(); window.scrollTo(0,0); }
 }
 async function submitRead(){
   const R=state.rd; R.busy=true; render();
@@ -1086,14 +1110,57 @@ function renderRead(){
   if(R.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">Mây đang soạn bài đọc cho bạn… ☁️</div>`; return wireBack(); }
   if(R.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(R.err)}</div><button class="btn primary" id="rdRetry">Thử lại</button>`; wireBack(); document.getElementById("rdRetry").onclick=()=>openRead(); return; }
   const r=R.r, done=R.phase==="done";
-  const qs = r.questions.map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
+  const qs = (r.questions||[]).map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
       ${x.options.map((o,j)=>{ let c=""; if(done){ if(j===x.answer) c=" right"; else if(r.answers&&r.answers[i]===j) c=" wrong"; } else if(R.sel[i]===j) c=" chosen";
         return `<button class="opt${c}" data-q="${i}" data-o="${j}" ${done?"disabled":""}>${esc(o)}</button>`; }).join("")}
     </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${esc(x.explain)}</p>`:""}</div>`).join("");
   const lvMsg = R.change>0 ? `<div class="notice">🎉 Đúng hết 2 bài liền! Từ bài sau Mây cho bạn đọc <b>mức ${R.level}</b> nhé.</div>`
               : R.change<0 ? `<div class="notice">Bài sau Mây chọn bài dễ hơn một chút (mức ${R.level}) để bạn đọc thoải mái nhé.</div>` : "";
-  app.innerHTML = head + `
-    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.questions.length-r.score)}</div><p>Bạn trả lời đúng <b>${r.score}/${r.questions.length}</b> câu.</p></div>${lvMsg}${R.vocab?`<p class="muted">📒 Mây đã ghi ${R.vocab} từ mới vào Sổ ôn tập, ngày mai Mây hỏi lại nhé.</p>`:""}`:""}
+  const vocabCard = `<div class="card"><h3>3 từ khóa</h3><div class="vocab">
+      ${r.words.map((w,i)=>`<button data-w="${i}"><b lang="en">🔊 ${esc(w.w)}</b> – ${esc(w.vi)}${w.ex?`<br><span class="muted" lang="en">${esc(w.ex)}</span>`:""}</button>`).join("")}
+    </div></div>`;
+  const vocabMsg = R.vocab?`<p class="muted">📒 Mây đã ghi ${R.vocab} từ mới vào Sổ ôn tập, ngày mai Mây hỏi lại nhé.</p>`:"";
+  let main;
+  if(r.format==="parts"){
+    const started = r.parts.some(p=>p.res);
+    if(!done && !started && !R.wordsSeen){
+      // Bước 1: học 3 từ khóa TRƯỚC khi đọc
+      main = `<div class="card"><h3>Bước 1: Học 3 từ khóa trước khi đọc</h3>
+        <p class="muted" style="margin:0 0 8px">Bấm vào từ để nghe. Nhớ nghĩa rồi mới đọc bài nhé, đọc sẽ hiểu hơn nhiều!</p>
+        <div class="vocab">${r.words.map((w,i)=>`<button data-w="${i}"><b lang="en" style="font-size:22px">🔊 ${esc(w.w)}</b><br>${esc(w.vi)}${w.ex?`<br><span class="muted" lang="en">${esc(w.ex)}</span>`:""}</button>`).join("")}</div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" id="rdWordsOk">Mình nhớ rồi, đọc bài 📖</button></div></div>`;
+    } else {
+      const partsHtml = r.parts.map((p,k)=>{
+        const res=p.res, q=p.q;
+        const qHtml = !q ? "" : `<div class="qcard" style="margin:10px 0 4px"><div class="q">❓ ${esc(q.q)}</div><div class="opts">
+          ${q.options.map((o,j)=>{ let c=""; if(res&&res.solved){ if(j===q.answer) c=" right"; else if(res.last===j) c=" wrong"; } else if(res&&res.last===j) c=" wrong";
+            return `<button class="opt${c}" data-pq="${k}" data-o="${j}" ${(res&&res.solved)||done||R.busy?"disabled":""}>${esc(o)}</button>`; }).join("")}</div>
+          ${res&&!res.solved?`<div class="notice" style="margin-top:8px">Chưa đúng. Bạn đọc lại <b>đoạn ${k+1}</b> thật chậm, tìm câu trả lời trong đoạn rồi chọn lại nhé 🔍</div>`:""}
+          ${res&&res.solved?`<p class="muted" style="margin:8px 0 0">${res.ok?(res.first?"🎉 Đúng ngay lần đầu!":"👍 Đúng rồi!"):"Đáp án đúng là ô màu xanh."} ${q.explain?"💡 "+esc(q.explain):""}</p>`:""}</div>`;
+        return `<div class="card" style="margin-top:12px"><div class="muted" style="font-size:14px">Đoạn ${k+1}/${r.total_parts} <button class="btn" data-lp="${k}" style="padding:2px 10px;margin-left:6px">🔊</button></div>
+          <div class="passage" lang="en">${markWords(p.text, r.words)}</div>${qHtml}</div>`;
+      }).join("");
+      const allOpen = r.parts.length>=r.total_parts && r.parts.every(p=>!p.q || (p.res&&p.res.solved));
+      const locked = r.parts.length<r.total_parts ? `<p class="muted" style="margin:10px 4px">🔒 Trả lời câu hỏi ở trên để mở đoạn tiếp theo.</p>` : "";
+      const rt = r.retell;
+      const retellHtml = done && rt ? `<div class="card" style="margin-top:12px"><h3>🗣️ Bạn kể lại</h3>
+          <p style="margin:0 0 6px">“${esc(rt.text)}”</p>
+          ${rt.praise?`<p style="margin:4px 0">${rt.pass?"🌟":"👍"} ${esc(rt.praise)}</p>`:""}
+          ${rt.wrong?`<div class="notice">Chỗ này chưa đúng với bài: ${esc(rt.wrong)}</div>`:""}
+          ${rt.missing?`<p class="muted" style="margin:4px 0">💡 ${esc(rt.missing)}</p>`:""}
+          ${(r.retell_points||[]).length?`<p class="muted" style="margin:8px 0 2px">Các ý chính của bài:</p><ul class="tips">${r.retell_points.map((x,i)=>`<li>${(rt.hit||[]).includes(i)?"✅":"⬜"} ${esc(x)}</li>`).join("")}</ul>`:""}</div>`
+        : (!done && allOpen ? `<div class="card" style="margin-top:12px"><h3>🗣️ Kể lại cho Mây</h3>
+          <p class="muted" style="margin:0 0 8px">Bài này nói về điều gì? Kể 2–3 câu bằng lời của bạn (tiếng Việt hay English đều được). Có thể đọc lại các đoạn ở trên.</p>
+          <textarea class="field" id="rdRetell" rows="4" placeholder="Ví dụ: Bài kể về… Bạn ấy đã… Vì vậy…">${esc(R.retell||"")}</textarea>
+          <div class="row">${SR?`<button class="btn" id="rdRtMic">${rtRec?"⏹️ Dừng":"🎤 Nói"}</button>`:""}
+            <button class="btn primary" id="rdRtSend" ${R.busy?"disabled":""}>${R.busy?"Mây đang đọc…":"Gửi Mây ✅"}</button></div></div>` : "");
+      main = `${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(Math.max(0,r.max-r.score))}</div><p>Bạn được <b>${r.score}/${r.max}</b> điểm.</p></div>${lvMsg}${vocabMsg}`:""}
+        <div class="card"><h3>${esc(r.title)}</h3>
+          ${done?`<div class="row"><button class="btn" id="rdListen">🔊 Nghe Mây đọc cả bài</button></div>`:`<p class="muted" style="margin:0">Đọc từng đoạn, trả lời câu hỏi để mở đoạn tiếp theo. Từ <mark>tô vàng</mark> là từ khóa vừa học.</p>`}</div>
+        ${partsHtml}${locked}${retellHtml}${vocabCard}`;
+    }
+  } else {
+    main = `    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.questions.length-r.score)}</div><p>Bạn trả lời đúng <b>${r.score}/${r.questions.length}</b> câu.</p></div>${lvMsg}${vocabMsg}`:""}
     <div class="card"><h3>${esc(r.title)}</h3>
       <div class="passage" lang="en">${markWords(r.passage, r.words)}</div>
       <div class="row"><button class="btn" id="rdListen">🔊 Nghe Mây đọc</button></div>
@@ -1105,6 +1172,9 @@ function renderRead(){
     <h3 style="margin:18px 0 0">Trả lời câu hỏi</h3>
     ${qs}
     ${done?"":`<button class="btn primary" id="rdSubmit" ${R.sel.filter(x=>x!==undefined&&x!==null).length<r.questions.length||R.busy?"disabled":""}>${R.busy?"Mây đang chấm…":"Nộp bài ✅"}</button>`}
+`;
+  }
+  app.innerHTML = head + main + `
     ${done && r.read_aloud ? `<div class="card" style="margin-top:16px"><h3>🗣️ Đọc to câu này</h3>
       <div class="ra" lang="en">${esc(r.read_aloud)}</div>
       <div class="row"><button class="btn" id="rdHear">🔊 Nghe mẫu</button>
@@ -1120,8 +1190,22 @@ function renderRead(){
   app.querySelectorAll(".opt[data-q]").forEach(b=>b.onclick=()=>{ R.sel[+b.dataset.q]=+b.dataset.o; render(); });
   app.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>{ const w=r.words[+b.dataset.w]; speak(w.w+". "+(w.ex||""),"en-only",.8); });
   app.querySelectorAll("[data-pw]").forEach(b=>b.onclick=()=>speak(R.pron.words[+b.dataset.pw].w,"en-only",.75));
-  document.getElementById("rdListen").onclick=()=>speak(r.passage,"en-only",.85);
   const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
+  on("rdListen", ()=>speak(r.passage || (r.parts||[]).map(p=>p.text).join(" "),"en-only",.85));
+  on("rdWordsOk", ()=>{ R.wordsSeen=true; stopVoice(); render(); window.scrollTo(0,0); });
+  app.querySelectorAll("[data-lp]").forEach(b=>b.onclick=()=>speak(r.parts[+b.dataset.lp].text,"en-only",.85));
+  app.querySelectorAll(".opt[data-pq]").forEach(b=>b.onclick=()=>readCheck(+b.dataset.pq, +b.dataset.o));
+  const rta=document.getElementById("rdRetell"); if(rta) rta.oninput=e=>{ R.retell=e.target.value; };
+  on("rdRtSend", submitRetell);
+  on("rdRtMic", ()=>{
+    if(rtRec){ try{rtRec.stop()}catch(e){} return; }
+    try{ rtRec = new SR(); rtRec.lang="vi-VN"; rtRec.interimResults=true; rtRec.continuous=!IS_ANDROID; }catch(e){ rtRec=null; return; }
+    const base=(R.retell||"").trim();
+    rtRec.onresult = ev=>{ R.retell=(base?base+" ":"")+joinSR(ev.results); const el=document.getElementById("rdRetell"); if(el) el.value=R.retell; };
+    rtRec.onend = ()=>{ rtRec=null; if(state.view==="read") render(); };
+    try{ rtRec.start(); }catch(e){ rtRec=null; }
+    render();
+  });
   on("rdSubmit", submitRead);
   on("rdHear", ()=>speak(r.read_aloud,"en-only",.8));
   on("rdRec", startReadRec);
@@ -1184,7 +1268,7 @@ function renderListen(){
   if(L.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">Mây đang soạn bài nghe cho bạn… ☁️</div>`; return wireBack(); }
   if(L.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(L.err)}</div><button class="btn primary" id="lsRetry">Thử lại</button>`; wireBack(); document.getElementById("lsRetry").onclick=()=>openListen(); return; }
   const r=L.r, done=L.phase==="done", dis=L.loadingAudio?"disabled":"";
-  const qs = r.questions.map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
+  const qs = (r.questions||[]).map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
       ${x.options.map((o,j)=>{ let c=""; if(done){ if(j===x.answer) c=" right"; else if(r.answers&&r.answers[i]===j) c=" wrong"; } else if(L.sel[i]===j) c=" chosen";
         return `<button class="opt${c}" data-q="${i}" data-o="${j}" ${done?"disabled":""}>${esc(o)}</button>`; }).join("")}
     </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${esc(x.explain)}</p>`:""}</div>`).join("");
@@ -2355,6 +2439,9 @@ function reportHtml(R){
       <label><input type="checkbox" id="readDaily" ${R.settings.read_daily?"checked":""}> Mỗi ngày có việc “📖 Đọc tiếng Anh 10 phút”</label>
       <label for="readLevel">Mức bài đọc tiếng Anh (Mây tự lên/xuống theo kết quả)</label>
       <select class="field" id="readLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${R.settings.read_level===n?"selected":""}>Mức ${n}${[""," – rất dễ (60–90 từ)"," – dễ (90–120 từ)"," – vừa (120–150 từ)"," – lớp 4 (150–190 từ)"," – khó hơn (190–230 từ)"][n]}</option>`).join("")}</select>
+      <label><input type="checkbox" id="famousOn" ${R.settings.famous_on?"checked":""}> Thứ 3, 5, 7 bài đọc là tiểu sử người nổi tiếng</label>
+      <label for="famousList">Danh sách người nổi tiếng (mỗi dòng một người, Mây đọc lần lượt)</label>
+      <textarea class="field" id="famousList" rows="5">${esc(R.settings.famous_people||"")}</textarea>
       <label><input type="checkbox" id="listenOn" ${R.settings.listen_on?"checked":""}> Thứ 2, 4, 6 có việc “🎧 Nghe tiếng Anh 10 phút”</label>
       <label for="listenLevel">Mức bài nghe tiếng Anh (Mây tự lên/xuống theo kết quả)</label>
       <select class="field" id="listenLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${R.settings.listen_level===n?"selected":""}>Mức ${n}${[""," – Starters, rất dễ"," – Movers dễ"," – Movers"," – Flyers dễ"," – Flyers"][n]}</option>`).join("")}</select>
@@ -2437,7 +2524,8 @@ function wireReport(R){
     const nickV=document.getElementById("nick").value.trim(), focusV=document.getElementById("focus").value.trim();
     const rdD=document.getElementById("readDaily").checked, rdL=+document.getElementById("readLevel").value;
     const lsO=document.getElementById("listenOn").checked, lsL=+document.getElementById("listenLevel").value;
-    try{ await api("/api/parent/settings",{nick:nickV, focus:focusV, read_daily:rdD, read_level:rdL, listen_on:lsO, listen_level:lsL},true); me.nick=nickV; LS.set("nick",nickV); R.settings={nick:nickV,focus:focusV,read_daily:rdD,read_level:rdL,listen_on:lsO,listen_level:lsL}; msg.textContent="Đã lưu"; }
+    const fmO=document.getElementById("famousOn").checked, fmL=document.getElementById("famousList").value;
+    try{ await api("/api/parent/settings",{nick:nickV, focus:focusV, read_daily:rdD, read_level:rdL, listen_on:lsO, listen_level:lsL, famous_on:fmO, famous_people:fmL},true); me.nick=nickV; LS.set("nick",nickV); R.settings={...R.settings,nick:nickV,focus:focusV,read_daily:rdD,read_level:rdL,listen_on:lsO,listen_level:lsL,famous_on:fmO,famous_people:fmL}; msg.textContent="Đã lưu"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
   app.querySelectorAll(".convlist button[data-hw]").forEach(b=>b.onclick=async()=>{

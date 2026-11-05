@@ -36,6 +36,7 @@ $routes = [
     'write_list'          => 'r_write_list',
     'read_start'          => 'r_read_start',
     'read_answer'         => 'r_read_answer',
+    'read_check'          => 'r_read_check',
     'read_pron'           => 'r_read_pron',
     'listen_start'        => 'r_listen_start',
     'listen_answer'       => 'r_listen_answer',
@@ -98,7 +99,7 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'pron' => speechsuper_enabled(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
+    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'pron' => speechsuper_enabled(), 'week_words' => week_words(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
         'tts_by' => ['google' => 'Google', 'azure' => 'Microsoft', '' => ''][tts_provider()],
          'drive' => drive_connected(), 'now_topics' => current_topics(today())]);
 }
@@ -168,7 +169,7 @@ function r_quiz(array $b): never
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . quiz_avoid_text($recent))]],
+        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''))]],
         16000,
         60,
         (string)cfg('quiz_effort', 'medium')
@@ -625,34 +626,65 @@ function r_read_start(array $b): never
     $titles = array_values(array_filter(array_map(fn($r) => (json_decode((string)$r['data'], true) ?: [])['title'] ?? '',
         q("SELECT data FROM readings WHERE kind = 'read' ORDER BY id DESC LIMIT 15")->fetchAll())));
     $avoid = $titles ? "\nBài đọc gần đây (viết bài MỚI, khác nội dung và nhân vật; không lặp tiêu đề): " . implode('; ', $titles) : '';
-    $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => read_prompt($subject, $topic, $level, quiz_context($subject) . $avoid)]], 6000, 75, 'low')) ?? [];
-    $data = read_clean($d);
+    ensure_week_words();
+    $ctx = (str_starts_with($topic, 'Famous: ') ? '' : quiz_context($subject)) . $avoid . week_words_text();
+    $data = null;
+    for ($try = 0; $try < 2 && !$data; $try++) {
+        $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+            [['role' => 'user', 'content' => read_prompt($subject, $topic, $level, $ctx)]], 6000, 75, 'low')) ?? [];
+        $data = read_clean_parts($d);
+    }
     if (!$data) out(['error' => 'upstream'], 502);
     q('INSERT INTO readings (day, subject, topic, level, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
         [today(), $subject, $topic, $level, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
     out(['reading' => reading_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId()])), 'level' => $level]);
 }
 
-// 3 từ mới của bài đọc vào Sổ ôn tập (hỏi lại 1 → 3 → 7 ngày): câu hỏi nghĩa, đáp án nhiễu là nghĩa của 2 từ còn lại
-function read_vocab_to_review(array $d): int
+// Từ của tuần: tạo một lần mỗi tuần theo Unit English trong kế hoạch tuần, đưa vào Sổ ôn tập
+function ensure_week_words(): void
 {
-    $words = array_values(array_filter($d['words'] ?? [], fn($w) => ($w['w'] ?? '') !== '' && ($w['vi'] ?? '') !== ''));
+    if (week_words()) return;
+    $week = plan_week(approved_plan(today()), today()) ?: [];
+    try {
+        $d = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
+            [['role' => 'user', 'content' => week_words_prompt(clean($week['ceng'] ?? '', 120), quiz_context('ceng'))]], 3000, 40, 'low')) ?? [];
+    } catch (Throwable $e) { return; }
+    $words = [];
+    foreach (is_array($d['words'] ?? null) ? array_slice($d['words'], 0, 12) : [] as $w) {
+        $x = ['w' => clean($w['w'] ?? '', 40), 'vi' => clean($w['vi'] ?? '', 120), 'ex' => clean($w['ex'] ?? '', 200)];
+        if ($x['w'] !== '' && $x['vi'] !== '') $words[] = $x;
+    }
+    if (count($words) < 5) return;
+    set_setting('week_words:' . date('Y-m-d', strtotime('monday this week')), json_encode(array_slice($words, 0, 10), JSON_UNESCAPED_UNICODE));
+    words_to_review(array_slice($words, 0, 10), 'Từ của tuần');
+}
+
+// Đưa từ vào Sổ ôn tập (hỏi lại 1 → 3 → 7 ngày): câu hỏi nghĩa, đáp án nhiễu là nghĩa của các từ khác trong cùng nhóm
+function words_to_review(array $words, string $label): int
+{
+    $words = array_values(array_filter($words, fn($w) => ($w['w'] ?? '') !== '' && ($w['vi'] ?? '') !== ''));
     if (count($words) < 3) return 0;
     $n = 0;
     foreach ($words as $i => $w) {
         $q = "Từ “{$w['w']}” nghĩa là gì?";
         if (q('SELECT 1 FROM mistakes WHERE subject = ? AND q = ?', ['ceng', $q])->fetchColumn()) continue;
-        $opts = [$w['vi']];
-        foreach ($words as $j => $o) if ($j !== $i && count($opts) < 3 && mb_strtolower($o['vi']) !== mb_strtolower($w['vi'])) $opts[] = $o['vi'];
+        $others = array_values(array_filter($words, fn($o) => $o !== $w && mb_strtolower($o['vi']) !== mb_strtolower($w['vi'])));
+        shuffle($others);
+        $opts = array_merge([$w['vi']], array_column(array_slice($others, 0, 2), 'vi'));
         if (count($opts) < 2) continue;
         shuffle($opts);
         q('INSERT INTO mistakes (subject, topic, q, options, answer, `explain`, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            ['ceng', mb_substr('Từ mới: ' . ($d['title'] ?? ''), 0, 200), $q, json_encode($opts, JSON_UNESCAPED_UNICODE), array_search($w['vi'], $opts, true),
-             "“{$w['w']}” = {$w['vi']}." . ($w['ex'] !== '' ? " Ví dụ: {$w['ex']}" : ''), 'Nhớ lại câu trong bài đọc có từ này.', strtotime('tomorrow'), time()]);
+            ['ceng', mb_substr('Từ mới: ' . $label, 0, 200), $q, json_encode($opts, JSON_UNESCAPED_UNICODE), array_search($w['vi'], $opts, true),
+             "“{$w['w']}” = {$w['vi']}." . ($w['ex'] !== '' ? " Ví dụ: {$w['ex']}" : ''), 'Nhớ lại câu ví dụ có từ này.', strtotime('tomorrow'), time()]);
         $n++;
     }
     return $n;
+}
+
+// 3 từ mới của bài đọc vào Sổ ôn tập (hỏi lại 1 → 3 → 7 ngày): câu hỏi nghĩa, đáp án nhiễu là nghĩa của 2 từ còn lại
+function read_vocab_to_review(array $d): int
+{
+    return words_to_review($d['words'] ?? [], $d['title'] ?? '');
 }
 
 function r_read_answer(array $b): never
@@ -660,6 +692,7 @@ function r_read_answer(array $b): never
     $r = reading_or_fail($b);
     if ($r['score'] !== null) out(['reading' => reading_for_kid($r), 'level' => read_level()]);
     $d = json_decode((string)$r['data'], true) ?: [];
+    if (!empty($d['parts'])) read_finish_parts($r, $d, $b);
     $ans = is_array($b['answers'] ?? null) ? array_map('intval', array_slice($b['answers'], 0, count($d['questions']))) : [];
     if (count($ans) !== count($d['questions'])) out(['error' => 'bad_request'], 400);
     $score = 0;
@@ -669,6 +702,58 @@ function r_read_answer(array $b): never
     $vocab = read_vocab_to_review($d);
     log_activity('ceng', mb_substr('Reading: ' . ($d['title'] ?? ''), 0, 200), 'reading', $score, count($d['questions']));
     out(['reading' => reading_for_kid(reading_or_fail($b)), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab,
+         'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
+}
+
+// Trả lời câu hỏi của một đoạn: đúng thì mở đoạn sau; sai lần đầu thì gợi ý đọc lại đoạn đó; sai lần 2 thì hiện đáp án rồi mở đoạn sau
+function r_read_check(array $b): never
+{
+    $r = reading_or_fail($b);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $k = (int)($b['part'] ?? -1);
+    $st = json_decode((string)$r['answers'], true) ?: ['open' => 1, 'parts' => []];
+    if ($r['score'] !== null || empty($d['parts'][$k]['q']) || $k >= (int)($st['open'] ?? 1)) out(['error' => 'bad_request'], 400);
+    $q = $d['parts'][$k]['q'];
+    $res = $st['parts'][$k] ?? ['tries' => 0, 'first' => null, 'solved' => false];
+    if (empty($res['solved'])) {
+        $ok = (int)($b['pick'] ?? -1) === (int)$q['answer'];
+        $res['tries']++;
+        if ($res['first'] === null) $res['first'] = $ok;
+        $res['last'] = (int)($b['pick'] ?? -1);
+        if ($ok || $res['tries'] >= 2) {
+            $res['solved'] = true;
+            $res['ok'] = $ok;
+            $st['open'] = max((int)($st['open'] ?? 1), $k + 2);
+        }
+        $st['parts'][$k] = $res;
+        q('UPDATE readings SET answers = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), time(), $r['id']]);
+    }
+    out(['reading' => reading_for_kid(reading_or_fail(['id' => $r['id']])), 'level' => read_level()]);
+}
+
+// Nộp phần kể lại → chấm cả bài: mỗi câu đoạn trả lời đúng ngay lần đầu được 1 điểm, kể lại nắm được ý chính được 1 điểm
+function read_finish_parts(array $r, array $d, array $b): never
+{
+    $st = json_decode((string)$r['answers'], true) ?: [];
+    foreach ($d['parts'] as $k => $p) if ($p['q'] && empty($st['parts'][$k]['solved'])) out(['error' => 'bad_request'], 400);
+    $text = clean($b['retell'] ?? '', 1500);
+    if (mb_strlen($text) < 8) out(['error' => 'retell_short'], 400);
+    spend(1);
+    $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => retell_prompt($d, $text)]], 3000, 45, 'low')) ?? [];
+    $points = $d['retell_points'] ?? [];
+    $hit = array_values(array_unique(array_filter(array_map('intval', is_array($j['hit'] ?? null) ? $j['hit'] : []), fn($i) => $i >= 0 && $i < count($points))));
+    $pass = count($hit) >= min(2, max(1, count($points)));
+    $st['retell'] = ['text' => $text, 'hit' => $hit, 'pass' => $pass, 'wrong' => clean($j['wrong'] ?? '', 300),
+                     'praise' => clean($j['praise'] ?? '', 300), 'missing' => clean($j['missing'] ?? '', 300)];
+    $mcq = 0; $max = 1;
+    foreach ($d['parts'] as $k => $p) if ($p['q']) { $max++; if (!empty($st['parts'][$k]['first'])) $mcq++; }
+    $score = $mcq + ($pass ? 1 : 0);
+    q('UPDATE readings SET answers = ?, score = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), $score, time(), $r['id']]);
+    $lv = read_adjust_level($score, $max);
+    $vocab = read_vocab_to_review($d);
+    log_activity('ceng', mb_substr('Reading: ' . ($d['title'] ?? ''), 0, 200), 'reading', $score, $max);
+    out(['reading' => reading_for_kid(reading_or_fail(['id' => $r['id']])), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab,
          'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
 }
 
@@ -700,13 +785,15 @@ function r_listen_start(array $b): never
         if ($r) out(['listening' => listening_for_kid($r), 'level' => read_level('listen'), 'audio' => tts_enabled()]);
     }
     [$subject, $topic] = read_topic(today());
+    if (str_starts_with($topic, 'Famous: ')) { $subject = 'ceng'; $topic = clean((plan_week(approved_plan(today()), today()) ?: [])['ceng'] ?? '', 120); }
     $level = read_level('listen');
+    ensure_week_words();
     spend(3);
     $titles = array_values(array_filter(array_map(fn($r) => (json_decode((string)$r['data'], true) ?: [])['title'] ?? '',
         q("SELECT data FROM readings WHERE kind = 'listen' ORDER BY id DESC LIMIT 15")->fetchAll())));
     $avoid = $titles ? "\nBài nghe gần đây (viết bài MỚI, khác tình huống và nhân vật): " . implode('; ', $titles) : '';
     $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => listen_prompt($topic, $level, quiz_context($subject) . $avoid)]], 6000, 75, 'low')) ?? [];
+        [['role' => 'user', 'content' => listen_prompt($topic, $level, quiz_context($subject) . $avoid . week_words_text())]], 6000, 75, 'low')) ?? [];
     $data = listen_clean($d);
     if (!$data) out(['error' => 'upstream'], 502);
     q("INSERT INTO readings (day, kind, subject, topic, level, data, created_at, updated_at) VALUES (?, 'listen', ?, ?, ?, ?, ?, ?)",
@@ -1386,7 +1473,8 @@ function r_parent_report(array $b): never
     unset($c);
 
     out([
-        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen')],
+        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen'),
+                       'famous_on' => setting('famous_on', '1') !== '0', 'famous_people' => implode("\n", famous_list())],
         'stars' => stars(),
         'days' => $days,
         'subjects' => $subjects,
@@ -1550,6 +1638,8 @@ function r_parent_settings(array $b): never
     if (isset($b['read_daily'])) set_setting('read_daily', $b['read_daily'] ? '1' : '0');
     if (isset($b['read_level'])) set_setting('read_level', (string)max(1, min(5, (int)$b['read_level'])));
     if (isset($b['listen_on'])) set_setting('listen_on', $b['listen_on'] ? '1' : '0');
+    if (isset($b['famous_on'])) set_setting('famous_on', $b['famous_on'] ? '1' : '0');
+    if (isset($b['famous_people'])) set_setting('famous_people', implode("\n", array_slice(array_values(array_filter(array_map(fn($x) => clean($x, 80), preg_split('/\R/u', (string)$b['famous_people'])))), 0, 60)));
     if (isset($b['listen_level'])) set_setting('listen_level', (string)max(1, min(5, (int)$b['listen_level'])));
     out(['ok' => true]);
 }
