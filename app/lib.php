@@ -515,7 +515,7 @@ function ask_claude(string $model, string $system, array $messages, int $maxToke
 // Những gì Mây "nhớ" về bé, lấy từ cơ sở dữ liệu (không gửi tên thật hay thông tin cá nhân).
 function memory_note(string $subject): string
 {
-    $weak = q('SELECT topic, COUNT(*) AS n FROM mistakes WHERE subject = ? AND mastered_at IS NULL AND topic <> \'\'
+    $weak = q('SELECT topic, COUNT(*) AS n FROM mistakes WHERE subject = ? AND mastered_at IS NULL AND topic NOT LIKE \'Từ mới:%\' AND topic <> \'\'
                GROUP BY topic ORDER BY n DESC LIMIT 3', [$subject])->fetchAll();
     $recent = q('SELECT topic FROM conversations WHERE subject = ? AND topic <> \'\'
                  GROUP BY topic ORDER BY MAX(updated_at) DESC LIMIT 3', [$subject])->fetchAll();
@@ -1239,7 +1239,7 @@ function weak_focus(int $ts): ?array
         return ['subject' => $s['subject'], 'topic' => clean($s['skill'], 80),
                 'reason' => 'Lần kiểm tra lại gần nhất "' . clean($s['skill'], 60) . '" chưa đạt (' . $s['last_score'] . '): học lại cho chắc'];
     }
-    $m = q('SELECT subject, topic, COUNT(*) n FROM mistakes WHERE mastered_at IS NULL AND created_at >= ? GROUP BY subject, topic
+    $m = q('SELECT subject, topic, COUNT(*) n FROM mistakes WHERE mastered_at IS NULL AND topic NOT LIKE \'Từ mới:%\' AND created_at >= ? GROUP BY subject, topic
             ORDER BY n DESC, MAX(created_at) DESC LIMIT 1', [$since])->fetch();
     if ($m && (int)$m['n'] >= 2 && isset(SUBJECTS[$m['subject']])) {
         $t = clean($m['topic'], 80);

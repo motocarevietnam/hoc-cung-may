@@ -1047,7 +1047,7 @@ async function submitRead(){
   const R=state.rd; R.busy=true; render();
   try{
     const d = await api("/api/read_answer",{id:R.r.id, answers:R.sel});
-    Object.assign(R, {r:d.reading, level:d.level, change:d.level_change||0, phase:"done"});
+    Object.assign(R, {r:d.reading, level:d.level, change:d.level_change||0, vocab:d.vocab_added||0, phase:"done"});
   }catch(e){ R.err=copyFor(e&&e.code); }
   R.busy=false; if(state.view==="read" && state.rd===R){ render(); window.scrollTo(0,0); }
 }
@@ -1093,7 +1093,7 @@ function renderRead(){
   const lvMsg = R.change>0 ? `<div class="notice">🎉 Đúng hết 2 bài liền! Từ bài sau Mây cho bạn đọc <b>mức ${R.level}</b> nhé.</div>`
               : R.change<0 ? `<div class="notice">Bài sau Mây chọn bài dễ hơn một chút (mức ${R.level}) để bạn đọc thoải mái nhé.</div>` : "";
   app.innerHTML = head + `
-    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.questions.length-r.score)}</div><p>Bạn trả lời đúng <b>${r.score}/${r.questions.length}</b> câu.</p></div>${lvMsg}`:""}
+    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.questions.length-r.score)}</div><p>Bạn trả lời đúng <b>${r.score}/${r.questions.length}</b> câu.</p></div>${lvMsg}${R.vocab?`<p class="muted">📒 Mây đã ghi ${R.vocab} từ mới vào Sổ ôn tập, ngày mai Mây hỏi lại nhé.</p>`:""}`:""}
     <div class="card"><h3>${esc(r.title)}</h3>
       <div class="passage" lang="en">${markWords(r.passage, r.words)}</div>
       <div class="row"><button class="btn" id="rdListen">🔊 Nghe Mây đọc</button></div>
