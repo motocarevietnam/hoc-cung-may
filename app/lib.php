@@ -1104,7 +1104,7 @@ function schedule(): array
     return [
         'book' => (string)($s['book'] ?? ''),
         'syllabus' => (string)($s['syllabus'] ?? ''),
-        'minutes' => $max = max(15, min(90, (int)($s['minutes'] ?? 60))),
+        'minutes' => $max = max(15, min(90, (int)($s['minutes'] ?? 90))),
         // Thời gian tự học tối thiểu mỗi buổi (danh sách Hôm nay được bổ sung cho đủ), không vượt mức tối đa
         'min_minutes' => max(15, min($max, (int)($s['min_minutes'] ?? 45))),
         'timetable' => $tt,
@@ -1326,6 +1326,11 @@ function day_plan(string $day): array
         $fix[] = ['key' => 'review', 'icon' => '📒', 'title' => "Sổ ôn tập: {$due} câu từng sai", 'minutes' => min(10, max(5, $due * 2)),
                   'reason' => "{$due} câu từng làm sai đến hạn ôn lại (ôn cách quãng 1 → 3 → 7 ngày)", 'action' => ['view' => 'review']];
     }
+    // Vừa học lại phần yếu của môn này trong 2 ngày trước thì nghỉ, để không lặp mãi một bài
+    if ($weak && q("SELECT 1 FROM daily_tasks WHERE task_key = ? AND title LIKE 'Học lại phần còn yếu%' AND status = 'completed' AND day >= ? AND day < ? LIMIT 1",
+            ['chat:' . $weak['subject'], date('Y-m-d', strtotime($day . ' -2 day')), $day])->fetchColumn()) {
+        $weak = null;
+    }
     if ($weak) {
         $fix[] = ['key' => 'chat:' . $weak['subject'], 'icon' => '🔧',
                   'title' => 'Học lại phần còn yếu: ' . SUBJECTS[$weak['subject']]['name'] . ($weak['topic'] !== '' ? ' – ' . $weak['topic'] : ''),
@@ -1335,6 +1340,8 @@ function day_plan(string $day): array
 
     if ($examMode) {
         // Ôn thi: phần yếu trước, rồi ôn tổng hợp lần lượt các môn thi; cuối tuần và hôm trước ngày thi có đề luyện / ôn nhẹ
+        // Đang ôn thi: tạm bỏ bài nghe để dành giờ cho môn thi (bài đọc vẫn giữ)
+        $items = array_values(array_filter($items, fn($it) => $it['key'] !== 'listening'));
         $items = array_merge($items, $fix);
         $examSubs = $exam['subjects'] ?: array_keys(SUBJECTS);
         $scope = $exam['scope'] !== '' ? $exam['scope'] : 'các bài đã học từ đầu kỳ đến nay (theo mục lục sách)';
@@ -1362,7 +1369,7 @@ function day_plan(string $day): array
     if (!$examMode) {
         // Ôn lại bài học trên lớp hôm nay (theo thời khoá biểu); cuối tuần/ngày chưa có TKB: ôn môn của ngày mai
         $reviewSubs = array_values(array_diff($todaySubs ?: $tomorrowSubs, [$weak['subject'] ?? ''])) ?: ($todaySubs ?: $tomorrowSubs);
-        if ($reviewSubs && !$classes) {
+        if ($reviewSubs) {
             $rs = $reviewSubs[$doy % count($reviewSubs)];
             $t = $topic($rs);
             $items[] = ['key' => "quiz:{$rs}", 'icon' => '🎯', 'title' => ($todaySubs ? 'Ôn bài hôm nay: đố vui ' : 'Ôn trước cho ngày mai: đố vui ') . SUBJECTS[$rs]['name'] . ($t !== '' ? " – {$t}" : ''),
@@ -1402,10 +1409,44 @@ function day_plan(string $day): array
         }
     }
 
-    // Quá giờ thì bỏ bớt từ cuối danh sách (giữ bài cô giao và phần yếu)
+    // Mỗi môn nên được ôn ít nhất 2 lần/tuần: còn giờ thì thêm môn ít được ôn nhất trong tuần (tối đa 2 môn/tối)
+    if (!$examMode) {
+        $wk = date('Y-m-d', strtotime('monday this week', $ts));
+        $cnt = array_fill_keys(array_keys(SUBJECTS), 0);
+        foreach (q("SELECT subject, COUNT(*) c FROM activity WHERE day >= ? AND day < ? AND type IN ('quiz','chat','homework','review','reading','listening','writing') GROUP BY subject", [$wk, $day])->fetchAll() as $r)
+            if (isset($cnt[$r['subject']])) $cnt[$r['subject']] = (int)$r['c'];
+        foreach ($items as $it) if (isset($it['action']['subject'], $cnt[$it['action']['subject']])) $cnt[$it['action']['subject']] += 1;
+        // Các ngày sau hôm nay chưa có hoạt động thật: tính cả việc đã xếp trong danh sách các ngày trước đó của tuần
+        for ($d2 = max($wk, today()); $d2 < $day; $d2 = date('Y-m-d', strtotime($d2 . ' +1 day'))) {
+            if ($d2 === $day) break;
+            foreach (day_plan_keys($d2) as $k) { $sub = explode(':', $k)[1] ?? ''; if (isset($cnt[$sub])) $cnt[$sub]++; }
+        }
+        // Bằng số lần thì xoay vòng theo ngày để môn nào cũng có lượt
+        $subs = array_keys($cnt); $nS = count($subs);
+        uksort($cnt, fn($a, $b) => [$cnt[$a], (array_search($a, $subs) - $doy % $nS + $nS) % $nS] <=> [$cnt[$b], (array_search($b, $subs) - $doy % $nS + $nS) % $nS]);
+        $added = 0;
+        foreach ($cnt as $sub => $c) {
+            if ($c >= 2 || $added >= 2) break;
+            if (in_array("quiz:{$sub}", array_column($items, 'key'), true)) continue;
+            if (array_sum(array_column($items, 'minutes')) + 10 > $budget) break;
+            $t = $topic($sub);
+            $items[] = ['key' => "quiz:{$sub}", 'icon' => '🎯', 'title' => 'Ôn tập thêm: đố vui ' . SUBJECTS[$sub]['name'] . ($t !== '' ? " – {$t}" : ''),
+                        'minutes' => 10, 'reason' => 'Tuần này môn ' . SUBJECTS[$sub]['name'] . ' mới được ôn ' . $c . ' lần (nên ít nhất 2 lần/tuần)',
+                        'action' => ['view' => 'quiz', 'subject' => $sub, 'topic' => $t]];
+            $added++;
+        }
+    }
+
+    // Quá giờ thì bỏ bớt: xem trước bài ngày mai → ôn tập thêm → ôn bài; luôn giữ lại ít nhất 1 đố vui ôn môn học
+    $rank = fn($it) => str_starts_with($it['title'], 'Xem trước') ? 3 : (str_starts_with($it['title'], 'Ôn tập thêm') ? 2 : (str_starts_with($it['title'], 'Ôn ') ? 1 : 0));
     while (count($items) > 1 && array_sum(array_column($items, 'minutes')) > $budget + 5) {
-        $drop = null;
-        foreach ($items as $i => $it) if (str_starts_with($it['title'], 'Xem trước') || str_starts_with($it['title'], 'Ôn ')) $drop = $i;
+        $quizzes = count(array_filter($items, fn($it) => ($it['action']['view'] ?? '') === 'quiz'));
+        $drop = null; $best = 0;
+        foreach ($items as $i => $it) {
+            $r = $rank($it);
+            if ($r === 0 || ($r < 3 && $quizzes <= 1)) continue;
+            if ($r >= $best) { $best = $r; $drop = $i; }
+        }
         if ($drop === null) break;
         array_splice($items, $drop, 1);
     }
@@ -2492,4 +2533,18 @@ function listening_for_kid(array $r): array
             'dict_words' => str_word_count($d['dictation'] ?? ''),
             'answers' => $ans['mc'] ?? null, 'typed' => $ans['typed'] ?? null, 'dict' => $ans['dict'] ?? null,
             'score' => $done ? (int)$r['score'] : null, 'total' => count($d['questions'] ?? []) + 1];
+}
+
+// Các việc đã xếp của một ngày (danh sách đã chốt nếu có), dùng để cân đối môn trong tuần; tránh tính đệ quy vô hạn
+function day_plan_keys(string $day): array
+{
+    static $memo = [], $depth = 0;
+    if (isset($memo[$day])) return $memo[$day];
+    $rows = q('SELECT task_key FROM daily_tasks WHERE day = ?', [$day])->fetchAll(PDO::FETCH_COLUMN);
+    if ($rows) return $memo[$day] = $rows;
+    if ($day < today() || $depth > 6) return $memo[$day] = [];
+    $depth++;
+    $keys = array_column(day_plan($day)['items'], 'key');
+    $depth--;
+    return $memo[$day] = $keys;
 }

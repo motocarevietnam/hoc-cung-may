@@ -1776,7 +1776,7 @@ function renderSchedule(){
   wireEx();
   document.getElementById("saveSched").onclick=async()=>{
     const msg=document.getElementById("schMsg");
-    const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||60, min_minutes:+document.getElementById("minsMin").value||45, timetable:{}, classes:[]};
+    const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||90, min_minutes:+document.getElementById("minsMin").value||45, timetable:{}, classes:[]};
     save.grid = {periods: ttEdit.periods, cells: ttEdit.cells};
     save.exams = [...app.querySelectorAll(".exrow")].map(r=>({name:r.querySelector("[data-f=name]").value, date:r.querySelector("[data-f=date]").value,
       subjects:[...r.querySelectorAll("[data-sub]:checked")].map(c=>c.dataset.sub), other:r.querySelector("[data-f=other]").value, scope:r.querySelector("[data-f=scope]").value}));

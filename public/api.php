@@ -1199,8 +1199,8 @@ function r_parent_schedule(array $b): never
         set_setting('schedule', json_encode([
             'book' => clean($in['book'] ?? '', 60),
             'syllabus' => clean_multiline($in['syllabus'] ?? '', 4000),
-            'minutes' => max(15, min(90, (int)($in['minutes'] ?? 60))),
-            'min_minutes' => max(15, min(max(15, min(90, (int)($in['minutes'] ?? 60))), (int)($in['min_minutes'] ?? 45))),
+            'minutes' => max(15, min(90, (int)($in['minutes'] ?? 90))),
+            'min_minutes' => max(15, min(max(15, min(90, (int)($in['minutes'] ?? 90))), (int)($in['min_minutes'] ?? 45))),
             'timetable' => $tt,
             'grid' => $grid,
             'exams' => exams_clean($in['exams'] ?? []),
