@@ -2493,14 +2493,15 @@ function reading_for_kid(array $r): array
 function retell_prompt(array $d, string $text): string
 {
     $passage = $d['passage'] ?? '';
-    $points = json_encode($d['retell_points'] ?? [], JSON_UNESCAPED_UNICODE);
+    $points = implode("\n", array_map(fn($i, $x) => ($i + 1) . '. ' . $x, array_keys($d['retell_points'] ?? []), $d['retell_points'] ?? []));
     return <<<TXT
 Bé lớp 4 (người Việt) vừa đọc bài tiếng Anh dưới đây rồi kể lại bằng lời của mình (tiếng Việt hoặc tiếng Anh; có thể do máy chép giọng nói nên sai chính tả – đừng chấm chính tả, ngữ pháp).
 Bài đọc: "{$passage}"
-Các ý chính cần có: {$points}
+Các ý chính cần có (đánh số từ 1):
+{$points}
 Bé kể: "{$text}"
 Đánh giá bé đã HIỂU bài chưa: đếm số ý chính bé nêu đúng (diễn đạt khác vẫn tính), và bé có nói sai nội dung không.
-Trả về JSON: {"hit":[chỉ số các ý chính bé nêu đúng],"wrong":"nội dung bé hiểu sai (bỏ trống nếu không có)","praise":"1 câu khen cụ thể bằng tiếng Việt","missing":"gợi ý ngắn bằng tiếng Việt ý nào còn thiếu (bỏ trống nếu đủ)"}
+Trả về JSON: {"hit":[SỐ THỨ TỰ (1, 2, 3…) của các ý chính bé nêu đúng],"wrong":"nội dung bé hiểu sai (bỏ trống nếu không có)","praise":"1 câu khen cụ thể bằng tiếng Việt","missing":"gợi ý ngắn bằng tiếng Việt ý nào còn thiếu (bỏ trống nếu đủ)"}
 TXT;
 }
 
