@@ -2342,8 +2342,33 @@ function read_level(string $kind = 'read'): int
 }
 
 // Chủ đề bài đọc: bám bài English/Science tuần này (kế hoạch ba mẹ duyệt), xen kẽ theo ngày
+// Người nổi tiếng mặc định cho bài đọc tiểu sử (ba mẹ sửa danh sách trong Cổng ba mẹ → Cài đặt)
+const FAMOUS_DEFAULT = [
+    'Marie Curie (nhà khoa học)', 'Albert Einstein (nhà khoa học)', 'Isaac Newton (nhà khoa học)', 'Thomas Edison (nhà phát minh)',
+    'Jane Goodall (nhà nghiên cứu tinh tinh)', 'Neil Armstrong (phi hành gia)', 'Amelia Earhart (phi công)', 'Leonardo da Vinci (hoạ sĩ, nhà phát minh)',
+    'Vincent van Gogh (hoạ sĩ)', 'Wolfgang Amadeus Mozart (nhạc sĩ)', 'Helen Keller (nhà văn)', 'Florence Nightingale (y tá)',
+    'Pelé (cầu thủ bóng đá)', 'Serena Williams (vận động viên quần vợt)', 'Walt Disney (nhà làm phim hoạt hình)', 'Charles Darwin (nhà khoa học)',
+    'Louis Braille (người sáng tạo chữ nổi)', 'Hai Bà Trưng (nữ anh hùng Việt Nam)', 'Chu Văn An (thầy giáo Việt Nam)', 'Nguyễn Thị Ánh Viên (vận động viên bơi lội Việt Nam)',
+];
+
+function famous_list(): array
+{
+    $raw = setting('famous_people');
+    $list = $raw === '' ? FAMOUS_DEFAULT : array_values(array_filter(array_map(fn($x) => clean($x, 80), preg_split('/\R/u', $raw))));
+    return $list ?: FAMOUS_DEFAULT;
+}
+
+// Bài đọc hôm nay: thứ 3, 5, 7 là tiểu sử người nổi tiếng (lần lượt, không lặp người đã đọc gần đây);
+// các ngày còn lại bám bài English/Science tuần này
 function read_topic(string $day): array
 {
+    $n = (int)date('N', strtotime($day));
+    if (setting('famous_on', '1') !== '0' && in_array($n, [2, 4, 6], true)) {
+        $list = famous_list();
+        $recent = q("SELECT topic FROM readings WHERE kind = 'read' AND topic LIKE 'Famous:%' ORDER BY id DESC LIMIT ?", [max(1, count($list) - 1)])->fetchAll(PDO::FETCH_COLUMN);
+        foreach ($list as $p) if (!in_array('Famous: ' . $p, $recent, true)) return ['ceng', 'Famous: ' . $p];
+        return ['ceng', 'Famous: ' . $list[(int)date('z', strtotime($day)) % count($list)]];
+    }
     $week = plan_week(approved_plan($day), $day) ?: [];
     $doy = (int)date('z', strtotime($day));
     $subject = $doy % 3 === 2 ? 'csci' : 'ceng';
@@ -2353,22 +2378,59 @@ function read_topic(string $day): array
 function read_prompt(string $subject, string $topic, int $level, string $context): string
 {
     $L = READ_LEVELS[$level];
-    $topicText = $topic !== '' ? $topic : 'a topic from the unit the class is studying now (see context), or a fun everyday topic for a 9-year-old';
-    $subj = $subject === 'csci' ? 'Science (Cambridge Primary Stage 4)' : 'English (Our World 4)';
+    $famous = str_starts_with($topic, 'Famous: ') ? mb_substr($topic, 8) : '';
+    if ($famous !== '') {
+        $what = "A short BIOGRAPHY for children about: {$famous}. Use ONLY well-known, certain facts (where they were from, what they are famous for, one or two famous achievements, one childhood or difficulty detail if well known). No exact dates except a very famous year, no invented quotes, no invented details. If you are not sure about a fact, leave it out. Write in English (names may stay in their usual spelling).";
+    } else {
+        $topicText = $topic !== '' ? $topic : 'a topic from the unit the class is studying now (see context), or a fun everyday topic for a 9-year-old';
+        $subj = $subject === 'csci' ? 'Science (Cambridge Primary Stage 4)' : 'English (Our World 4)';
+        $what = "A short story or simple information text. Linked subject: {$subj}. Topic: {$topicText}. True facts only (no invented science).";
+    }
     $ctx = $context !== '' ? "\n" . $context : '';
     return <<<TXT
-Write one short English reading passage for a 9-year-old Vietnamese child who is still building English reading skills.
-Linked subject: {$subj}. Topic: {$topicText}.{$ctx}
-Reading level {$level}/5: {$L['desc']}. Length {$L['words']} words. Every sentence at most {$L['sent']} words. Clear, friendly, true facts only (no invented science), child-safe, a small story or a simple information text with a title.
+Write one English reading passage for a 9-year-old Vietnamese child who reads aloud fluently but often does NOT understand what she reads (weak vocabulary and comprehension).
+{$what}{$ctx}
+Reading level {$level}/5: {$L['desc']}. Total length {$L['words']} words. Every sentence at most {$L['sent']} words. Clear, friendly, child-safe, with a title.
+Split the passage into exactly 3 short parts (each part 2–5 sentences, a natural chunk: e.g. who/where → what happened → why it matters).
 Then make:
-- "words": exactly 3 useful words from the passage (the exact form used in the text), each with "vi" (Vietnamese meaning, short) and "ex" (a new very simple English example sentence).
-- "questions": exactly 3 multiple-choice questions in simple English, 3 options each, only one correct, answerable from the passage: 1) a detail question, 2) a vocabulary-in-context or sequence question, 3) a simple "why/main idea" question. Vary the position of the correct answer. "explain": one short sentence in Vietnamese saying where in the text the answer is.
-- "read_aloud": copy exactly ONE sentence (6–14 words) from the passage that has useful sounds to practise (th, final consonants, s/sh, r/l).
-Return JSON only: {"title":"...","passage":"...","words":[{"w":"...","vi":"...","ex":"..."}],"questions":[{"q":"...","options":["...","...","..."],"answer":0,"explain":"..."}],"read_aloud":"..."}
+- "words": exactly 3 KEY words the child must know to understand the text, taught BEFORE reading (the exact form used in the text). Each with "vi" (short Vietnamese meaning) and "ex" (a new very simple English example sentence).
+- For part 1 and part 2 only: "q" = one multiple-choice comprehension question in simple English about THAT part (who/what/where/why), 3 options, only one correct, "explain" = one short Vietnamese sentence pointing to the sentence in that part. Part 3 has no question.
+- "retell_points": exactly 3 short key ideas of the whole text (in Vietnamese) that a good retelling should mention.
+- "read_aloud": copy exactly ONE sentence (6–14 words) from the passage with useful sounds (th, final consonants, s/sh, r/l).
+Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"..."}},{"text":"...","q":{...}},{"text":"..."}],"retell_points":["...","...","..."],"read_aloud":"..."}
 TXT;
 }
 
 // Kiểm tra và làm sạch bài đọc Claude trả về; null nếu thiếu phần quan trọng
+// Bài đọc dạng mới: 3 đoạn, câu hỏi sau đoạn 1 và 2, kể lại ở cuối
+function read_clean_parts(array $d): ?array
+{
+    $parts = [];
+    foreach (is_array($d['parts'] ?? null) ? array_slice($d['parts'], 0, 4) : [] as $k => $p) {
+        $t = trim(preg_replace("/[ \t]+/u", ' ', clean($p['text'] ?? '', 1200)) ?? '');
+        if ($t === '') continue;
+        $q = null;
+        $x = $p['q'] ?? null;
+        if (is_array($x)) {
+            $opts = array_values(array_filter(array_map(fn($o) => clean($o, 160), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
+            $a = (int)($x['answer'] ?? -1);
+            if (clean($x['q'] ?? '', 300) !== '' && count($opts) >= 2 && $a >= 0 && $a < count($opts))
+                $q = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300)];
+        }
+        $parts[] = ['text' => $t, 'q' => $q];
+    }
+    if (count($parts) < 3) return null;
+    $parts[count($parts) - 1]['q'] = null;                        // đoạn cuối: kể lại thay cho câu hỏi
+    $qs = array_values(array_filter(array_column($parts, 'q')));
+    if (count($qs) < 2) return null;
+    $base = read_clean(['title' => $d['title'] ?? '', 'passage' => implode("\n\n", array_column($parts, 'text')), 'words' => $d['words'] ?? [],
+                        'questions' => array_merge($qs, [$qs[0]]), 'read_aloud' => $d['read_aloud'] ?? '']);
+    if (!$base) return null;
+    $points = array_values(array_filter(array_map(fn($x) => clean($x, 200), is_array($d['retell_points'] ?? null) ? array_slice($d['retell_points'], 0, 4) : [])));
+    return ['title' => $base['title'], 'passage' => $base['passage'], 'words' => $base['words'], 'parts' => $parts,
+            'retell_points' => $points, 'read_aloud' => $base['read_aloud']];
+}
+
 function read_clean(array $d): ?array
 {
     $passage = trim(preg_replace("/[ \t]+/u", ' ', clean($d['passage'] ?? '', 2500)) ?? '');
@@ -2404,11 +2466,70 @@ function reading_for_kid(array $r): array
 {
     $d = json_decode((string)$r['data'], true) ?: [];
     $done = $r['score'] !== null;
+    $base = ['id' => (int)$r['id'], 'subject' => $r['subject'], 'topic' => $r['topic'], 'level' => (int)$r['level'], 'title' => $d['title'] ?? '',
+             'words' => $d['words'] ?? [], 'read_aloud' => $d['read_aloud'] ?? '', 'score' => $done ? (int)$r['score'] : null,
+             'pron_score' => $r['pron_score'] !== null ? (int)$r['pron_score'] : null];
+    if (!empty($d['parts'])) {
+        // Dạng mới: chỉ gửi các đoạn đã mở (bé trả lời đúng câu của đoạn trước mới mở đoạn sau)
+        $st = json_decode((string)$r['answers'], true) ?: [];
+        $open = $done ? count($d['parts']) : min(count($d['parts']), (int)($st['open'] ?? 1));
+        $parts = [];
+        foreach ($d['parts'] as $k => $p) {
+            if ($k >= $open) break;
+            $q = $p['q'] ? ['q' => $p['q']['q'], 'options' => $p['q']['options']] : null;
+            $res = $st['parts'][$k] ?? null;
+            if ($q && $res && !empty($res['solved'])) $q += ['answer' => $p['q']['answer'], 'explain' => $p['q']['explain']];
+            $parts[] = ['text' => $p['text'], 'q' => $q, 'res' => $res];
+        }
+        return $base + ['format' => 'parts', 'parts' => $parts, 'total_parts' => count($d['parts']), 'retell' => $st['retell'] ?? null,
+                        'retell_points' => $done ? ($d['retell_points'] ?? []) : [], 'max' => count(array_filter(array_column($d['parts'], 'q'))) + 1];
+    }
     $qs = array_map(fn($x) => $done ? $x : ['q' => $x['q'], 'options' => $x['options']], $d['questions'] ?? []);
-    return ['id' => (int)$r['id'], 'subject' => $r['subject'], 'topic' => $r['topic'], 'level' => (int)$r['level'], 'title' => $d['title'] ?? '',
-            'passage' => $d['passage'] ?? '', 'words' => $d['words'] ?? [], 'questions' => $qs, 'read_aloud' => $d['read_aloud'] ?? '',
-            'answers' => $r['answers'] !== null ? array_map('intval', explode(',', $r['answers'])) : null,
-            'score' => $r['score'] !== null ? (int)$r['score'] : null, 'pron_score' => $r['pron_score'] !== null ? (int)$r['pron_score'] : null];
+    return $base + ['format' => 'classic', 'passage' => $d['passage'] ?? '', 'questions' => $qs,
+                    'answers' => $r['answers'] !== null ? array_map('intval', explode(',', $r['answers'])) : null, 'max' => count($d['questions'] ?? [])];
+}
+
+// Kể lại: Mây xem bé đã nắm các ý chính chưa (tiếng Việt hay tiếng Anh đều được)
+function retell_prompt(array $d, string $text): string
+{
+    $passage = $d['passage'] ?? '';
+    $points = json_encode($d['retell_points'] ?? [], JSON_UNESCAPED_UNICODE);
+    return <<<TXT
+Bé lớp 4 (người Việt) vừa đọc bài tiếng Anh dưới đây rồi kể lại bằng lời của mình (tiếng Việt hoặc tiếng Anh; có thể do máy chép giọng nói nên sai chính tả – đừng chấm chính tả, ngữ pháp).
+Bài đọc: "{$passage}"
+Các ý chính cần có: {$points}
+Bé kể: "{$text}"
+Đánh giá bé đã HIỂU bài chưa: đếm số ý chính bé nêu đúng (diễn đạt khác vẫn tính), và bé có nói sai nội dung không.
+Trả về JSON: {"hit":[chỉ số các ý chính bé nêu đúng],"wrong":"nội dung bé hiểu sai (bỏ trống nếu không có)","praise":"1 câu khen cụ thể bằng tiếng Việt","missing":"gợi ý ngắn bằng tiếng Việt ý nào còn thiếu (bỏ trống nếu đủ)"}
+TXT;
+}
+
+/* ---------------- Từ của tuần (English) ---------------- */
+// 10 từ theo Unit English tuần này; dùng lại trong bài đọc, bài nghe, đố vui; vào Sổ ôn tập để ôn cách quãng.
+function week_words_prompt(string $topic, string $context): string
+{
+    $t = $topic !== '' ? $topic : 'the Our World 4 unit the class is studying now (see context)';
+    $ctx = $context !== '' ? "\n" . $context : '';
+    return <<<TXT
+Choose exactly 10 useful English words for a 9-year-old Vietnamese learner (vocabulary is weak) for this week's English topic: {$t}.{$ctx}
+Prefer words from the unit's theme that she will meet in reading and listening (nouns, verbs, adjectives; A1–A2). No proper names.
+For each: "w" (the word), "vi" (short Vietnamese meaning), "ex" (one very simple English example sentence using the word).
+Return JSON only: {"words":[{"w":"...","vi":"...","ex":"..."}]}
+TXT;
+}
+
+function week_words(string $day = ''): array
+{
+    $day = $day !== '' ? $day : today();
+    $wk = date('Y-m-d', strtotime('monday this week', strtotime($day)));
+    $d = json_decode(setting('week_words:' . $wk), true);
+    return is_array($d) ? $d : [];
+}
+
+function week_words_text(): string
+{
+    $w = week_words();
+    return $w ? "\nTừ của tuần (dùng lại tự nhiên ít nhất 3–4 từ trong số này nếu hợp nội dung): " . implode(', ', array_column($w, 'w')) : '';
 }
 
 // Sau mỗi bài: đúng 3/3 hai bài liền thì lên một mức, sai từ 2 câu thì xuống một mức
