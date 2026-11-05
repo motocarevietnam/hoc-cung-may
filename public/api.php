@@ -745,8 +745,9 @@ function read_finish_parts(array $r, array $d, array $b): never
     // Mây trả số thứ tự từ 1 → đổi về chỉ số từ 0
     $hit = array_values(array_unique(array_filter(array_map(fn($x) => (int)$x - 1, is_array($j['hit'] ?? null) ? $j['hit'] : []), fn($i) => $i >= 0 && $i < count($points))));
     $pass = count($hit) >= min(2, max(1, count($points)));
-    $st['retell'] = ['text' => $text, 'hit' => $hit, 'pass' => $pass, 'wrong' => clean($j['wrong'] ?? '', 300),
-                     'praise' => clean($j['praise'] ?? '', 300), 'missing' => clean($j['missing'] ?? '', 300)];
+    $st['retell'] = ['text' => $text, 'hit' => $hit, 'pass' => $pass, 'wrong' => clean($j['wrong'] ?? '', 300), 'wrong_vi' => clean($j['wrong_vi'] ?? '', 300),
+                     'praise' => clean($j['praise'] ?? '', 300), 'praise_vi' => clean($j['praise_vi'] ?? '', 300),
+                     'missing' => clean($j['missing'] ?? '', 300), 'missing_vi' => clean($j['missing_vi'] ?? '', 300)];
     $mcq = 0; $max = 1;
     foreach ($d['parts'] as $k => $p) if ($p['q']) { $max++; if (!empty($st['parts'][$k]['first'])) $mcq++; }
     $score = $mcq + ($pass ? 1 : 0);

@@ -2406,10 +2406,10 @@ Reading level {$level}/5: {$L['desc']}. Total length {$L['words']} words. Every 
 Split the passage into exactly 3 short parts (each part 2–5 sentences, a natural chunk: e.g. who/where → what happened → why it matters).
 Then make:
 - "words": exactly 3 KEY words the child must know to understand the text, taught BEFORE reading (the exact form used in the text). Each with "vi" (short Vietnamese meaning) and "ex" (a new very simple English example sentence).
-- For part 1 and part 2 only: "q" = one multiple-choice comprehension question in simple English about THAT part (who/what/where/why), 3 options, only one correct, "explain" = one short Vietnamese sentence pointing to the sentence in that part. Part 3 has no question.
-- "retell_points": exactly 3 short key ideas of the whole text (in Vietnamese) that a good retelling should mention.
+- For part 1 and part 2 only: "q" = one multiple-choice comprehension question in simple English about THAT part (who/what/where/why), 3 options, only one correct, "explain" = one very simple English sentence quoting the sentence in that part that gives the answer, "explain_vi" = the same in Vietnamese. Part 3 has no question.
+- "retell_points": exactly 3 short key ideas of the whole text in very simple English that a good retelling should mention; "retell_points_vi": the same 3 ideas in Vietnamese.
 - "read_aloud": copy exactly ONE sentence (6–14 words) from the passage with useful sounds (th, final consonants, s/sh, r/l).
-Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"..."}},{"text":"...","q":{...}},{"text":"..."}],"retell_points":["...","...","..."],"read_aloud":"..."}
+Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."}},{"text":"...","q":{...}},{"text":"..."}],"retell_points":["...","...","..."],"retell_points_vi":["...","...","..."],"read_aloud":"..."}
 TXT;
 }
 
@@ -2427,7 +2427,7 @@ function read_clean_parts(array $d): ?array
             $opts = array_values(array_filter(array_map(fn($o) => clean($o, 160), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
             $a = (int)($x['answer'] ?? -1);
             if (clean($x['q'] ?? '', 300) !== '' && count($opts) >= 2 && $a >= 0 && $a < count($opts))
-                $q = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300)];
+                $q = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300), 'explain_vi' => clean($x['explain_vi'] ?? '', 300)];
         }
         $parts[] = ['text' => $t, 'q' => $q];
     }
@@ -2439,8 +2439,9 @@ function read_clean_parts(array $d): ?array
                         'questions' => array_merge($qs, [$qs[0]]), 'read_aloud' => $d['read_aloud'] ?? '']);
     if (!$base) return null;
     $points = array_values(array_filter(array_map(fn($x) => clean($x, 200), is_array($d['retell_points'] ?? null) ? array_slice($d['retell_points'], 0, 4) : [])));
+    $pointsVi = array_map(fn($x) => clean($x, 200), is_array($d['retell_points_vi'] ?? null) ? array_slice($d['retell_points_vi'], 0, count($points)) : []);
     return ['title' => $base['title'], 'passage' => $base['passage'], 'words' => $base['words'], 'parts' => $parts,
-            'retell_points' => $points, 'read_aloud' => $base['read_aloud']];
+            'retell_points' => $points, 'retell_points_vi' => $pointsVi, 'read_aloud' => $base['read_aloud']];
 }
 
 function read_clean(array $d): ?array
@@ -2452,7 +2453,7 @@ function read_clean(array $d): ?array
         $opts = array_values(array_filter(array_map(fn($o) => clean($o, 160), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
         $a = (int)($x['answer'] ?? -1);
         if (clean($x['q'] ?? '', 300) === '' || count($opts) < 2 || $a < 0 || $a >= count($opts)) continue;
-        $qs[] = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300)];
+        $qs[] = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300), 'explain_vi' => clean($x['explain_vi'] ?? '', 300)];
     }
     if (count($qs) < 3) return null;
     $words = [];
@@ -2490,11 +2491,11 @@ function reading_for_kid(array $r): array
             if ($k >= $open) break;
             $q = $p['q'] ? ['q' => $p['q']['q'], 'options' => $p['q']['options']] : null;
             $res = $st['parts'][$k] ?? null;
-            if ($q && $res && !empty($res['solved'])) $q += ['answer' => $p['q']['answer'], 'explain' => $p['q']['explain']];
+            if ($q && $res && !empty($res['solved'])) $q += ['answer' => $p['q']['answer'], 'explain' => $p['q']['explain'], 'explain_vi' => $p['q']['explain_vi'] ?? ''];
             $parts[] = ['text' => $p['text'], 'q' => $q, 'res' => $res];
         }
         return $base + ['format' => 'parts', 'parts' => $parts, 'total_parts' => count($d['parts']), 'retell' => $st['retell'] ?? null,
-                        'retell_points' => $done ? ($d['retell_points'] ?? []) : [], 'max' => count(array_filter(array_column($d['parts'], 'q'))) + 1];
+                        'retell_points' => $done ? ($d['retell_points'] ?? []) : [], 'retell_points_vi' => $done ? ($d['retell_points_vi'] ?? []) : [], 'max' => count(array_filter(array_column($d['parts'], 'q'))) + 1];
     }
     $qs = array_map(fn($x) => $done ? $x : ['q' => $x['q'], 'options' => $x['options']], $d['questions'] ?? []);
     return $base + ['format' => 'classic', 'passage' => $d['passage'] ?? '', 'questions' => $qs,
@@ -2513,7 +2514,8 @@ Các ý chính cần có (đánh số từ 1):
 {$points}
 Bé kể: "{$text}"
 Đánh giá bé đã HIỂU bài chưa: đếm số ý chính bé nêu đúng (diễn đạt khác vẫn tính), và bé có nói sai nội dung không.
-Trả về JSON: {"hit":[SỐ THỨ TỰ (1, 2, 3…) của các ý chính bé nêu đúng],"wrong":"nội dung bé hiểu sai (bỏ trống nếu không có)","praise":"1 câu khen cụ thể bằng tiếng Việt","missing":"gợi ý ngắn bằng tiếng Việt ý nào còn thiếu (bỏ trống nếu đủ)"}
+Viết nhận xét bằng TIẾNG ANH thật đơn giản (trình độ A1, câu ngắn), kèm bản tiếng Việt.
+Trả về JSON: {"hit":[SỐ THỨ TỰ (1, 2, 3…) của các ý chính bé nêu đúng],"wrong":"(English) what the child got wrong, empty if nothing","wrong_vi":"(tiếng Việt)","praise":"(English) one specific praise","praise_vi":"(tiếng Việt)","missing":"(English) a short hint about the missing idea, empty if complete","missing_vi":"(tiếng Việt)"}
 TXT;
 }
 
@@ -2582,9 +2584,9 @@ Topic: {$topicText}.{$ctx}
 Level {$level}/5: {$L['desc']}. Total length {$L['words']} words. Each sentence at most {$L['sent']} words. Natural spoken English, child-safe, true facts only.
 Usually a dialogue between two speakers: A is a woman or girl, B is a man or boy (give them names ONLY from this list: {$names}; say the names in the dialogue). Sometimes (1 in 4) a short talk by one narrator "N". Lines must be speakable (no stage directions, no emojis).
 Then make:
-- "questions": exactly 4 multiple-choice questions in simple English, 3 short options each, only one correct, each answerable ONLY by listening (detail: who/what/where/when/how many/colour; at level ≥3 one question with a distractor that is mentioned but not correct). Questions in the order the answers appear. Vary the position of the correct answer. "explain": one short Vietnamese sentence quoting what was said.
+- "questions": exactly 4 multiple-choice questions in simple English, 3 short options each, only one correct, each answerable ONLY by listening (detail: who/what/where/when/how many/colour; at level ≥3 one question with a distractor that is mentioned but not correct). Questions in the order the answers appear. Vary the position of the correct answer. "explain": one very simple English sentence quoting what was said; "explain_vi": the same in Vietnamese.
 - "dictation": copy exactly ONE sentence (5–10 words) spoken in the script, with common words, for the child to listen and write down.
-Return JSON only: {"title":"...","lines":[{"who":"A","name":"...","text":"..."}],"questions":[{"q":"...","options":["...","...","..."],"answer":0,"explain":"..."}],"dictation":"..."}
+Return JSON only: {"title":"...","lines":[{"who":"A","name":"...","text":"..."}],"questions":[{"q":"...","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."}],"dictation":"..."}
 TXT;
 }
 
@@ -2603,7 +2605,7 @@ function listen_clean(array $d): ?array
         $opts = array_values(array_filter(array_map(fn($o) => clean($o, 120), is_array($x['options'] ?? null) ? array_slice($x['options'], 0, 4) : []), fn($o) => $o !== ''));
         $a = (int)($x['answer'] ?? -1);
         if (clean($x['q'] ?? '', 300) === '' || count($opts) < 2 || $a < 0 || $a >= count($opts)) continue;
-        $qs[] = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300)];
+        $qs[] = ['q' => clean($x['q'], 300), 'options' => $opts, 'answer' => $a, 'explain' => clean($x['explain'] ?? '', 300), 'explain_vi' => clean($x['explain_vi'] ?? '', 300)];
     }
     if (count($qs) < 3) return null;
     // Câu chép chính tả phải nằm trong lời thoại; nếu không thì lấy câu 5–10 từ đầu tiên

@@ -261,6 +261,10 @@ th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
 .pron{margin-top:12px;padding-top:10px;border-top:2px dashed var(--line)}
 .wd.pw{border:0;cursor:pointer;font:inherit;font-size:19px}
 .passage{font-size:20px;line-height:1.75;white-space:pre-line}
+.vi{display:none;font-size:14px;color:var(--ink-soft);font-style:italic;margin-top:2px}
+body.show-vi .vi{display:block}
+span.vi{font-weight:400}
+.vitog{margin-left:auto;font-size:14px !important;padding:5px 10px !important}
 .passage mark{background:color-mix(in srgb,var(--sun) 40%,transparent);border-radius:6px;padding:0 3px}
 .ra{font-size:20px;font-weight:600;background:var(--surface-2);border:2px dashed var(--line);border-radius:14px;padding:10px 14px;margin:8px 0}
 .vocab{display:grid;gap:8px}
@@ -1095,6 +1099,11 @@ async function loadRead(isNew){
   if(state.view==="read" && state.rd===R) render();
 }
 let rtRec = null;
+// Màn tiếng Anh: chữ tiếng Anh, bản dịch tiếng Việt nhỏ ẩn sẵn, bấm 🇻🇳 Dịch để hiện
+const VI = (en, vi) => vi ? `${en}<span class="vi">${vi}</span>` : en;
+try{ if(LS.get("showVi", false)) document.body.classList.add("show-vi"); }catch(e){}
+const viToggle = () => `<button class="btn vitog" id="viTog" aria-pressed="${document.body.classList.contains("show-vi")}">🇻🇳 ${document.body.classList.contains("show-vi")?"Ẩn dịch":"Dịch"}</button>`;
+function wireViToggle(){ const b=document.getElementById("viTog"); if(b) b.onclick=()=>{ const on=!document.body.classList.contains("show-vi"); document.body.classList.toggle("show-vi", on); LS.set("showVi", on); b.setAttribute("aria-pressed", on); b.textContent="🇻🇳 "+(on?"Ẩn dịch":"Dịch"); }; }
 async function readCheck(part, pick){
   const R=state.rd; if(R.busy) return; R.busy=true; R.err="";
   try{ const d = await api("/api/read_check",{id:R.r.id, part, pick}); R.r=d.reading; }
@@ -1104,7 +1113,7 @@ async function readCheck(part, pick){
 async function submitRetell(){
   const R=state.rd; if(rtRec){ try{rtRec.stop()}catch(e){} }
   const text=(R.retell||"").trim();
-  if(text.length<8){ R.err="Bạn kể dài hơn một chút nhé (2–3 câu)."; return render(); }
+  if(text.length<8){ R.err="Please write a little more (2–3 sentences). · Bạn kể dài hơn một chút nhé."; return render(); }
   R.busy=true; R.err=""; render();
   try{
     const d = await api("/api/read_answer",{id:R.r.id, retell:text});
@@ -1149,88 +1158,89 @@ function markWords(text, words){
 }
 function renderRead(){
   const R=state.rd;
-  const head = `<button class="back" id="back">‹ Về trang chính</button>
-    <div class="sec-title"><div class="badge" style="background:var(--l4)">📖</div><div><h2>Reading</h2><div class="muted">Đọc tiếng Anh 10 phút${R.level?` · mức ${R.level}/5`:""}</div></div></div>`;
-  const wireBack=()=>{ document.getElementById("back").onclick=()=>{ go("home"); refreshState(); }; };
-  if(R.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">Mây đang soạn bài đọc cho bạn… ☁️</div>`; return wireBack(); }
-  if(R.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(R.err)}</div><button class="btn primary" id="rdRetry">Thử lại</button>`; wireBack(); document.getElementById("rdRetry").onclick=()=>openRead(); return; }
+  const head = `<button class="back" id="back">‹ Home</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">📖</div><div><h2>Reading</h2><div class="muted">${VI(`10-minute reading${R.level?` · level ${R.level}/5`:""}`, "Đọc tiếng Anh 10 phút")}</div></div>${viToggle()}</div>`;
+  const wireBack=()=>{ document.getElementById("back").onclick=()=>{ go("home"); refreshState(); }; wireViToggle(); };
+  if(R.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">${VI("Mây is writing your text… ☁️","Mây đang soạn bài đọc cho bạn…")}</div>`; return wireBack(); }
+  if(R.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(R.err)}</div><button class="btn primary" id="rdRetry">Try again</button>`; wireBack(); document.getElementById("rdRetry").onclick=()=>openRead(); return; }
   const r=R.r, done=R.phase==="done";
   const qs = (r.questions||[]).map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
       ${x.options.map((o,j)=>{ let c=""; if(done){ if(j===x.answer) c=" right"; else if(r.answers&&r.answers[i]===j) c=" wrong"; } else if(R.sel[i]===j) c=" chosen";
         return `<button class="opt${c}" data-q="${i}" data-o="${j}" ${done?"disabled":""}>${esc(o)}</button>`; }).join("")}
-    </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${esc(x.explain)}</p>`:""}</div>`).join("");
-  const lvMsg = R.change>0 ? `<div class="notice">🎉 Đúng hết 2 bài liền! Từ bài sau Mây cho bạn đọc <b>mức ${R.level}</b> nhé.</div>`
-              : R.change<0 ? `<div class="notice">Bài sau Mây chọn bài dễ hơn một chút (mức ${R.level}) để bạn đọc thoải mái nhé.</div>` : "";
-  const vocabCard = `<div class="card"><h3>3 từ khóa</h3><div class="vocab">
+    </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${x.explain_vi?VI(esc(x.explain), esc(x.explain_vi)):`<span class="vi">${esc(x.explain)}</span>`}</p>`:""}</div>`).join("");
+  const lvMsg = R.change>0 ? `<div class="notice">${VI(`🎉 Two perfect texts in a row! Next time you read <b>level ${R.level}</b>.`, `Đúng hết 2 bài liền! Bài sau lên mức ${R.level}.`)}</div>`
+              : R.change<0 ? `<div class="notice">${VI(`Next text will be a little easier (level ${R.level}).`, `Bài sau dễ hơn một chút (mức ${R.level}).`)}</div>` : "";
+  const vocabCard = `<div class="card"><h3>3 key words</h3><div class="vocab">
       ${r.words.map((w,i)=>`<button data-w="${i}"><b lang="en">🔊 ${esc(w.w)}</b> – ${esc(w.vi)}${w.ex?`<br><span class="muted" lang="en">${esc(w.ex)}</span>`:""}</button>`).join("")}
     </div></div>`;
-  const vocabMsg = R.vocab?`<p class="muted">📒 Mây đã ghi ${R.vocab} từ mới vào Sổ ôn tập, ngày mai Mây hỏi lại nhé.</p>`:"";
+  const vocabMsg = R.vocab?`<p class="muted">${VI(`📒 ${R.vocab} new words are in your Review Book. Mây will ask you tomorrow.`, `Mây đã ghi ${R.vocab} từ mới vào Sổ ôn tập, ngày mai hỏi lại.`)}</p>`:"";
   let main;
   if(r.format==="parts"){
     const started = r.parts.some(p=>p.res);
     if(!done && !started && !R.wordsSeen){
       // Bước 1: học 3 từ khóa TRƯỚC khi đọc
-      main = `<div class="card"><h3>Bước 1: Học 3 từ khóa trước khi đọc</h3>
-        <p class="muted" style="margin:0 0 8px">Bấm vào từ để nghe. Nhớ nghĩa rồi mới đọc bài nhé, đọc sẽ hiểu hơn nhiều!</p>
+      main = `<div class="card"><h3>${VI("Step 1: Learn 3 key words","Bước 1: Học 3 từ khóa trước khi đọc")}</h3>
+        <p class="muted" style="margin:0 0 8px">${VI("Tap a word to listen. Learn the meaning first – then the text is easier!","Bấm vào từ để nghe. Nhớ nghĩa trước, đọc sẽ dễ hiểu hơn.")}</p>
         <div class="vocab">${r.words.map((w,i)=>`<button data-w="${i}"><b lang="en" style="font-size:22px">🔊 ${esc(w.w)}</b><br>${esc(w.vi)}${w.ex?`<br><span class="muted" lang="en">${esc(w.ex)}</span>`:""}</button>`).join("")}</div>
-        <div class="row" style="margin-top:12px"><button class="btn primary" id="rdWordsOk">Mình nhớ rồi, đọc bài 📖</button></div></div>`;
+        <div class="row" style="margin-top:12px"><button class="btn primary" id="rdWordsOk">I'm ready – let's read 📖</button></div></div>`;
     } else {
       const partsHtml = r.parts.map((p,k)=>{
         const res=p.res, q=p.q;
         const qHtml = !q ? "" : `<div class="qcard" style="margin:10px 0 4px"><div class="q">❓ ${esc(q.q)}</div><div class="opts">
           ${q.options.map((o,j)=>{ let c=""; if(res&&res.solved){ if(j===q.answer) c=" right"; else if(res.last===j) c=" wrong"; } else if(res&&res.last===j) c=" wrong";
             return `<button class="opt${c}" data-pq="${k}" data-o="${j}" ${(res&&res.solved)||done||R.busy?"disabled":""}>${esc(o)}</button>`; }).join("")}</div>
-          ${res&&!res.solved?`<div class="notice" style="margin-top:8px">Chưa đúng. Bạn đọc lại <b>đoạn ${k+1}</b> thật chậm, tìm câu trả lời trong đoạn rồi chọn lại nhé 🔍</div>`:""}
-          ${res&&res.solved?`<p class="muted" style="margin:8px 0 0">${res.ok?(res.first?"🎉 Đúng ngay lần đầu!":"👍 Đúng rồi!"):"Đáp án đúng là ô màu xanh."} ${q.explain?"💡 "+esc(q.explain):""}</p>`:""}</div>`;
-        return `<div class="card" style="margin-top:12px"><div class="muted" style="font-size:14px">Đoạn ${k+1}/${r.total_parts} <button class="btn" data-lp="${k}" style="padding:2px 10px;margin-left:6px">🔊</button></div>
+          ${res&&!res.solved?`<div class="notice" style="margin-top:8px">${VI(`Not quite. Read <b>Part ${k+1}</b> again slowly and find the answer 🔍`, `Chưa đúng. Đọc lại đoạn ${k+1} thật chậm, tìm câu trả lời rồi chọn lại nhé.`)}</div>`:""}
+          ${res&&res.solved?`<p class="muted" style="margin:8px 0 0">${res.ok?(res.first?VI("🎉 Right first time!","Đúng ngay lần đầu!"):VI("👍 Correct!","Đúng rồi!")):VI("The right answer is green.","Đáp án đúng là ô màu xanh.")}</p>${q.explain?`<p class="muted" style="margin:4px 0 0">💡 ${q.explain_vi?VI(esc(q.explain), esc(q.explain_vi)):`<span class="vi">${esc(q.explain)}</span>`}</p>`:""}`:""}</div>`;
+        return `<div class="card" style="margin-top:12px"><div class="muted" style="font-size:14px">Part ${k+1}/${r.total_parts} <button class="btn" data-lp="${k}" style="padding:2px 10px;margin-left:6px">🔊</button></div>
           <div class="passage" lang="en">${markWords(p.text, r.words)}</div>${qHtml}</div>`;
       }).join("");
       const allOpen = r.parts.length>=r.total_parts && r.parts.every(p=>!p.q || (p.res&&p.res.solved));
-      const locked = r.parts.length<r.total_parts ? `<p class="muted" style="margin:10px 4px">🔒 Trả lời câu hỏi ở trên để mở đoạn tiếp theo.</p>` : "";
+      const locked = r.parts.length<r.total_parts ? `<p class="muted" style="margin:10px 4px">${VI("🔒 Answer the question above to open the next part.","Trả lời câu hỏi ở trên để mở đoạn tiếp theo.")}</p>` : "";
       const rt = r.retell;
-      const retellHtml = done && rt ? `<div class="card" style="margin-top:12px"><h3>🗣️ Bạn kể lại</h3>
+      const vv = (en, vi) => rt.praise_vi ? VI(esc(en), esc(vi||"")) : `<span class="vi">${esc(en)}</span>`;  // bài cũ: nhận xét chỉ có tiếng Việt
+      const retellHtml = done && rt ? `<div class="card" style="margin-top:12px"><h3>${VI("🗣️ Your retelling","Bạn kể lại")}</h3>
           <p style="margin:0 0 6px">“${esc(rt.text)}”</p>
-          ${rt.praise?`<p style="margin:4px 0">${rt.pass?"🌟":"👍"} ${esc(rt.praise)}</p>`:""}
-          ${rt.wrong?`<div class="notice">Chỗ này chưa đúng với bài: ${esc(rt.wrong)}</div>`:""}
-          ${rt.missing?`<p class="muted" style="margin:4px 0">💡 ${esc(rt.missing)}</p>`:""}
-          ${(r.retell_points||[]).length?`<p class="muted" style="margin:8px 0 2px">Các ý chính của bài:</p><ul class="tips">${r.retell_points.map((x,i)=>`<li>${(rt.hit||[]).includes(i)?"✅":"⬜"} ${esc(x)}</li>`).join("")}</ul>`:""}</div>`
-        : (!done && allOpen ? `<div class="card" style="margin-top:12px"><h3>🗣️ Kể lại cho Mây</h3>
-          <p class="muted" style="margin:0 0 8px">Bài này nói về điều gì? Kể 2–3 câu bằng lời của bạn (tiếng Việt hay English đều được). Có thể đọc lại các đoạn ở trên.</p>
-          <textarea class="field" id="rdRetell" rows="4" placeholder="Ví dụ: Bài kể về… Bạn ấy đã… Vì vậy…">${esc(R.retell||"")}</textarea>
-          <div class="row">${SR?`<button class="btn" id="rdRtMic">${rtRec?"⏹️ Dừng":"🎤 Nói"}</button>`:""}
-            <button class="btn primary" id="rdRtSend" ${R.busy?"disabled":""}>${R.busy?"Mây đang đọc…":"Gửi Mây ✅"}</button></div></div>` : "");
-      main = `${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(Math.max(0,r.max-r.score))}</div><p>Bạn được <b>${r.score}/${r.max}</b> điểm.</p></div>${lvMsg}${vocabMsg}`:""}
+          ${rt.praise?`<p style="margin:4px 0">${rt.pass?"🌟":"👍"} ${vv(rt.praise, rt.praise_vi)}</p>`:""}
+          ${rt.wrong?`<div class="notice">${vv(rt.wrong, rt.wrong_vi)}</div>`:""}
+          ${rt.missing?`<p class="muted" style="margin:4px 0">💡 ${vv(rt.missing, rt.missing_vi)}</p>`:""}
+          ${(r.retell_points||[]).length?`<p class="muted" style="margin:8px 0 2px">${VI("Key ideas:","Các ý chính:")}</p><ul class="tips">${r.retell_points.map((x,i)=>`<li>${(rt.hit||[]).includes(i)?"✅":"⬜"} ${(r.retell_points_vi||[]).length?VI(esc(x), esc(r.retell_points_vi[i]||"")):`<span class="vi">${esc(x)}</span>`}</li>`).join("")}</ul>`:""}</div>`
+        : (!done && allOpen ? `<div class="card" style="margin-top:12px"><h3>${VI("🗣️ Tell Mây about the text","Kể lại cho Mây")}</h3>
+          <p class="muted" style="margin:0 0 8px">${VI("What is the text about? Write or say 2–3 sentences in your own words. You can use English or Vietnamese.","Bài này nói về điều gì? Kể 2–3 câu bằng lời của bạn, tiếng Anh hay tiếng Việt đều được.")}</p>
+          <textarea class="field" id="rdRetell" rows="4" placeholder="This text is about… / Bài kể về…">${esc(R.retell||"")}</textarea>
+          <div class="row">${SR?`<button class="btn" id="rdRtMic">${rtRec?"⏹️ Stop":"🎤 Speak (VI)"}</button>`:""}
+            <button class="btn primary" id="rdRtSend" ${R.busy?"disabled":""}>${R.busy?"Mây is reading…":"Send ✅"}</button></div></div>` : "");
+      main = `${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(Math.max(0,r.max-r.score))}</div><p>${VI(`You got <b>${r.score}/${r.max}</b> points.`, `Bạn được ${r.score}/${r.max} điểm.`)}</p></div>${lvMsg}${vocabMsg}`:""}
         <div class="card"><h3>${esc(r.title)}</h3>
-          ${done?`<div class="row"><button class="btn" id="rdListen">🔊 Nghe Mây đọc cả bài</button></div>`:`<p class="muted" style="margin:0">Đọc từng đoạn, trả lời câu hỏi để mở đoạn tiếp theo. Từ <mark>tô vàng</mark> là từ khóa vừa học.</p>`}</div>
+          ${done?`<div class="row"><button class="btn" id="rdListen">🔊 Listen to the whole text</button></div>`:`<p class="muted" style="margin:0">${VI("Read one part at a time. Answer the question to open the next part. <mark>Yellow</mark> words are your key words.","Đọc từng đoạn, trả lời câu hỏi để mở đoạn tiếp theo. Từ tô vàng là từ khóa vừa học.")}</p>`}</div>
         ${partsHtml}${locked}${retellHtml}${vocabCard}`;
     }
   } else {
-    main = `    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.questions.length-r.score)}</div><p>Bạn trả lời đúng <b>${r.score}/${r.questions.length}</b> câu.</p></div>${lvMsg}${vocabMsg}`:""}
+    main = `    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.questions.length-r.score)}</div><p>${VI(`You got <b>${r.score}/${r.questions.length}</b> right.`, `Bạn trả lời đúng ${r.score}/${r.questions.length} câu.`)}</p></div>${lvMsg}${vocabMsg}`:""}
     <div class="card"><h3>${esc(r.title)}</h3>
       <div class="passage" lang="en">${markWords(r.passage, r.words)}</div>
-      <div class="row"><button class="btn" id="rdListen">🔊 Nghe Mây đọc</button></div>
-      ${done?"":`<p class="muted" style="margin:6px 0 0">Đọc chậm 2 lần. Từ <mark>tô vàng</mark> là từ mới, xem nghĩa ở dưới.</p>`}
+      <div class="row"><button class="btn" id="rdListen">🔊 Listen</button></div>
+      ${done?"":`<p class="muted" style="margin:6px 0 0">${VI("Read slowly two times. <mark>Yellow</mark> words are new – see the meanings below.","Đọc chậm 2 lần. Từ tô vàng là từ mới, xem nghĩa ở dưới.")}</p>`}
     </div>
-    <div class="card"><h3>3 từ mới</h3><div class="vocab">
+    <div class="card"><h3>3 new words</h3><div class="vocab">
       ${r.words.map((w,i)=>`<button data-w="${i}"><b lang="en">🔊 ${esc(w.w)}</b> – ${esc(w.vi)}${w.ex?`<br><span class="muted" lang="en">${esc(w.ex)}</span>`:""}</button>`).join("")}
     </div></div>
-    <h3 style="margin:18px 0 0">Trả lời câu hỏi</h3>
+    <h3 style="margin:18px 0 0">Questions</h3>
     ${qs}
-    ${done?"":`<button class="btn primary" id="rdSubmit" ${R.sel.filter(x=>x!==undefined&&x!==null).length<r.questions.length||R.busy?"disabled":""}>${R.busy?"Mây đang chấm…":"Nộp bài ✅"}</button>`}
+    ${done?"":`<button class="btn primary" id="rdSubmit" ${R.sel.filter(x=>x!==undefined&&x!==null).length<r.questions.length||R.busy?"disabled":""}>${R.busy?"Mây is checking…":"Submit ✅"}</button>`}
 `;
   }
   app.innerHTML = head + main + `
-    ${done && r.read_aloud ? `<div class="card" style="margin-top:16px"><h3>🗣️ Đọc to câu này</h3>
+    ${done && r.read_aloud ? `<div class="card" style="margin-top:16px"><h3>${VI("🗣️ Read this sentence aloud","Đọc to câu này")}</h3>
       <div class="ra" lang="en">${esc(r.read_aloud)}</div>
-      <div class="row"><button class="btn" id="rdHear">🔊 Nghe mẫu</button>
-        ${me.pron ? (R.recording ? `<button class="btn primary" id="rdStop">⏹ Đọc xong</button>` : `<button class="btn primary" id="rdRec" ${R.pronBusy?"disabled":""}>🎤 ${R.blob?"Đọc lại":"Bấm rồi đọc"}</button>`) : ""}
-        ${R.audio && !R.recording ? `<button class="btn" id="rdMine">▶️ Nghe giọng mình</button>` : ""}</div>
-      ${R.recording?`<p class="muted">🔴 Mây đang nghe… đọc xong bấm ⏹ nhé.</p>`:""}
-      ${R.pronBusy?`<p class="muted">Mây đang nghe phát âm…</p>`:""}
+      <div class="row"><button class="btn" id="rdHear">🔊 Listen</button>
+        ${me.pron ? (R.recording ? `<button class="btn primary" id="rdStop">⏹ Done</button>` : `<button class="btn primary" id="rdRec" ${R.pronBusy?"disabled":""}>🎤 ${R.blob?"Read again":"Tap and read"}</button>`) : ""}
+        ${R.audio && !R.recording ? `<button class="btn" id="rdMine">▶️ My voice</button>` : ""}</div>
+      ${R.recording?`<p class="muted">${VI("🔴 Mây is listening… tap ⏹ when you finish.","Mây đang nghe… đọc xong bấm ⏹.")}</p>`:""}
+      ${R.pronBusy?`<p class="muted">${VI("Mây is checking your pronunciation…","Mây đang nghe phát âm…")}</p>`:""}
       ${pronHtml(R.pron)}
     </div>` : ""}
     ${R.err?`<div class="notice">${esc(R.err)}</div>`:""}
-    ${done?`<div class="row" style="margin-top:12px"><button class="btn" id="rdNew">📖 Đọc thêm bài khác</button><button class="btn primary" id="rdHome">Xong rồi 🏠</button></div>`:""}`;
+    ${done?`<div class="row" style="margin-top:12px"><button class="btn" id="rdNew">📖 Read another text</button><button class="btn primary" id="rdHome">Finish 🏠</button></div>`:""}`;
   wireBack();
   app.querySelectorAll(".opt[data-q]").forEach(b=>b.onclick=()=>{ R.sel[+b.dataset.q]=+b.dataset.o; render(); });
   app.querySelectorAll("[data-w]").forEach(b=>b.onclick=()=>{ const w=r.words[+b.dataset.w]; speak(w.w+". "+(w.ex||""),"en-only",.8); });
@@ -1294,7 +1304,7 @@ async function playListen(part, slow){
     if(seq!==ttsSeq) return;
     asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination); asrc.start(0);
     if(part==="all") L.plays++; else L.dplays++;
-  }catch(e){ L.err="Mây chưa phát được âm thanh. Thử lại nhé."; }
+  }catch(e){ L.err="Mây can't play the audio now. Please try again."; }
   L.loadingAudio=false; if(state.view==="listen" && state.ls===L) render();
 }
 async function submitListen(){
@@ -1307,39 +1317,39 @@ async function submitListen(){
 }
 function renderListen(){
   const L=state.ls;
-  const head = `<button class="back" id="back">‹ Về trang chính</button>
-    <div class="sec-title"><div class="badge" style="background:var(--l4)">🎧</div><div><h2>Listening</h2><div class="muted">Nghe tiếng Anh 10 phút${L.level?` · mức ${L.level}/5`:""}</div></div></div>`;
-  const wireBack=()=>{ document.getElementById("back").onclick=()=>{ go("home"); refreshState(); }; };
-  if(L.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">Mây đang soạn bài nghe cho bạn… ☁️</div>`; return wireBack(); }
-  if(L.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(L.err)}</div><button class="btn primary" id="lsRetry">Thử lại</button>`; wireBack(); document.getElementById("lsRetry").onclick=()=>openListen(); return; }
+  const head = `<button class="back" id="back">‹ Home</button>
+    <div class="sec-title"><div class="badge" style="background:var(--l4)">🎧</div><div><h2>Listening</h2><div class="muted">${VI(`10-minute listening${L.level?` · level ${L.level}/5`:""}`, "Nghe tiếng Anh 10 phút")}</div></div>${viToggle()}</div>`;
+  const wireBack=()=>{ document.getElementById("back").onclick=()=>{ go("home"); refreshState(); }; wireViToggle(); };
+  if(L.phase==="loading"){ app.innerHTML = head + `<div class="say" style="margin-top:14px">${VI("Mây is making your listening task… ☁️","Mây đang soạn bài nghe cho bạn…")}</div>`; return wireBack(); }
+  if(L.phase==="error"){ app.innerHTML = head + `<div class="notice">${esc(L.err)}</div><button class="btn primary" id="lsRetry">Try again</button>`; wireBack(); document.getElementById("lsRetry").onclick=()=>openListen(); return; }
   const r=L.r, done=L.phase==="done", dis=L.loadingAudio?"disabled":"";
   const qs = (r.questions||[]).map((x,i)=>`<div class="qcard" style="margin:12px 0"><div class="q">${i+1}. ${esc(x.q)}</div><div class="opts">
       ${x.options.map((o,j)=>{ let c=""; if(done){ if(j===x.answer) c=" right"; else if(r.answers&&r.answers[i]===j) c=" wrong"; } else if(L.sel[i]===j) c=" chosen";
         return `<button class="opt${c}" data-q="${i}" data-o="${j}" ${done?"disabled":""}>${esc(o)}</button>`; }).join("")}
-    </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${esc(x.explain)}</p>`:""}</div>`).join("");
-  const lvMsg = L.change>0 ? `<div class="notice">🎉 Đúng hết 2 bài liền! Bài nghe sau lên <b>mức ${L.level}</b> nhé.</div>`
-              : L.change<0 ? `<div class="notice">Bài nghe sau Mây chọn dễ hơn một chút (mức ${L.level}) nhé.</div>` : "";
+    </div>${done&&x.explain?`<p class="muted" style="margin:8px 0 0">💡 ${x.explain_vi?VI(esc(x.explain), esc(x.explain_vi)):`<span class="vi">${esc(x.explain)}</span>`}</p>`:""}</div>`).join("");
+  const lvMsg = L.change>0 ? `<div class="notice">${VI(`🎉 Two perfect tasks in a row! Next time: <b>level ${L.level}</b>.`, `Đúng hết 2 bài liền! Bài nghe sau lên mức ${L.level}.`)}</div>`
+              : L.change<0 ? `<div class="notice">${VI(`Next task will be a little easier (level ${L.level}).`, `Bài nghe sau dễ hơn một chút (mức ${L.level}).`)}</div>` : "";
   const ready = L.sel.filter(x=>x!==undefined&&x!==null).length>=r.questions.length && L.typed.trim();
   app.innerHTML = head + `
-    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.total-r.score)}</div><p>Bạn được <b>${r.score}/${r.total}</b> điểm.</p></div>${lvMsg}`:""}
-    <div class="card"><h3>${done?esc(r.title):"🎧 Nghe đoạn hội thoại"}</h3>
-      ${done?"":`<p class="muted" style="margin:0 0 8px">Đọc trước 4 câu hỏi bên dưới, rồi bấm nghe. Nghe <b>2 lần</b> rồi chọn đáp án.</p>`}
-      <div class="row"><button class="btn primary" id="lsPlay" ${dis}>▶️ Nghe</button><button class="btn" id="lsSlow" ${dis}>🐢 Nghe chậm</button><button class="btn" id="lsStop">⏹</button></div>
-      <p class="muted plays" style="margin:6px 0 0">${L.loadingAudio?"Đang tải âm thanh…":`Đã nghe ${L.plays} lần`}</p>
+    ${done?`<div class="score"><div class="stars">${"⭐".repeat(r.score)}${"☆".repeat(r.total-r.score)}</div><p>${VI(`You got <b>${r.score}/${r.total}</b> points.`, `Bạn được ${r.score}/${r.total} điểm.`)}</p></div>${lvMsg}`:""}
+    <div class="card"><h3>${done?esc(r.title):"🎧 Listen to the conversation"}</h3>
+      ${done?"":`<p class="muted" style="margin:0 0 8px">${VI("Read the 4 questions first. Then listen <b>two times</b> and choose the answers.","Đọc trước 4 câu hỏi, rồi nghe 2 lần và chọn đáp án.")}</p>`}
+      <div class="row"><button class="btn primary" id="lsPlay" ${dis}>▶️ Listen</button><button class="btn" id="lsSlow" ${dis}>🐢 Slow</button><button class="btn" id="lsStop">⏹</button></div>
+      <p class="muted plays" style="margin:6px 0 0">${L.loadingAudio?"Loading audio…":`Played: ${L.plays} ${L.plays===1?"time":"times"}`}</p>
       ${done?`<div style="margin-top:10px">${r.lines.map(l=>`<p class="lsline" lang="en">${l.name?`<b>${esc(l.name)}:</b> `:""}${esc(l.text)}</p>`).join("")}</div>`:""}
     </div>
-    <h3 style="margin:18px 0 0">Chọn đáp án</h3>
+    <h3 style="margin:18px 0 0">Choose the answers</h3>
     ${qs}
-    <div class="card"><h3>📝 Nghe và chép lại 1 câu</h3>
-      <p class="muted" style="margin:0 0 8px">${done?"Câu đúng (chữ đỏ là từ bạn chép thiếu hoặc sai):":`Bấm nghe câu, rồi viết lại đúng những gì bạn nghe (${r.dict_words} từ).`}</p>
-      <div class="row"><button class="btn" id="lsDict" ${dis}>▶️ Nghe câu</button><button class="btn" id="lsDictSlow" ${dis}>🐢 Chậm</button></div>
+    <div class="card"><h3>${VI("📝 Listen and write","Nghe và chép lại 1 câu")}</h3>
+      <p class="muted" style="margin:0 0 8px">${done?VI("The sentence (red words are missing or wrong):","Câu đúng (chữ đỏ là từ chép thiếu hoặc sai):"):VI(`Listen to the sentence and write exactly what you hear (${r.dict_words} words).`,`Nghe câu rồi viết lại đúng những gì bạn nghe (${r.dict_words} từ).`)}</p>
+      <div class="row"><button class="btn" id="lsDict" ${dis}>▶️ Listen</button><button class="btn" id="lsDictSlow" ${dis}>🐢 Slow</button></div>
       ${done ? `<p lang="en" style="font-size:19px">${(r.dict?.words||[]).map(w=>`<span class="dw ${w.ok?"ok":"no"}">${esc(w.w)}</span>`).join(" ")}</p>
-                <p class="muted" style="margin:0">Bạn viết: <span lang="en">${esc(r.typed||"")}</span> · đúng ${r.dict?.right||0}/${r.dict?.total||0} từ ${r.dict?.pass?"✅":""}</p>`
-             : `<input class="field" id="lsTyped" lang="en" autocomplete="off" autocapitalize="sentences" spellcheck="false" placeholder="Viết câu bạn nghe được…" value="${esc(L.typed)}">`}
+                <p class="muted" style="margin:0">You wrote: <span lang="en">${esc(r.typed||"")}</span> · ${r.dict?.right||0}/${r.dict?.total||0} words right ${r.dict?.pass?"✅":""}</p>`
+             : `<input class="field" id="lsTyped" lang="en" autocomplete="off" autocapitalize="sentences" spellcheck="false" placeholder="Write what you hear…" value="${esc(L.typed)}">`}
     </div>
     ${L.err?`<div class="notice">${esc(L.err)}</div>`:""}
-    ${done?`<div class="row" style="margin-top:12px"><button class="btn" id="lsNew">🎧 Nghe thêm bài khác</button><button class="btn primary" id="lsHome">Xong rồi 🏠</button></div>`
-          :`<button class="btn primary" id="lsSubmit" ${!ready||L.busy?"disabled":""}>${L.busy?"Mây đang chấm…":"Nộp bài ✅"}</button>`}`;
+    ${done?`<div class="row" style="margin-top:12px"><button class="btn" id="lsNew">🎧 Another task</button><button class="btn primary" id="lsHome">Finish 🏠</button></div>`
+          :`<button class="btn primary" id="lsSubmit" ${!ready||L.busy?"disabled":""}>${L.busy?"Mây is checking…":"Submit ✅"}</button>`}`;
   wireBack();
   app.querySelectorAll(".opt[data-q]").forEach(b=>b.onclick=()=>{ L.sel[+b.dataset.q]=+b.dataset.o; render(); });
   const on=(id,f)=>{ const el=document.getElementById(id); if(el) el.onclick=f; };
