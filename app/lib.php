@@ -2406,15 +2406,15 @@ Reading level {$level}/5: {$L['desc']}. Total length {$L['words']} words. Every 
 Split the passage into exactly 3 short parts (each part 2–5 sentences, a natural chunk: e.g. who/where → what happened → why it matters).
 Then make:
 - "words": exactly 3 KEY words the child must know to understand the text, taught BEFORE reading (the exact form used in the text). Each with "vi" (short Vietnamese meaning) and "ex" (a new very simple English example sentence).
-- For part 1 and part 2 only: "q" = one multiple-choice comprehension question in simple English about THAT part (who/what/where/why), 3 options, only one correct, "explain" = one very simple English sentence quoting the sentence in that part that gives the answer, "explain_vi" = the same in Vietnamese. Part 3 has no question.
+- For EACH of the 3 parts: "q" = one multiple-choice comprehension question in simple English about THAT part (who/what/where/why; for part 3 prefer "why" or the main result), 3 options, only one correct, "explain" = one very simple English sentence quoting the sentence in that part that gives the answer, "explain_vi" = the same in Vietnamese.
 - "retell_points": exactly 3 short key ideas of the whole text in very simple English that a good retelling should mention; "retell_points_vi": the same 3 ideas in Vietnamese.
 - "read_aloud": copy exactly ONE sentence (6–14 words) from the passage with useful sounds (th, final consonants, s/sh, r/l).
-Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."}},{"text":"...","q":{...}},{"text":"..."}],"retell_points":["...","...","..."],"retell_points_vi":["...","...","..."],"read_aloud":"..."}
+Return JSON only: {"title":"...","words":[{"w":"...","vi":"...","ex":"..."}],"parts":[{"text":"...","q":{"q":"...","options":["...","...","..."],"answer":0,"explain":"...","explain_vi":"..."}},{"text":"...","q":{...}},{"text":"...","q":{...}}],"retell_points":["...","...","..."],"retell_points_vi":["...","...","..."],"read_aloud":"..."}
 TXT;
 }
 
 // Kiểm tra và làm sạch bài đọc Claude trả về; null nếu thiếu phần quan trọng
-// Bài đọc dạng mới: 3 đoạn, câu hỏi sau đoạn 1 và 2, kể lại ở cuối
+// Bài đọc dạng mới: 3 đoạn, mỗi đoạn một câu hỏi, cuối bài kể lại
 function read_clean_parts(array $d): ?array
 {
     $parts = [];
@@ -2432,7 +2432,6 @@ function read_clean_parts(array $d): ?array
         $parts[] = ['text' => $t, 'q' => $q];
     }
     if (count($parts) < 3) return null;
-    $parts[count($parts) - 1]['q'] = null;                        // đoạn cuối: kể lại thay cho câu hỏi
     $qs = array_values(array_filter(array_column($parts, 'q')));
     if (count($qs) < 2) return null;
     $base = read_clean(['title' => $d['title'] ?? '', 'passage' => implode("\n\n", array_column($parts, 'text')), 'words' => $d['words'] ?? [],
