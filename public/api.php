@@ -742,7 +742,8 @@ function read_finish_parts(array $r, array $d, array $b): never
     $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
         [['role' => 'user', 'content' => retell_prompt($d, $text)]], 3000, 45, 'low')) ?? [];
     $points = $d['retell_points'] ?? [];
-    $hit = array_values(array_unique(array_filter(array_map('intval', is_array($j['hit'] ?? null) ? $j['hit'] : []), fn($i) => $i >= 0 && $i < count($points))));
+    // Mây trả số thứ tự từ 1 → đổi về chỉ số từ 0
+    $hit = array_values(array_unique(array_filter(array_map(fn($x) => (int)$x - 1, is_array($j['hit'] ?? null) ? $j['hit'] : []), fn($i) => $i >= 0 && $i < count($points))));
     $pass = count($hit) >= min(2, max(1, count($points)));
     $st['retell'] = ['text' => $text, 'hit' => $hit, 'pass' => $pass, 'wrong' => clean($j['wrong'] ?? '', 300),
                      'praise' => clean($j['praise'] ?? '', 300), 'missing' => clean($j['missing'] ?? '', 300)];
