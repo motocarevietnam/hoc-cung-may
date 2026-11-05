@@ -634,6 +634,27 @@ function r_read_start(array $b): never
     out(['reading' => reading_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId()])), 'level' => $level]);
 }
 
+// 3 từ mới của bài đọc vào Sổ ôn tập (hỏi lại 1 → 3 → 7 ngày): câu hỏi nghĩa, đáp án nhiễu là nghĩa của 2 từ còn lại
+function read_vocab_to_review(array $d): int
+{
+    $words = array_values(array_filter($d['words'] ?? [], fn($w) => ($w['w'] ?? '') !== '' && ($w['vi'] ?? '') !== ''));
+    if (count($words) < 3) return 0;
+    $n = 0;
+    foreach ($words as $i => $w) {
+        $q = "Từ “{$w['w']}” nghĩa là gì?";
+        if (q('SELECT 1 FROM mistakes WHERE subject = ? AND q = ?', ['ceng', $q])->fetchColumn()) continue;
+        $opts = [$w['vi']];
+        foreach ($words as $j => $o) if ($j !== $i && count($opts) < 3 && mb_strtolower($o['vi']) !== mb_strtolower($w['vi'])) $opts[] = $o['vi'];
+        if (count($opts) < 2) continue;
+        shuffle($opts);
+        q('INSERT INTO mistakes (subject, topic, q, options, answer, `explain`, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            ['ceng', mb_substr('Từ mới: ' . ($d['title'] ?? ''), 0, 200), $q, json_encode($opts, JSON_UNESCAPED_UNICODE), array_search($w['vi'], $opts, true),
+             "“{$w['w']}” = {$w['vi']}." . ($w['ex'] !== '' ? " Ví dụ: {$w['ex']}" : ''), 'Nhớ lại câu trong bài đọc có từ này.', strtotime('tomorrow'), time()]);
+        $n++;
+    }
+    return $n;
+}
+
 function r_read_answer(array $b): never
 {
     $r = reading_or_fail($b);
@@ -645,8 +666,10 @@ function r_read_answer(array $b): never
     foreach ($d['questions'] as $i => $x) if ($ans[$i] === (int)$x['answer']) $score++;
     q('UPDATE readings SET answers = ?, score = ?, updated_at = ? WHERE id = ?', [implode(',', $ans), $score, time(), $r['id']]);
     $lv = read_adjust_level($score);
+    $vocab = read_vocab_to_review($d);
     log_activity('ceng', mb_substr('Reading: ' . ($d['title'] ?? ''), 0, 200), 'reading', $score, count($d['questions']));
-    out(['reading' => reading_for_kid(reading_or_fail($b)), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
+    out(['reading' => reading_for_kid(reading_or_fail($b)), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab,
+         'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
 }
 
 // Đọc to câu luyện âm trong bài → SpeechSuper chấm từng từ
@@ -1199,7 +1222,8 @@ function r_parent_schedule(array $b): never
         set_setting('schedule', json_encode([
             'book' => clean($in['book'] ?? '', 60),
             'syllabus' => clean_multiline($in['syllabus'] ?? '', 4000),
-            'minutes' => max(15, min(90, (int)($in['minutes'] ?? 40))),
+            'minutes' => max(15, min(90, (int)($in['minutes'] ?? 90))),
+            'min_minutes' => max(15, min(max(15, min(90, (int)($in['minutes'] ?? 90))), (int)($in['min_minutes'] ?? 45))),
             'timetable' => $tt,
             'grid' => $grid,
             'exams' => exams_clean($in['exams'] ?? []),
@@ -1238,7 +1262,7 @@ function r_parent_plan_generate(array $b): never
     $weeks = [];
     for ($i = 0; $i < 13; $i++) $weeks[] = date('Y-m-d', strtotime("{$mon} +{$i} weeks"));
     $weak = implode(', ', array_map(fn($r) => SUBJECTS[$r['subject']]['name'] . ': ' . $r['topic'],
-        q("SELECT subject, topic FROM mistakes WHERE mastered_at IS NULL AND topic <> '' GROUP BY subject, topic
+        q("SELECT subject, topic FROM mistakes WHERE mastered_at IS NULL AND topic NOT LIKE 'Từ mới:%' AND topic <> '' GROUP BY subject, topic
            ORDER BY COUNT(*) DESC LIMIT 6")->fetchAll()));
     spend(5);
     $text = ask_claude(
@@ -1333,7 +1357,7 @@ function r_parent_report(array $b): never
                    FROM activity WHERE type = \'quiz\' GROUP BY subject')->fetchAll();
     $subjects = array_map(fn($r) => ['subject' => $r['subject'], 'quizzes' => (int)$r['quizzes'],
                                      'correct' => (int)$r['correct'], 'total' => (int)$r['total']], $subjects);
-    $weak = q('SELECT subject, topic, COUNT(*) AS n FROM mistakes WHERE mastered_at IS NULL
+    $weak = q('SELECT subject, topic, COUNT(*) AS n FROM mistakes WHERE mastered_at IS NULL AND topic NOT LIKE \'Từ mới:%\'
                GROUP BY subject, topic ORDER BY n DESC LIMIT 8')->fetchAll();
     $review = [
         'pending' => (int)q('SELECT COUNT(*) FROM mistakes WHERE mastered_at IS NULL')->fetchColumn(),
