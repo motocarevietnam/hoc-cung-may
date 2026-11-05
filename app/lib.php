@@ -2520,7 +2520,7 @@ Các ý chính cần có (đánh số từ 1):
 {$points}
 Bé kể: "{$text}"
 Đánh giá bé đã HIỂU bài chưa: đếm số ý chính bé nêu đúng (diễn đạt khác vẫn tính), và bé có nói sai nội dung không.
-Viết nhận xét bằng TIẾNG ANH thật đơn giản (trình độ A1, câu ngắn), kèm bản tiếng Việt.
+Viết nhận xét bằng TIẾNG ANH thật đơn giản (trình độ A1, câu ngắn), kèm bản tiếng Việt (tiếng Việt gọi bé là "bạn", xưng "Mây", không dùng "con").
 Trả về JSON: {"hit":[SỐ THỨ TỰ (1, 2, 3…) của các ý chính bé nêu đúng],"wrong":"(English) what the child got wrong, empty if nothing","wrong_vi":"(tiếng Việt)","praise":"(English) one specific praise","praise_vi":"(tiếng Việt)","missing":"(English) a short hint about the missing idea, empty if complete","missing_vi":"(tiếng Việt)"}
 TXT;
 }
@@ -2715,7 +2715,7 @@ function wp_prompt(string $topic, int $level, string $context, int $count = 2): 
     return <<<TXT
 Write {$count} English maths WORD PROBLEMS for a 9-year-old Vietnamese child in Cambridge Primary Maths Stage 4 (Grade 4). She reads English fluently but often does not understand word problems.
 Maths topic: {$t}.{$ctx}
-Difficulty: {$L}. Use real-life contexts a child knows (school, shop, family, sport, food). Characters only from: {$names}. Each problem 2–4 short sentences, simple English, one clear question. The answer must be ONE number (with a unit if needed). Check every calculation carefully.
+Difficulty: {$L}. Use real-life contexts a child knows (school, shop, family, sport, food). Characters only from: {$names}. Each problem 2–4 short sentences of simple English and it MUST END with one clear question sentence ending with "?" (e.g. "How many stickers do they have altogether?"). Do not tell the child the calculation steps in the text (no "Then they add…") – she must work out what to do. The answer must be ONE number (with a unit if needed). Check every calculation carefully.
 For each problem give:
 - "text": the problem.
 - "q1": a multiple-choice question "What do we need to find?" with 3 options (only one correct), "explain" one very simple English sentence, "explain_vi" the same in Vietnamese.
@@ -2764,7 +2764,7 @@ function wp_clean(array $d): ?array
     foreach (is_array($d['problems'] ?? null) ? array_slice($d['problems'], 0, 3) : [] as $p) {
         $q1 = $mcq($p['q1'] ?? null); $q2 = $mcq($p['q2'] ?? null); $ans = wp_num($p['answer'] ?? '');
         $text = clean($p['text'] ?? '', 600);
-        if (!$q1 || !$q2 || $ans === null || $text === '') continue;
+        if (!$q1 || !$q2 || $ans === null || $text === '' || !str_ends_with(rtrim($text), '?')) continue;   // đề phải kết thúc bằng câu hỏi
         $wrong = array_values(array_filter(array_map('wp_num', is_array($p['wrong_answers'] ?? null) ? $p['wrong_answers'] : []), fn($x) => $x !== null && abs($x - $ans) > 1e-9));
         $probs[] = ['text' => $text, 'q1' => $q1, 'q2' => $q2, 'first_step' => clean($p['first_step'] ?? '', 200), 'answer' => $ans,
                     'unit' => clean($p['unit'] ?? '', 30), 'wrong' => array_slice($wrong, 0, 2),
@@ -2821,7 +2821,7 @@ Problem: "{$p['text']}"
 Expected first step: "{$p['first_step']}"
 Child: "{$text}"
 Is her first step correct (same idea, any wording)? "good" = correct, "partial" = right direction but unclear/incomplete, "no" = wrong or unrelated.
-Give feedback in very simple English (A1, one or two short sentences) and the same in Vietnamese. Do not give the final answer.
+Give feedback in very simple English (A1, one or two short sentences) and the same in Vietnamese (in Vietnamese call the child "bạn", call yourself "Mây"; never "con"). Do not give the final answer.
 Return JSON only: {"verdict":"good|partial|no","feedback":"...","feedback_vi":"..."}
 TXT;
 }
