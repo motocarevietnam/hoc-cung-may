@@ -1104,7 +1104,9 @@ function schedule(): array
     return [
         'book' => (string)($s['book'] ?? ''),
         'syllabus' => (string)($s['syllabus'] ?? ''),
-        'minutes' => max(15, min(90, (int)($s['minutes'] ?? 40))),
+        'minutes' => $max = max(15, min(90, (int)($s['minutes'] ?? 60))),
+        // Thời gian tự học tối thiểu mỗi buổi (danh sách Hôm nay được bổ sung cho đủ), không vượt mức tối đa
+        'min_minutes' => max(15, min($max, (int)($s['min_minutes'] ?? 45))),
         'timetable' => $tt,
         'grid' => timetable_grid($s['grid'] ?? null),
         'exams' => exams_clean($s['exams'] ?? []),
@@ -1281,8 +1283,9 @@ function day_plan(string $day): array
     $tomorrowSubs = subjects_in($tomorrowText);
     $doy = (int)date('z', $ts);
     $budget = $sch['minutes'];
-    if ($classes) $budget = min($budget, 30);              // tối có lớp học thêm: buổi nhẹ
-    elseif ($weekend) $budget = min($budget, 30);          // cuối tuần: ôn nhẹ
+    // Tối có lớp học thêm / cuối tuần: buổi nhẹ hơn, nhưng vẫn đủ mức tối thiểu ba mẹ đặt
+    if ($classes || $weekend) $budget = $sch['min_minutes'];
+    $floor = min($sch['min_minutes'], $budget);
     $why = function (string $subj, string $t, string $fallback) : string {
         return $t !== '' ? 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t : $fallback;
     };
@@ -1336,7 +1339,7 @@ function day_plan(string $day): array
         $examSubs = $exam['subjects'] ?: array_keys(SUBJECTS);
         $scope = $exam['scope'] !== '' ? $exam['scope'] : 'các bài đã học từ đầu kỳ đến nay (theo mục lục sách)';
         $used = array_sum(array_column($items, 'minutes'));
-        $budgetExam = $exam['days_left'] === 1 ? min($budget, 45) : ($classes ? min($budget, 40) : max($budget, $weekend ? 40 : $budget));
+        $budgetExam = max($floor, $exam['days_left'] === 1 ? min($budget, 45) : ($classes ? min($budget, 40) : max($budget, $weekend ? 40 : $budget)));
         $i = 0;
         $start = $doy % count($examSubs);
         while ($budgetExam - $used >= 10 && $i < count($examSubs)) {
@@ -1405,6 +1408,21 @@ function day_plan(string $day): array
         foreach ($items as $i => $it) if (str_starts_with($it['title'], 'Xem trước') || str_starts_with($it['title'], 'Ôn ')) $drop = $i;
         if ($drop === null) break;
         array_splice($items, $drop, 1);
+    }
+    // Chưa đủ thời gian tự học tối thiểu: thêm đố vui ôn tập 10 phút, ưu tiên môn có bài trong kế hoạch tuần, xoay vòng theo ngày
+    $keys = array_column($items, 'key');
+    $all = array_keys(SUBJECTS);
+    $order = array_merge(array_values(array_filter($all, fn($x) => $topic($x) !== '')), $all);
+    $order = array_values(array_unique(array_merge(array_slice($order, $doy % max(1, count($order))), array_slice($order, 0, $doy % max(1, count($order))))));
+    foreach ($order as $sub) {
+        $total = array_sum(array_column($items, 'minutes'));
+        if ($total >= $floor || $total + 10 > $budget + 5) break;
+        if (in_array("quiz:{$sub}", $keys, true)) continue;
+        $t = $topic($sub);
+        $items[] = ['key' => "quiz:{$sub}", 'icon' => '🎯', 'title' => 'Ôn tập thêm: đố vui ' . SUBJECTS[$sub]['name'] . ($t !== '' ? " – {$t}" : ''),
+                    'minutes' => 10, 'reason' => $why($sub, $t, 'Ôn xoay vòng các môn cho đủ giờ tự học'),
+                    'action' => ['view' => 'quiz', 'subject' => $sub, 'topic' => $t]];
+        $keys[] = "quiz:{$sub}";
     }
     if (!$items) {
         $items[] = ['key' => 'quiz:' . array_keys(SUBJECTS)[$doy % count(SUBJECTS)], 'icon' => '🎯', 'title' => 'Đố vui ôn tập',

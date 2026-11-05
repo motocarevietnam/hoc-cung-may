@@ -1738,8 +1738,9 @@ function renderSchedule(){
       <input class="field" id="book" value="${esc(S.book)}" placeholder="Ví dụ: Kết nối tri thức với cuộc sống">
       <label for="syl">Mục lục sách / tiến độ của lớp (không bắt buộc, nên có)</label>
       <textarea class="field" id="syl" rows="6" placeholder="Chép mục lục sách Toán, Tiếng Việt (theo chủ đề), hoặc dán lịch dạy cô gửi. Mây sẽ theo đúng thứ tự này khi soạn kế hoạch, không tự đoán.">${esc(S.syllabus||"")}</textarea>
-      <label for="mins">Thời gian học ở nhà mỗi ngày (phút)</label>
-      <input class="field" id="mins" type="number" min="15" max="90" value="${S.minutes}">
+      <label for="minsMin">Thời gian tự học ở nhà mỗi buổi (phút): từ … đến …</label>
+      <div class="row" style="align-items:center;flex-wrap:nowrap"><input class="field" id="minsMin" type="number" min="15" max="90" value="${S.min_minutes||45}" style="max-width:110px" aria-label="Tối thiểu"><span>đến</span><input class="field" id="mins" type="number" min="15" max="90" value="${S.minutes}" style="max-width:110px" aria-label="Tối đa"><span>phút</span></div>
+      <p class="muted" style="margin:4px 0 0">Ngày thường Mây xếp việc trong khoảng này; tối có lớp học thêm và cuối tuần Mây xếp mức tối thiểu.</p>
     </div>
     <div class="card"><h3>Thời khoá biểu ở trường</h3>
       <p class="muted" style="margin:0">Mỗi hàng là một tiết, mỗi cột là một ngày, giống bản trường gửi. Chạm vào ô để chọn môn, chạm vào giờ để sửa giờ hoặc xoá tiết. Nhớ bấm “Lưu lịch học”.</p>
@@ -1775,7 +1776,7 @@ function renderSchedule(){
   wireEx();
   document.getElementById("saveSched").onclick=async()=>{
     const msg=document.getElementById("schMsg");
-    const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||40, timetable:{}, classes:[]};
+    const save = {book:document.getElementById("book").value, syllabus:document.getElementById("syl").value, minutes:+document.getElementById("mins").value||60, min_minutes:+document.getElementById("minsMin").value||45, timetable:{}, classes:[]};
     save.grid = {periods: ttEdit.periods, cells: ttEdit.cells};
     save.exams = [...app.querySelectorAll(".exrow")].map(r=>({name:r.querySelector("[data-f=name]").value, date:r.querySelector("[data-f=date]").value,
       subjects:[...r.querySelectorAll("[data-sub]:checked")].map(c=>c.dataset.sub), other:r.querySelector("[data-f=other]").value, scope:r.querySelector("[data-f=scope]").value}));
