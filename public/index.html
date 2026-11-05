@@ -330,6 +330,51 @@ table.tt tr.ttsess th{text-align:left;background:var(--line);font-size:12px;padd
 .clsrow{display:grid;grid-template-columns:110px 90px 80px 1fr 36px;gap:6px;margin:6px 0;align-items:center}
 .clsrow select,.clsrow input{background:var(--surface);border:2px solid var(--line);border-radius:10px;padding:6px;font-size:14px;width:100%}
 @media (max-width:520px){.clsrow{grid-template-columns:1fr 1fr 1fr}.clsrow input[data-f=name]{grid-column:1/3}}
+
+/* ---------- Cổng ba mẹ (/parents/): giao diện bảng điều khiển gọn, rõ ---------- */
+body.pmode{background:var(--pbg,#F6F5FB)}
+body.pmode main{max-width:1040px;padding:16px 16px 48px;background:none}
+body.pmode main::before{display:none}
+body.pmode .card{border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(43,27,82,.06);padding:16px 18px}
+body.pmode .card h3{font-size:19px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+body.pmode .btn{font-size:15px;padding:7px 14px;border-width:1.5px;border-radius:10px}
+.pnav{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none;width:100%;padding:2px 0 0;-webkit-overflow-scrolling:touch}
+.pnav::-webkit-scrollbar{display:none}
+.pnav button{flex:0 0 auto;background:none;border:0;border-bottom:3px solid transparent;padding:8px 12px;font-family:var(--display);font-weight:700;font-size:15px;color:var(--ink-soft);white-space:nowrap}
+.pnav button[aria-current="page"]{color:var(--ink);border-bottom-color:var(--ink)}
+.pnav .dot{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:999px;background:var(--coral);color:#fff;font-size:12px;line-height:18px;text-align:center}
+body.pmode .bar{flex-wrap:wrap;row-gap:0;padding-bottom:0}
+.phead{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:4px 0 6px}
+.phead h2{font-size:26px;margin:0}
+.phead .sub{color:var(--ink-soft);font-size:14px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:0 16px;align-items:start}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:12px 0}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 1px 2px rgba(43,27,82,.06)}
+.kpi .v{font-family:var(--display);font-weight:800;font-size:28px;line-height:1.1}
+.kpi .l{color:var(--ink-soft);font-size:13px}
+.kpi .s{font-size:12px;color:var(--ink-soft);margin-top:2px}
+@media (max-width:620px){.kpis{grid-template-columns:1fr 1fr}.kpis .kpi:last-child:nth-child(odd){grid-column:1/-1}}
+.alerts{display:grid;gap:8px;margin:8px 0}
+.alert{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#FFF6DB;border:1px solid #F1D98C;border-radius:12px;padding:10px 14px;font-size:15px;text-align:left;width:100%;color:var(--label-ink)}
+.alert.help{background:var(--coral-bg);border-color:#F2B8B8}
+.prog{height:10px;background:var(--surface-2);border-radius:6px;overflow:hidden;margin:4px 0 10px}
+.prog div{height:100%;background:var(--mint)}
+.tline{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:15px}
+.tline:last-child{border-bottom:0}
+.tline .st{white-space:nowrap}
+.pager{display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 0 0;font-size:14px;color:var(--ink-soft)}
+.pager button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:4px 12px;font-size:14px}
+.pager button:disabled{opacity:.4;cursor:default}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;margin:6px 0 4px}
+.seg button{background:var(--surface);border:0;padding:7px 14px;font-family:var(--display);font-weight:700;font-size:15px;color:var(--ink-soft)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+.fsec{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}
+.fsec:first-of-type{border-top:0;margin-top:0;padding-top:0}
+.fsec h4{margin:0 0 6px;font-size:16px}
+.danger-zone{border-color:#F2B8B8 !important}
+body.pmode label{display:block}
+body.pmode label input[type=checkbox]{margin-right:6px}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) body.pmode{--pbg:#14201F} :root:not([data-theme="light"]) .alert{background:#3A3420;border-color:#5C5030;color:var(--ink)} }
 </style>
 </head>
 <body>
@@ -2330,11 +2375,8 @@ function renderRewards(){
 function renderParent(){
   if(state.transcript) return renderTranscript();
   if(state.hwDetail) return renderParentHomework();
-  if(state.parentPage==="schedule") return renderSchedule();
-  if(state.parentPage==="plan") return renderParentPlan();
-  if(state.parentPage==="rewards") return renderRewards();
-  if(state.parentPage==="shop") return renderParentShop();
-  if(state.parentPage==="videos") return renderParentVideos();
+  const sub = {schedule:renderSchedule, plan:renderParentPlan, rewards:renderRewards, shop:renderParentShop, videos:renderParentVideos}[state.parentPage];
+  if(sub){ sub(); return wrapPSub(); }
   return PARENT_MODE ? renderParentPortal() : renderDeviceSettings();
 }
 const NOTE_CARD = `<div class="card"><h3>Lưu ý</h3>
@@ -2343,14 +2385,7 @@ const NOTE_CARD = `<div class="card"><h3>Lưu ý</h3>
 // Cổng ba mẹ (/parents/): đăng nhập bằng mã PIN ba mẹ, giữ đăng nhập 7 ngày trên máy này
 function renderParentPortal(){
   const R = state.report;
-  if(R){
-    app.innerHTML = `<div class="sec-title" style="justify-content:space-between"><h2 style="font-size:32px">Góc ba mẹ</h2>
-        <button class="btn" id="logout">Đăng xuất</button></div>
-      ${reportHtml(R)}${NOTE_CARD}`;
-    document.getElementById("logout").onclick=parentLogout;
-    wireReport(R);
-    return;
-  }
+  if(R) return renderPortalTab(R);
   if(state.pAuth==="checking"){ app.innerHTML = `<h2 style="font-size:32px">Góc ba mẹ</h2><p class="muted">Đang mở…</p>`; return; }
   app.innerHTML = `<h2 style="font-size:32px">Góc ba mẹ</h2>
     <div class="card"><h3>Đăng nhập</h3>
@@ -2369,11 +2404,12 @@ function renderParentPortal(){
 }
 async function loadReport(){
   state.report = await api("/api/parent/report",{},true);
+  if(PTAB_SUB[ptab()] || ptab()==="stars") return loadPTab(ptab());
   render(); window.scrollTo(0,0);
 }
 async function parentLogout(){
   try{ await api("/api/parent/logout",{},true); }catch(e){}
-  state.report=null; state.pAuth=null; state.parentPage=null; render();
+  state.report=null; state.pAuth=null; state.parentPage=null; renderPNav(null); history.replaceState(null,"",location.pathname); render();
 }
 
 // Máy của bé: ⚙️ Cài đặt máy (mã PIN của app, giọng đọc) – cần mã PIN ba mẹ, rời màn hình là khoá lại
@@ -2415,119 +2451,77 @@ function renderDeviceSettings(){
     catch(e){ pin=old; msg.textContent=copyFor(e&&e.code); }
   };
 }
-function reportHtml(R){
-  const max = Math.max(1, ...R.days.map(d=>d.n));
-  const total14 = R.days.reduce((a,d)=>a+d.n,0);
-  const dd = d => d.slice(8,10)+"/"+d.slice(5,7);
-  const acc = (R.subjects||[]).map(x=>{
-    const pct = x.total ? Math.round(100*(+x.correct||0)/x.total) : 0;
-    return `<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`;
-  }).join("");
-  const weak = (R.weak||[]).map(w=>`<li>${esc(subjById(w.subject)?.name||w.subject)}: ${esc(w.topic||"chưa rõ chủ đề")} (${w.n} câu)</li>`).join("");
-  const LV = {great:"🌟", good:"👍", try_again:"💪"};
-  const sps = (R.speaking||[]).map(t=>`<div class="fix"><small class="muted">${fmtDate(t.created_at)} · ${esc(SP_TYPES[t.type]?.name||"")}</small><br>
-    <b>${esc(t.prompt)}</b><br>${LV[t.level]||""} Bé nói: “${esc(t.transcript||"(không nghe được)")}”</div>`).join("");
-  const hws = (R.homework||[]).map(h=>`<button data-hw="${h.id}"><b>${esc(subjById(h.subject)?.name||"")}${h.title?": "+esc(h.title):""}${h.recheck?" (bài sửa lại)":""}</b><small>${fmtDate(h.created_at)}${h.graded?`, đúng ${h.right}/${h.graded} câu`:""}</small>${esc(h.summary||"")}</button>`).join("");
-  const convs = (R.conversations||[]).map(c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`).join("");
-  return `
-    <div class="card">
-      <h3>Cài đặt cho Mây</h3>
-      <label for="nick">Mây gọi bé là (chỉ cần tên ở nhà)</label>
-      <input class="field" id="nick" value="${esc(R.settings.nick)}" placeholder="Ví dụ: Bông">
-      <label for="focus">Tuần này bé đang học gì? (Mây sẽ ưu tiên nội dung này)</label>
-      <textarea class="field" id="focus" rows="3" placeholder="Ví dụ: Toán đang học phân số; English Unit 5 – past simple">${esc(R.settings.focus)}</textarea>
-      <label><input type="checkbox" id="readDaily" ${R.settings.read_daily?"checked":""}> Mỗi ngày có việc “📖 Đọc tiếng Anh 10 phút”</label>
-      <label for="readLevel">Mức bài đọc tiếng Anh (Mây tự lên/xuống theo kết quả)</label>
-      <select class="field" id="readLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${R.settings.read_level===n?"selected":""}>Mức ${n}${[""," – rất dễ (60–90 từ)"," – dễ (90–120 từ)"," – vừa (120–150 từ)"," – lớp 4 (150–190 từ)"," – khó hơn (190–230 từ)"][n]}</option>`).join("")}</select>
-      <label><input type="checkbox" id="famousOn" ${R.settings.famous_on?"checked":""}> Thứ 3, 5, 7 bài đọc là tiểu sử người nổi tiếng</label>
-      <label for="famousList">Danh sách người nổi tiếng (mỗi dòng một người, Mây đọc lần lượt)</label>
-      <textarea class="field" id="famousList" rows="5">${esc(R.settings.famous_people||"")}</textarea>
-      <label><input type="checkbox" id="listenOn" ${R.settings.listen_on?"checked":""}> Thứ 2, 4, 6 có việc “🎧 Nghe tiếng Anh 10 phút”</label>
-      <label for="listenLevel">Mức bài nghe tiếng Anh (Mây tự lên/xuống theo kết quả)</label>
-      <select class="field" id="listenLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${R.settings.listen_level===n?"selected":""}>Mức ${n}${[""," – Starters, rất dễ"," – Movers dễ"," – Movers"," – Flyers dễ"," – Flyers"][n]}</option>`).join("")}</select>
-      <div class="row"><button class="btn primary" id="saveSettings">Lưu cài đặt</button><span class="muted" id="setMsg" style="align-self:center"></span></div>
-    </div>
-    <div class="card">
-      <h3>14 ngày qua</h3>
-      <p class="muted" style="margin:0">Bé có ${R.stars} sao và ${total14} hoạt động học trong 14 ngày.</p>
-      <div class="bars">${R.days.map(d=>`<div style="height:${Math.round(100*d.n/max)}%" title="${dd(d.day)}: ${d.n} hoạt động"></div>`).join("")}</div>
-      <div class="barlabels"><span>${dd(R.days[0].day)}</span><span>Hôm nay</span></div>
-    </div>
-    <div class="card">
-      <h3>Tỉ lệ đúng khi đố vui</h3>
-      ${acc || `<p class="muted">Chưa có lượt đố vui nào.</p>`}
-    </div>
-    <div class="card">
-      <h3>Sổ ôn tập</h3>
-      <p style="margin:0">Đang ôn ${R.review.pending} câu (${R.review.due} câu đến hạn hôm nay). Đã thuộc hẳn ${R.review.mastered} câu.</p>
-      ${weak ? `<p class="muted" style="margin:10px 0 0">Phần bé hay sai:</p><ul class="weak">${weak}</ul>` : ""}
-    </div>
-    <div class="card" id="driveCard">
-      <h3>Lưu ảnh bài tập lên Google Drive</h3>
-      <p class="muted" style="margin:0">Đang tải…</p>
-    </div>
-    <div class="card"><h3>📖 Đọc và 🎧 nghe tiếng Anh</h3>
-      ${(R.readings||[]).map(x=>`<div class="req"><span><b>${x.kind==="listen"?"🎧":"📖"} ${esc(x.title)}</b><br><span class="muted">${ddmm(x.day)} · mức ${x.level}${x.pron_score!==null?` · phát âm ${x.pron_score}/100`:""}</span></span>
-        <span class="st ${x.score!==null&&x.score>=(x.total||3)?"approved":x.score!==null&&x.score>=(x.total||3)-1?"pending":""}">${x.score===null?"Chưa làm xong":x.score+"/"+(x.total||3)+(x.kind==="listen"?" điểm":" câu")}</span></div>`).join("") || `<p class="muted" style="margin:0">Chưa có bài nào.</p>`}
-    </div>
-    <div class="card"><h3>✍️ Bài viết của bé</h3>
-      ${(R.writings||[]).map(w=>{ const r=w.last||{}; return `<div class="req"><span><b>${esc(subjById(w.subject)?.name||"")}: ${esc(w.prompt)}</b><br>
-        <span class="muted">${fmtDate(w.created_at)} · nộp ${w.submits} lần${r.minutes?` · viết ${r.minutes} phút`:""}${r.on_topic===false?` · ⚠️ lạc đề: ${esc(r.topic_note||"")}`:""}</span>
-        ${(r.fixes||[]).length?`<br><span class="muted">Cần sửa: ${r.fixes.map(f=>esc(f.issue)).join("; ")}</span>`:""}
-        ${(r.spelling||[]).length?`<br><span class="muted">Chính tả: ${r.spelling.map(x=>esc(x.wrong)+" → "+esc(x.right)).join(", ")}</span>`:""}
-        ${(r.fixed||[]).length?`<br><span class="muted">Đã sửa được: ${r.fixed.map(esc).join("; ")}</span>`:""}</span>
-        <span class="st ${r.overall==="great"?"approved":r.overall==="good"?"pending":""}">${{great:"Rất tốt",good:"Khá",try_again:"Cần sửa"}[r.overall]||""}</span></div>`; }).join("") || `<p class="muted" style="margin:0">Chưa có. Bé vào Tiếng Việt hoặc English → ✍️ Viết đoạn văn.</p>`}
-    </div>
-    <div class="card"><h3>Tiến bộ theo kỹ năng</h3>
-      <p class="muted" style="margin:0 0 6px">Dựa trên các lần bé tự giải thích và làm bài kiểm tra lại. Thành thạo = đạt 2 lần liên tiếp. Không so sánh với bạn khác.</p>
-      ${(R.skills||[]).map(k=>`<div class="req"><span><b>${esc(subjById(k.subject)?.name||k.subject)}: ${esc(k.skill)}</b><br>
-        <span class="muted">Kiểm tra ${k.checks} lần, đạt ${k.passed}${k.last_score?` (lần gần nhất ${esc(k.last_score)})`:""} · giải thích đúng ${k.explained} lần</span></span>
-        <span class="st ${k.level==="mastered"?"approved":k.level==="improving"?"pending":""}">${{learning:"Đang học",improving:"Đang tiến bộ",mastered:"Thành thạo"}[k.level]||k.level}</span></div>`).join("") || `<p class="muted" style="margin:0">Chưa có. Bé bấm “✅ Mình hiểu rồi” sau khi hỏi bài hoặc chấm bài để bắt đầu.</p>`}
-    </div>
-    ${R.today ? `<div class="card"><h3>Hôm nay của bé</h3>
-      ${R.today.items.map(it=>{ const st = it.done ? "completed" : (it.status||"planned");
-        return `<div class="fix"><b>${it.icon} ${esc(it.title)}</b> · <span class="${st==="needs_help"?"minus":""}">${{planned:"Chưa làm",started:"Đang làm",paused:"Tạm dừng",completed:"✅ Xong",needs_help:"🙋 Cần giúp"}[st]}</span>
-          ${it.reason?`<br><span class="muted">Vì sao: ${esc(it.reason)}</span>`:""}${st==="needs_help"&&it.help_note?`<br>🙋 Bé nhắn: “${esc(it.help_note)}”`:""}</div>`; }).join("")}
-    </div>` : ""}
-    <div class="card">
-      <h3>Lịch học và kế hoạch</h3>
-      <p class="muted" style="margin:0">Thời khoá biểu, lớp học thêm, và kế hoạch ôn tập theo tuần/tháng/quý do Mây đề xuất, ba mẹ duyệt.</p>
-      <div class="row"><button class="btn" id="toSched">🗓️ Lịch học của bé</button><button class="btn" id="toPPlan">📋 Kế hoạch học</button><button class="btn" id="toRewards">⭐ Sao và luật thưởng</button><button class="btn" id="toVideos">📺 Video bài giảng</button><button class="btn ${R.shop_pending?"primary":""}" id="toPShop">🎁 Đổi quà${R.shop_pending?` (${R.shop_pending} chờ duyệt)`:""}</button></div>
-    </div>
-    <div class="card">
-      <h3>Bài tập về nhà đã chấm</h3>
-      <p class="muted" style="margin:0">Kết quả chấm giữ 60 ngày. Ảnh chỉ được lưu khi đã kết nối Google Drive (ở thẻ trên, giữ 1 năm học). Bấm vào để xem chi tiết, đáp án và ảnh.</p>
-      <div class="convlist">${hws || `<p class="muted">Bé chưa gửi bài nào.</p>`}</div>
-    </div>
-    <div class="card">
-      <h3>Luyện nói tiếng Anh</h3>
-      <p class="muted" style="margin:0">Chữ do iPad chép lại từ giọng bé (không lưu âm thanh), giữ 60 ngày.</p>
-      ${sps || `<p class="muted">Bé chưa luyện nói lần nào.</p>`}
-    </div>
-    <div class="card">
-      <h3>Lịch sử trò chuyện</h3>
-      <p class="muted" style="margin:0">Tự xoá sau ${R.retention_days} ngày. Bấm vào để đọc lại.</p>
-      <div class="convlist">${convs || `<p class="muted">Chưa có cuộc trò chuyện nào.</p>`}</div>
-    </div>
-    <div class="card">
-      <h3>Dữ liệu</h3>
-      <div class="row">
-        <button class="btn" id="lock">Đăng xuất</button>
-        <button class="btn danger" id="clearChats">Xoá lịch sử trò chuyện</button>
-        <button class="btn danger" id="clearAll">Xoá toàn bộ dữ liệu học</button>
-      </div>
-    </div>`;
+// ---------- Cổng ba mẹ: các thẻ ----------
+const PTABS = [
+  {id:"overview", name:"🏠 Tổng quan"}, {id:"results", name:"📊 Kết quả"}, {id:"work", name:"📝 Bài làm"},
+  {id:"schedule", name:"🗓️ Lịch học"}, {id:"plan", name:"📋 Kế hoạch"}, {id:"stars", name:"⭐ Sao & quà"},
+  {id:"videos", name:"📺 Video"}, {id:"settings", name:"⚙️ Cài đặt"}];
+const PTAB_SUB = {schedule:"schedule", plan:"plan", videos:"videos"};
+state.pg = state.pg || {};
+function ptab(){ const h=(location.hash||"").slice(1); return PTABS.some(t=>t.id===h) ? h : "overview"; }
+// Danh sách dài: chia trang (mỗi danh sách nhớ trang riêng)
+function pager(key, arr, per, item, empty){
+  if(!arr || !arr.length) return empty || `<p class="muted" style="margin:0">Chưa có.</p>`;
+  const pages = Math.ceil(arr.length/per), p = Math.min(pages-1, Math.max(0, state.pg[key]||0));
+  return arr.slice(p*per, p*per+per).map(item).join("") + (pages>1 ? `<div class="pager"><button data-pg="${key}" data-d="-1" ${p===0?"disabled":""}>‹ Trước</button><span>Trang ${p+1}/${pages}</span><button data-pg="${key}" data-d="1" ${p>=pages-1?"disabled":""}>Sau ›</button></div>` : "");
 }
-function wireReport(R){
-  document.getElementById("saveSettings").onclick=async()=>{
-    const msg=document.getElementById("setMsg");
-    const nickV=document.getElementById("nick").value.trim(), focusV=document.getElementById("focus").value.trim();
-    const rdD=document.getElementById("readDaily").checked, rdL=+document.getElementById("readLevel").value;
-    const lsO=document.getElementById("listenOn").checked, lsL=+document.getElementById("listenLevel").value;
-    const fmO=document.getElementById("famousOn").checked, fmL=document.getElementById("famousList").value;
-    try{ await api("/api/parent/settings",{nick:nickV, focus:focusV, read_daily:rdD, read_level:rdL, listen_on:lsO, listen_level:lsL, famous_on:fmO, famous_people:fmL},true); me.nick=nickV; LS.set("nick",nickV); R.settings={...R.settings,nick:nickV,focus:focusV,read_daily:rdD,read_level:rdL,listen_on:lsO,listen_level:lsL,famous_on:fmO,famous_people:fmL}; msg.textContent="Đã lưu"; }
-    catch(e){ msg.textContent=copyFor(e&&e.code); }
-  };
+// Thanh thẻ nằm trong thanh tiêu đề (dính trên đầu khi cuộn)
+function renderPNav(R){
+  let nav = document.getElementById("pnav");
+  if(!nav){ nav=document.createElement("nav"); nav.id="pnav"; nav.className="pnav"; nav.setAttribute("aria-label","Các mục của Góc ba mẹ"); document.querySelector(".bar").appendChild(nav); }
+  const cur = ptab();
+  const help = (R?.today?.items||[]).filter(it=>it.status==="needs_help" && !it.done).length;
+  const badge = {stars: R?.shop_pending||0, overview: help};
+  nav.innerHTML = R ? PTABS.map(t=>`<button data-tab="${t.id}" ${t.id===cur?'aria-current="page"':""}>${t.name}${badge[t.id]?`<span class="dot">${badge[t.id]}</span>`:""}</button>`).join("") : "";
+  nav.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>openPTab(b.dataset.tab));
+  const curBtn = nav.querySelector('[aria-current="page"]'); if(curBtn) curBtn.scrollIntoView({block:"nearest", inline:"nearest"});
+  let lo = document.getElementById("plogout");
+  if(R && !lo){ lo=document.createElement("button"); lo.id="plogout"; lo.className="iconbtn"; lo.textContent="Đăng xuất"; lo.onclick=parentLogout; document.querySelector(".bar .spacer").after(lo); }
+  if(!R && lo) lo.remove();
+}
+async function openPTab(t){
+  if(location.hash.slice(1)!==t) history.pushState(null, "", "#"+t);
+  state.transcript=null; state.hwDetail=null;
+  await loadPTab(t);
+}
+async function loadPTab(t){
+  state.parentPage = PTAB_SUB[t] || (t==="stars" ? (state.pstar||"shop") : null);
+  if(t==="stars" && state.parentPage==="shop") return openParentShop();
+  if(t==="schedule") state.sched=null;
+  if(t==="plan") state.pplan={loading:"Đang mở…"};
+  if(t==="videos") state.vids=null;
+  if(t==="stars") state.rw=null;
+  render(); window.scrollTo(0,0);
+  try{
+    if(t==="schedule") state.sched=(await api("/api/parent/schedule",{},true)).schedule;
+    else if(t==="plan") state.pplan=await api("/api/parent/plan",{},true);
+    else if(t==="videos") state.vids=(await api("/api/parent/videos",{},true)).videos;
+    else if(t==="stars") state.rw=await api("/api/parent/rewards",{},true);
+    else return;
+  }catch(e){ if(t==="plan") state.pplan={error:copyFor(e&&e.code)}; else if(t==="stars") state.rw={error:copyFor(e&&e.code)}; else alert(copyFor(e&&e.code)); }
+  if(ptab()===t) render();
+}
+window.addEventListener("popstate", ()=>{ if(PARENT_MODE && state.report){ state.transcript=null; state.hwDetail=null; loadPTab(ptab()); } });
+
+// Trang con (lịch học, kế hoạch, sao, đổi quà, video) hiện bên trong khung thẻ: bỏ nút "‹ Báo cáo" vì đã có thanh thẻ
+function wrapPSub(){
+  if(!PARENT_MODE || !state.report) return;
+  renderPNav(state.report);
+  const bk = app.querySelector("#back"); if(bk) bk.remove();
+  if(ptab()==="stars" && !app.querySelector(".seg")){
+    app.insertAdjacentHTML("afterbegin", `<div class="seg" role="group" aria-label="Sao và quà"><button data-ps="shop" aria-pressed="${state.parentPage==="shop"}">🎁 Đổi quà${state.report.shop_pending?` (${state.report.shop_pending})`:""}</button><button data-ps="rewards" aria-pressed="${state.parentPage==="rewards"}">⭐ Luật thưởng sao</button></div>`);
+    app.querySelectorAll("[data-ps]").forEach(b=>b.onclick=()=>{ state.pstar=b.dataset.ps; loadPTab("stars"); });
+  }
+}
+
+function renderPortalTab(R){
+  renderPNav(R);
+  const t = ptab();
+  const html = {overview:pOverview, results:pResults, work:pWork, settings:pSettings}[t];
+  if(!html){ loadPTab(t); return; }
+  app.innerHTML = html(R);
+  app.querySelectorAll("[data-pg]").forEach(b=>b.onclick=()=>{ const k=b.dataset.pg; state.pg[k]=(state.pg[k]||0)+(+b.dataset.d); render(); });
+  app.querySelectorAll("[data-goto]").forEach(b=>b.onclick=()=>{ if(b.dataset.ps) state.pstar=b.dataset.ps; openPTab(b.dataset.goto); });
   app.querySelectorAll(".convlist button[data-hw]").forEach(b=>b.onclick=async()=>{
     try{ state.hwDetail = (await api("/api/parent/homework",{id:+b.dataset.hw},true)).homework; render(); window.scrollTo(0,0); }
     catch(e){ alert(copyFor(e&&e.code)); }
@@ -2536,36 +2530,148 @@ function wireReport(R){
     try{ state.transcript = await api("/api/parent/conversation",{id:+b.dataset.id},true); render(); window.scrollTo(0,0); }
     catch(e){ alert(copyFor(e&&e.code)); }
   });
+  if(t==="settings") wireSettings(R);
+}
+const ddmm2 = d => d.slice(8,10)+"/"+d.slice(5,7);
+const P_TASK_ST = {planned:"Chưa làm", started:"Đang làm", paused:"Tạm dừng", completed:"✅ Xong", needs_help:"🙋 Cần giúp"};
+
+function pOverview(R){
+  const max = Math.max(1, ...R.days.map(d=>d.n));
+  const total14 = R.days.reduce((a,d)=>a+d.n,0), active = R.days.filter(d=>d.n>0).length;
+  const sum = (R.subjects||[]).reduce((a,x)=>({c:a.c+(+x.correct||0), t:a.t+(+x.total||0)}), {c:0,t:0});
+  const accAll = sum.t ? Math.round(100*sum.c/sum.t)+"%" : "–";
+  const items = R.today?.items||[], done = items.filter(it=>it.done).length, mins = items.reduce((a,it)=>a+(+it.minutes||0),0);
+  const help = items.filter(it=>it.status==="needs_help" && !it.done);
+  const alerts = [
+    ...help.map(it=>`<div class="alert help"><span>🙋 Bé cần giúp: <b>${esc(it.title)}</b>${it.help_note?` – “${esc(it.help_note)}”`:""}</span></div>`),
+    R.shop_pending ? `<button class="alert" data-goto="stars" data-ps="shop"><span>🎁 Có <b>${R.shop_pending}</b> yêu cầu đổi quà chờ ba mẹ duyệt</span><span>Xem ›</span></button>` : "",
+    R.review.due>5 ? `<div class="alert"><span>📒 Sổ ôn tập có <b>${R.review.due}</b> câu đến hạn hôm nay</span></div>` : ""].join("");
+  const acc = (R.subjects||[]).map(x=>{ const pct = x.total ? Math.round(100*(+x.correct||0)/x.total) : 0;
+    return `<div class="acc"><span>${esc(subjById(x.subject)?.name||x.subject)}</span><div class="track"><div class="fill" style="width:${pct}%"></div></div><span>${pct}%</span></div>`; }).join("");
+  const now = new Date();
+  return `<div class="phead"><div><h2>Chào ba mẹ 👋</h2><div class="sub">${["Chủ nhật","Thứ 2","Thứ 3","Thứ 4","Thứ 5","Thứ 6","Thứ 7"][now.getDay()]}, ${String(now.getDate()).padStart(2,"0")}/${String(now.getMonth()+1).padStart(2,"0")} · tình hình học của ${esc(R.settings.nick||"bé")}</div></div></div>
+    ${alerts?`<div class="alerts">${alerts}</div>`:""}
+    <div class="kpis">
+      <div class="kpi"><div class="l">Sao hiện có</div><div class="v">⭐ ${R.stars}</div></div>
+      <div class="kpi"><div class="l">Việc hôm nay</div><div class="v">${done}/${items.length}</div><div class="s">khoảng ${mins} phút</div></div>
+      <div class="kpi"><div class="l">Ngày có học (14 ngày)</div><div class="v">${active}/14</div><div class="s">${total14} hoạt động</div></div>
+      <div class="kpi"><div class="l">Tỉ lệ đúng đố vui</div><div class="v">${accAll}</div><div class="s">${sum.t} câu đã làm</div></div>
+      <div class="kpi"><div class="l">Sổ ôn tập</div><div class="v">${R.review.pending}</div><div class="s">${R.review.due} câu đến hạn · thuộc ${R.review.mastered}</div></div>
+    </div>
+    <div class="pgrid">
+      <div class="card"><h3>📅 Hôm nay của bé</h3>
+        ${items.length?`<div class="prog"><div style="width:${Math.round(100*done/Math.max(1,items.length))}%"></div></div>
+        ${items.map(it=>{ const st = it.done ? "completed" : (it.status||"planned");
+          return `<div class="tline"><span>${it.icon} ${esc(it.title)} <span class="muted" style="font-size:13px">· ${it.minutes}′</span></span><span class="st ${st==="completed"?"approved":st==="needs_help"?"rejected":st==="started"?"pending":""}">${P_TASK_ST[st]}</span></div>`; }).join("")}` : `<p class="muted" style="margin:0">Hôm nay chưa có danh sách.</p>`}
+        <div class="row" style="margin-top:10px"><button class="btn" data-goto="schedule">Sửa lịch học</button><button class="btn" data-goto="plan">Kế hoạch tuần</button></div></div>
+      <div class="card"><h3>📈 14 ngày qua</h3>
+        <div class="bars">${R.days.map(d=>`<div style="height:${Math.round(100*d.n/max)}%" title="${ddmm2(d.day)}: ${d.n} hoạt động"></div>`).join("")}</div>
+        <div class="barlabels"><span>${ddmm2(R.days[0].day)}</span><span>Hôm nay</span></div>
+        <h3 style="margin-top:16px">🎯 Tỉ lệ đúng theo môn</h3>
+        ${acc || `<p class="muted" style="margin:0">Chưa có lượt đố vui nào.</p>`}</div>
+    </div>
+    ${NOTE_CARD}`;
+}
+
+function pResults(R){
+  const weak = (R.weak||[]).map(w=>`<div class="tline"><span>${esc(subjById(w.subject)?.name||w.subject)}: ${esc(w.topic||"chưa rõ chủ đề")}</span><span class="st rejected">${w.n} câu</span></div>`).join("");
+  const LV = {great:"🌟", good:"👍", try_again:"💪"};
+  return `<div class="phead"><div><h2>Kết quả học tập</h2><div class="sub">Đọc, nghe, viết, kỹ năng và phần bé hay sai</div></div></div>
+    <div class="pgrid">
+      <div class="card"><h3>📖 Đọc & 🎧 nghe tiếng Anh</h3>
+        ${pager("rd", R.readings, 6, x=>`<div class="req"><span><b>${x.kind==="listen"?"🎧":"📖"} ${esc(x.title)}</b><br><span class="muted">${ddmm2(x.day)} · mức ${x.level}${x.pron_score!==null?` · phát âm ${x.pron_score}/100`:""}</span></span>
+          <span class="st ${x.score!==null&&x.score>=(x.total||3)?"approved":x.score!==null&&x.score>=(x.total||3)-1?"pending":""}">${x.score===null?"Chưa xong":x.score+"/"+(x.total||3)}</span></div>`, `<p class="muted" style="margin:0">Chưa có bài nào.</p>`)}</div>
+      <div class="card"><h3>📒 Sổ ôn tập & phần hay sai</h3>
+        <p style="margin:0 0 6px">Đang ôn <b>${R.review.pending}</b> câu · đến hạn hôm nay <b>${R.review.due}</b> · đã thuộc <b>${R.review.mastered}</b>.</p>
+        ${weak ? `<p class="muted" style="margin:8px 0 2px">Phần bé hay sai:</p>${weak}` : `<p class="muted" style="margin:0">Chưa thấy phần nào bé sai nhiều.</p>`}</div>
+      <div class="card"><h3>✍️ Bài viết</h3>
+        ${pager("wr", R.writings, 4, w=>{ const r=w.last||{}; return `<div class="req"><span><b>${esc(subjById(w.subject)?.name||"")}: ${esc(w.prompt)}</b><br>
+          <span class="muted">${fmtDate(w.created_at)} · nộp ${w.submits} lần${r.minutes?` · ${r.minutes} phút`:""}${r.on_topic===false?` · ⚠️ lạc đề`:""}</span>
+          ${(r.fixes||[]).length?`<br><span class="muted">Cần sửa: ${r.fixes.map(f=>esc(f.issue)).join("; ")}</span>`:""}
+          ${(r.spelling||[]).length?`<br><span class="muted">Chính tả: ${r.spelling.map(x=>esc(x.wrong)+" → "+esc(x.right)).join(", ")}</span>`:""}</span>
+          <span class="st ${r.overall==="great"?"approved":r.overall==="good"?"pending":""}">${{great:"Rất tốt",good:"Khá",try_again:"Cần sửa"}[r.overall]||""}</span></div>`; }, `<p class="muted" style="margin:0">Chưa có. Bé vào Tiếng Việt hoặc English → ✍️ Viết đoạn văn.</p>`)}</div>
+      <div class="card"><h3>🧠 Tiến bộ theo kỹ năng</h3>
+        <p class="muted" style="margin:0 0 6px;font-size:13px">Thành thạo = đạt 2 lần liên tiếp khi bé tự giải thích và làm bài kiểm tra lại.</p>
+        ${pager("sk", R.skills, 6, k=>`<div class="req"><span><b>${esc(subjById(k.subject)?.name||k.subject)}: ${esc(k.skill)}</b><br>
+          <span class="muted">Kiểm tra ${k.checks} lần, đạt ${k.passed} · giải thích đúng ${k.explained} lần</span></span>
+          <span class="st ${k.level==="mastered"?"approved":k.level==="improving"?"pending":""}">${{learning:"Đang học",improving:"Tiến bộ",mastered:"Thành thạo"}[k.level]||k.level}</span></div>`, `<p class="muted" style="margin:0">Chưa có. Bé bấm “✅ Mình hiểu rồi” sau khi hỏi bài hoặc chấm bài.</p>`)}</div>
+      <div class="card"><h3>🗣️ Luyện nói tiếng Anh</h3>
+        <p class="muted" style="margin:0 0 4px;font-size:13px">Chữ do máy chép lại từ giọng bé (không lưu âm thanh), giữ 60 ngày.</p>
+        ${pager("sp", R.speaking, 5, t=>`<div class="fix"><small class="muted">${fmtDate(t.created_at)} · ${esc(SP_TYPES[t.type]?.name||"")}</small><br>
+          <b>${esc(t.prompt)}</b><br>${LV[t.level]||""} Bé nói: “${esc(t.transcript||"(không nghe được)")}”</div>`, `<p class="muted" style="margin:0">Bé chưa luyện nói lần nào.</p>`)}</div>
+    </div>`;
+}
+
+function pWork(R){
+  return `<div class="phead"><div><h2>Bài làm & trò chuyện</h2><div class="sub">Bấm vào từng mục để xem chi tiết</div></div></div>
+    <div class="pgrid">
+      <div class="card"><h3>📸 Bài tập về nhà đã chấm</h3>
+        <p class="muted" style="margin:0 0 4px;font-size:13px">Kết quả giữ 60 ngày. Ảnh chỉ lưu khi đã kết nối Google Drive (thẻ Cài đặt).</p>
+        <div class="convlist">${pager("hw", R.homework, 6, h=>`<button data-hw="${h.id}"><b>${esc(subjById(h.subject)?.name||"")}${h.title?": "+esc(h.title):""}${h.recheck?" (bài sửa lại)":""}</b><small>${fmtDate(h.created_at)}${h.graded?`, đúng ${h.right}/${h.graded} câu`:""}</small>${esc(h.summary||"")}</button>`, `<p class="muted">Bé chưa gửi bài nào.</p>`)}</div></div>
+      <div class="card"><h3>💬 Lịch sử trò chuyện</h3>
+        <p class="muted" style="margin:0 0 4px;font-size:13px">Tự xoá sau ${R.retention_days} ngày.</p>
+        <div class="convlist">${pager("cv", R.conversations, 6, c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`, `<p class="muted">Chưa có cuộc trò chuyện nào.</p>`)}</div></div>
+    </div>`;
+}
+
+function pSettings(R){
+  const S=R.settings;
+  return `<div class="phead"><div><h2>Cài đặt</h2><div class="sub">Mây, tiếng Anh, Google Drive và dữ liệu</div></div></div>
+    <div class="pgrid">
+      <div class="card"><h3>☁️ Mây và bé</h3>
+        <div class="fsec">
+          <label for="nick">Mây gọi bé là (tên ở nhà)</label>
+          <input class="field" id="nick" value="${esc(S.nick)}" placeholder="Ví dụ: Bông">
+          <label for="focus">Ghi chú của ba mẹ cho Mây (Mây ưu tiên nội dung này)</label>
+          <textarea class="field" id="focus" rows="4" maxlength="400" placeholder="Ví dụ: TV còn nhầm danh từ/động từ; Maths: luyện làm tròn số">${esc(S.focus)}</textarea>
+        </div>
+        <div class="fsec"><h4>📖 Đọc tiếng Anh</h4>
+          <label><input type="checkbox" id="readDaily" ${S.read_daily?"checked":""}>Mỗi ngày có việc “Đọc tiếng Anh 10 phút”</label>
+          <label for="readLevel">Mức bài đọc (Mây tự lên/xuống theo kết quả)</label>
+          <select class="field" id="readLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${S.read_level===n?"selected":""}>Mức ${n}${[""," – rất dễ (60–90 từ)"," – dễ (90–120 từ)"," – vừa (120–150 từ)"," – lớp 4 (150–190 từ)"," – khó hơn (190–230 từ)"][n]}</option>`).join("")}</select>
+          <label><input type="checkbox" id="famousOn" ${S.famous_on?"checked":""}>Thứ 3, 5, 7 đọc tiểu sử người nổi tiếng</label>
+          <label for="famousList">Danh sách người nổi tiếng (mỗi dòng một người)</label>
+          <textarea class="field" id="famousList" rows="5">${esc(S.famous_people||"")}</textarea>
+        </div>
+        <div class="fsec"><h4>🎧 Nghe tiếng Anh</h4>
+          <label><input type="checkbox" id="listenOn" ${S.listen_on?"checked":""}>Thứ 2, 4, 6 có việc “Nghe tiếng Anh 10 phút”</label>
+          <label for="listenLevel">Mức bài nghe</label>
+          <select class="field" id="listenLevel">${[1,2,3,4,5].map(n=>`<option value="${n}" ${S.listen_level===n?"selected":""}>Mức ${n}${[""," – Starters, rất dễ"," – Movers dễ"," – Movers"," – Flyers dễ"," – Flyers"][n]}</option>`).join("")}</select>
+        </div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" id="saveSettings">Lưu cài đặt</button><span class="muted" id="setMsg" style="align-self:center"></span></div>
+      </div>
+      <div>
+        <div class="card" id="driveCard"><h3>Lưu ảnh bài tập lên Google Drive</h3><p class="muted" style="margin:0">Đang tải…</p></div>
+        <div class="card"><h3>🔐 Tài khoản</h3>
+          <p class="muted" style="margin:0 0 8px">Máy này giữ đăng nhập 7 ngày. Dùng máy chung với bé thì nhớ đăng xuất.</p>
+          <button class="btn" id="lock">Đăng xuất</button></div>
+        <div class="card danger-zone"><h3>⚠️ Xoá dữ liệu</h3>
+          <p class="muted" style="margin:0 0 8px">Không khôi phục được. Mây sẽ hỏi lại và cần gõ <b>XOA</b> để xác nhận.</p>
+          <div class="row"><button class="btn danger" id="clearChats">Xoá lịch sử trò chuyện</button><button class="btn danger" id="clearAll">Xoá toàn bộ dữ liệu học</button></div></div>
+      </div>
+    </div>`;
+}
+function wireSettings(R){
+  document.getElementById("saveSettings").onclick=async()=>{
+    const msg=document.getElementById("setMsg"); msg.textContent="Đang lưu…";
+    const v=id=>document.getElementById(id);
+    const S={nick:v("nick").value.trim(), focus:v("focus").value.trim(), read_daily:v("readDaily").checked, read_level:+v("readLevel").value,
+             listen_on:v("listenOn").checked, listen_level:+v("listenLevel").value, famous_on:v("famousOn").checked, famous_people:v("famousList").value};
+    try{ await api("/api/parent/settings",S,true); me.nick=S.nick; LS.set("nick",S.nick); R.settings={...R.settings,...S}; msg.textContent="✅ Đã lưu"; }
+    catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
   loadDriveCard();
-  document.getElementById("toPShop").onclick=openParentShop;
-  document.getElementById("toRewards").onclick=async()=>{
-    state.parentPage="rewards"; state.rw=null; render();
-    try{ state.rw = await api("/api/parent/rewards",{},true); }catch(e){ state.rw={error:copyFor(e&&e.code)}; }
-    render();
-  };
-  document.getElementById("toVideos").onclick=async()=>{
-    state.parentPage="videos"; state.vids=null; render();
-    try{ state.vids=(await api("/api/parent/videos",{},true)).videos; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }
-    render();
-  };
-  document.getElementById("toSched").onclick=async()=>{
-    state.parentPage="schedule"; state.sched=null; render();
-    try{ state.sched=(await api("/api/parent/schedule",{},true)).schedule; }catch(e){ alert(copyFor(e&&e.code)); state.parentPage=null; }
-    render();
-  };
-  document.getElementById("toPPlan").onclick=async()=>{
-    state.parentPage="plan"; state.pplan={loading:"Đang mở…"}; render();
-    try{ state.pplan=await api("/api/parent/plan",{},true); }catch(e){ state.pplan={error:copyFor(e&&e.code)}; }
-    render();
-  };
   document.getElementById("lock").onclick=parentLogout;
+  // Xoá dữ liệu: phải gõ XOA để tránh bấm nhầm
   const clear = async(what, question)=>{
-    if(!confirm(question)) return;
-    try{ await api("/api/parent/clear",{what},true); state.report = await api("/api/parent/report",{},true); render(); refreshState(); }
+    const typed = prompt(question + "\n\nGõ XOA để xác nhận:");
+    if(typed===null) return;
+    if(typed.trim().toUpperCase()!=="XOA"){ alert("Chưa xoá: cần gõ đúng chữ XOA."); return; }
+    try{ await api("/api/parent/clear",{what},true); state.report = await api("/api/parent/report",{},true); render(); }
     catch(e){ alert(copyFor(e&&e.code)); }
   };
   document.getElementById("clearChats").onclick=()=>clear("chats","Xoá toàn bộ lịch sử trò chuyện của bé?");
-  document.getElementById("clearAll").onclick=()=>clear("all","Xoá toàn bộ dữ liệu học (trò chuyện, sổ ôn tập, điểm, sao)? Không khôi phục được.");
+  document.getElementById("clearAll").onclick=()=>clear("all","Xoá TOÀN BỘ dữ liệu học (trò chuyện, sổ ôn tập, điểm, sao)? Không khôi phục được.");
 }
 function renderTranscript(){
   const T = state.transcript, c = T.conversation;
@@ -2612,9 +2718,10 @@ if("serviceWorker" in navigator){ window.addEventListener("load",()=>navigator.s
 if(PARENT_MODE){
   // Cổng ba mẹ: không có phần của bé; kiểm tra phiên đăng nhập còn hạn thì vào thẳng báo cáo
   document.querySelector(".bar .title").textContent = "Góc ba mẹ";
+  document.body.classList.add("pmode");
   document.getElementById("starPill").style.display = "none";
   document.getElementById("parentBtn").style.display = "none";
-  document.getElementById("homeBtn").onclick=()=>{ state.transcript=null; state.hwDetail=null; state.parentPage=null; render(); window.scrollTo(0,0); };
+  document.getElementById("homeBtn").onclick=()=>{ if(state.report) openPTab("overview"); };
   state.view = "parent"; state.pAuth = "checking"; render();
   loadReport().catch(()=>{ state.pAuth = null; render(); });
 } else {
