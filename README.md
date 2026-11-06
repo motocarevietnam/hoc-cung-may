@@ -149,3 +149,7 @@ Script giữ nguyên `config.php`, cơ sở dữ liệu và bản sao lưu.
 - Tính cách, nguyên tắc của Mây, đề đố vui: `app/lib.php`
 - Giới hạn lượt mỗi ngày, số ngày giữ lịch sử, model: `app/config.php`
 - Cách Mây chấm bài tập về nhà: hàm `homework_system` và `homework_prompt` trong `app/lib.php`
+
+## Trò chuyện trước khi học (Issue #47)
+
+Mây mở bằng chat, có lựa chọn kể chuyện, kể bài theo thời khóa biểu, làm bài ngay và nghỉ. Hoạt động học dùng lại module hiện có trong vùng làm bài cùng chat. Ba mẹ có thể bật/tắt màn hình chat trong Cài đặt. Chi tiết API, lưu dữ liệu, kiểm thử và rollback: [docs/issue-47.md](docs/issue-47.md).

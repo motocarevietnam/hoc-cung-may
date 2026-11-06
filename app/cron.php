@@ -7,6 +7,7 @@ declare(strict_types=1);
 if (PHP_SAPI !== 'cli') exit(1);
 
 require __DIR__ . '/lib.php';
+require __DIR__ . '/conversation.php';
 
 $pdo = db();
 
@@ -22,6 +23,8 @@ $cut = strtotime("-{$days} days");
 $st = $pdo->prepare('DELETE FROM conversations WHERE updated_at < ?');
 $st->execute([$cut]);
 $deletedConvs = $st->rowCount();
+$retention = companion_expire($cut);
+if (isset($retention['error'])) fwrite(STDERR, date('c') . ' companion retention: ' . $retention['error'] . PHP_EOL);
 
 // 2. Dọn bảng đếm lượt, đề đố vui và kết quả chấm bài cũ (giữ 60 ngày; ảnh bài tập không bao giờ được lưu)
 $pdo->prepare('DELETE FROM daily_usage WHERE day < ?')->execute([date('Y-m-d', strtotime('-60 days'))]);

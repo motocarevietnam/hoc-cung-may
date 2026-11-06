@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -41,6 +41,15 @@ const SCHEMA = [
        role VARCHAR(16) NOT NULL, content MEDIUMTEXT NOT NULL, created_at INT UNSIGNED NOT NULL,
        KEY idx_messages_conv (conv_id),
        CONSTRAINT fk_messages_conv FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS companion_sessions (
+       conv_id INT UNSIGNED NOT NULL PRIMARY KEY, state MEDIUMTEXT NOT NULL,
+       revision INT UNSIGNED NOT NULL DEFAULT 0, updated_at INT UNSIGNED NOT NULL,
+       CONSTRAINT fk_companion_conv FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS companion_events (
+       conv_id INT UNSIGNED NOT NULL, nonce VARCHAR(80) NOT NULL, created_at INT UNSIGNED NOT NULL, PRIMARY KEY (conv_id, nonce),
+       CONSTRAINT fk_companion_event FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     "CREATE TABLE IF NOT EXISTS quizzes (
        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
@@ -1271,7 +1280,7 @@ function day_plan(string $day): array
         $notes[] = "Hôm nay có lớp {$c['name']} lúc {$c['time']}" . ($c['minutes'] ? ' (' . fmt_minutes($c['minutes']) . ')' : '')
                  . '. Học với Mây trước giờ đó nhé.';
     }
-    if ($sch['timetable'][(string)$n] !== '') $notes[] = 'Hôm nay trên lớp đã học: ' . $sch['timetable'][(string)$n];
+    if ($sch['timetable'][(string)$n] !== '') $notes[] = 'Theo thời khóa biểu dự kiến hôm nay có (chưa xác nhận thực học): ' . $sch['timetable'][(string)$n];
     $tomorrowText = $sch['timetable'][(string)$tomorrowN];
     if ($tomorrowText !== '') $notes[] = 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') học: ' . $tomorrowText;
     if (!empty($week['note'])) $notes[] = 'Ghi chú tuần này: ' . clean($week['note'], 200);

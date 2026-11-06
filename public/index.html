@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Học cùng Mây</title>
+<link rel="stylesheet" href="/conversation.css">
 <link rel="manifest" href="/manifest.webmanifest" id="manifestLink">
 <script>
   // Cổng ba mẹ /parents/: dùng chung giao diện, nhưng là "app" riêng khi thêm vào màn hình chính
@@ -418,6 +419,7 @@ body.pmode label input[type=checkbox]{margin-right:6px}
 <main id="app"></main>
 <div id="overlayHost"></div>
 
+<script src="/conversation.js"></script>
 <script>
 const MASCOT = `<path d="M34 28 L36 6 L50 20 Z M50 20 L64 6 L66 28 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
 <path d="M18 64 A14 14 0 0 1 22 37 A17 17 0 0 1 50 21 A17 17 0 0 1 78 37 A14 14 0 0 1 82 64 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
@@ -448,7 +450,7 @@ const LS = {
 let pin = LS.get("pin","");
 let parentPin = "";            // chỉ giữ trong bộ nhớ, không lưu lại
 let autoRead = LS.get("autoRead", true);
-const me = {nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null, tts: LS.get("ttsOn", false), ttsVoices: null};
+const me = {chatFirst:LS.get("chatFirst",true), nick: LS.get("nick",""), stars: LS.get("starsCache",0), due: 0, today: null, tts: LS.get("ttsOn", false), ttsVoices: null};
 const state = {view:"home", subject:null, topic:"", turns:[], convId:null, quiz:null, busy:false, ctl:null, report:null, transcript:null, hw:null, hwDetail:null,
   plan:null, planTab:"day", parentPage:null, sched:null, pplan:null};
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -463,6 +465,7 @@ const ready = () => !!pin;
 const fmtDate = t => new Date(t*1000).toLocaleString("vi-VN",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
 
 async function api(path, body={}, asParent=false){
+  body=Companion.request(path,body);
   const headers = {"content-type":"application/json"};
   // Ba mẹ: cổng /parents/ dùng phiên đăng nhập (cookie); máy của bé dùng mã PIN ba mẹ trong header (mục Cài đặt máy)
   if(asParent){ headers["x-requested-with"] = "may"; if(parentPin) headers["x-parent-pin"] = parentPin; }
@@ -473,6 +476,7 @@ async function api(path, body={}, asParent=false){
   let data = {}; try{ data = await res.json(); }catch(e){}
   if(!res.ok) throw {code: data.error || ("http_"+res.status)};
   if(Array.isArray(data.awards) && data.awards.length){ setStars(data.stars); showAwards(data.awards); }
+  await Companion.afterApi(path, body, data);
   return data;
 }
 // Báo cho bé biết vì sao được sao (ví dụ "⭐ +5 Hoàn thành nhiệm vụ")
@@ -493,7 +497,7 @@ async function refreshState(){
   if(!ready()) return;
   try{
     const s = await api("/api/state");
-    me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
+    me.chatFirst = s.chat_first !== false; LS.set("chatFirst",me.chatFirst); me.nick = s.nick || ""; me.due = s.due || 0; LS.set("nick", me.nick); setStars(s.stars);
     me.pron = !!s.pron; me.weekWords = s.week_words || []; me.tts = !!s.tts; me.ttsVoices = s.tts_voices || null; me.ttsBy = s.tts_by || ""; me.nowTopics = s.now_topics || null; LS.set("ttsOn", me.tts); me.drive = !!s.drive;
     me.today = (await api("/api/plan",{view:"day"})).day;
   }catch(e){}
@@ -524,6 +528,8 @@ function copyFor(code){
     retell_short: "Bạn kể dài hơn một chút nhé (2–3 câu).",
     explain_limit: "Bạn đã giải thích 3 lần rồi, giờ làm bài kiểm tra nhé.",
     already_decided: "Yêu cầu này ba mẹ đã xử lý rồi.",
+    conversation_busy: "Mây đang lưu một lượt trò chuyện khác. Kem thử lại sau chút nhé.",
+    activity_gone: "Bài cũ không còn được lưu. Kem chọn hoạt động khác nhé.",
     cancelled: ""
   };
   return code in m ? m[code] : "Mây chưa trả lời được. Thử lại nhé.";
@@ -550,8 +556,10 @@ function render(){
   else if(state.view==="listen") renderListen();
   else if(state.view==="wp") renderWp();
   else if(state.view==="parent") renderParent();
+  Companion.decorate();
 }
 function go(view){
+  view=Companion.beforeGo(view);
   if(state.ctl){ state.ctl.abort(); state.ctl=null; }
   if(rec){ try{rec.abort()}catch(e){} rec=null; }
   stopSpeakCapture(true);
@@ -566,6 +574,11 @@ function go(view){
 }
 
 function renderHome(){
+  if(Companion.enabled()) return Companion.render();
+  document.body.classList.remove("chat-first");
+  return renderDashboard();
+}
+function renderDashboard(){
   const h = new Date().getHours();
   const hello = h<11 ? "Chào buổi sáng" : h<18 ? "Chào buổi chiều" : "Chào buổi tối";
   app.innerHTML = `
@@ -2630,6 +2643,7 @@ function renderDeviceSettings(){
       <input class="field" id="pinIn" type="password" inputmode="numeric" autocomplete="off" value="${esc(pin)}">
       <div class="row"><button class="btn primary" id="savePin">Lưu mã PIN</button><span class="muted" id="pinMsg" style="align-self:center"></span></div>
     </div>
+    <div class="card"><h3>Bản nháp trên máy này</h3><button class="btn" id="clearLocalDraft">Xoá bản nháp trò chuyện và bài đang nhập</button></div>
     ${voiceCardHtml()}
     <div class="card"><h3>Cổng ba mẹ</h3><p class="muted" style="margin:0">Báo cáo, kế hoạch học, sao và đổi quà: mở <a href="/parents/" target="_blank" rel="noopener">${esc(location.host)}/parents/</a> trên điện thoại của ba mẹ.</p></div>
     ${NOTE_CARD}`;
@@ -2641,6 +2655,7 @@ function renderDeviceSettings(){
     try{ await api("/api/state"); LS.set("pin",pin); msg.textContent="Đã lưu, mã PIN đúng ✅"; refreshState(); }
     catch(e){ pin=old; msg.textContent=copyFor(e&&e.code); }
   };
+  document.getElementById("clearLocalDraft").onclick=()=>{ Companion.clear(); alert("Đã xoá bản nháp trên máy này."); };
 }
 // ---------- Cổng ba mẹ: các thẻ ----------
 const PTABS = [
@@ -2801,7 +2816,7 @@ function pWork(R){
         <div class="convlist">${pager("hw", R.homework, 6, h=>`<button data-hw="${h.id}"><b>${esc(subjById(h.subject)?.name||"")}${h.title?": "+esc(h.title):""}${h.recheck?" (bài sửa lại)":""}</b><small>${fmtDate(h.created_at)}${h.graded?`, đúng ${h.right}/${h.graded} câu`:""}</small>${esc(h.summary||"")}</button>`, `<p class="muted">Bé chưa gửi bài nào.</p>`)}</div></div>
       <div class="card"><h3>💬 Lịch sử trò chuyện</h3>
         <p class="muted" style="margin:0 0 4px;font-size:13px">Tự xoá sau ${R.retention_days} ngày.</p>
-        <div class="convlist">${pager("cv", R.conversations, 6, c=>`<button data-id="${c.id}"><b>${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`, `<p class="muted">Chưa có cuộc trò chuyện nào.</p>`)}</div></div>
+        <div class="convlist">${pager("cv", R.conversations, 6, c=>`<button data-id="${c.id}"><b>${esc(c.subject==="companion"?"Mây & Kem":subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</b><small>${fmtDate(c.started_at)}, bé hỏi ${c.n} lần</small>${esc(c.preview||"")}</button>`, `<p class="muted">Chưa có cuộc trò chuyện nào.</p>`)}</div></div>
     </div>`;
 }
 
@@ -2811,6 +2826,7 @@ function pSettings(R){
     <div class="pgrid">
       <div class="card"><h3>☁️ Mây và bé</h3>
         <div class="fsec">
+          <label><input type="checkbox" id="chatFirst" ${S.chat_first!==false?"checked":""}>Mở ứng dụng bằng trò chuyện với Mây</label>
           <label for="nick">Mây gọi bé là (tên ở nhà)</label>
           <input class="field" id="nick" value="${esc(S.nick)}" placeholder="Ví dụ: Bông">
           <label for="focus">Ghi chú của ba mẹ cho Mây (Mây ưu tiên nội dung này)</label>
@@ -2851,9 +2867,9 @@ function wireSettings(R){
   document.getElementById("saveSettings").onclick=async()=>{
     const msg=document.getElementById("setMsg"); msg.textContent="Đang lưu…";
     const v=id=>document.getElementById(id);
-    const S={nick:v("nick").value.trim(), focus:v("focus").value.trim(), read_daily:v("readDaily").checked, read_level:+v("readLevel").value,
+    const S={chat_first:v("chatFirst").checked, nick:v("nick").value.trim(), focus:v("focus").value.trim(), read_daily:v("readDaily").checked, read_level:+v("readLevel").value,
              listen_on:v("listenOn").checked, listen_level:+v("listenLevel").value, wp_on:v("wpOn").checked, wp_level:+v("wpLevel").value, famous_on:v("famousOn").checked, famous_people:v("famousList").value};
-    try{ await api("/api/parent/settings",S,true); me.nick=S.nick; LS.set("nick",S.nick); R.settings={...R.settings,...S}; msg.textContent="✅ Đã lưu"; }
+    try{ await api("/api/parent/settings",S,true); me.chatFirst=S.chat_first; LS.set("chatFirst",me.chatFirst); me.nick=S.nick; LS.set("nick",S.nick); R.settings={...R.settings,...S}; msg.textContent="✅ Đã lưu"; }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
   };
   loadDriveCard();
@@ -2863,7 +2879,7 @@ function wireSettings(R){
     const typed = prompt(question + "\n\nGõ XOA để xác nhận:");
     if(typed===null) return;
     if(typed.trim().toUpperCase()!=="XOA"){ alert("Chưa xoá: cần gõ đúng chữ XOA."); return; }
-    try{ await api("/api/parent/clear",{what},true); state.report = await api("/api/parent/report",{},true); render(); }
+    try{ await api("/api/parent/clear",{what},true); Companion.clear(); state.report = await api("/api/parent/report",{},true); render(); }
     catch(e){ alert(copyFor(e&&e.code)); }
   };
   document.getElementById("clearChats").onclick=()=>clear("chats","Xoá toàn bộ lịch sử trò chuyện của bé?");
@@ -2873,8 +2889,9 @@ function renderTranscript(){
   const T = state.transcript, c = T.conversation;
   app.innerHTML = `
     <button class="back" id="back">‹ Báo cáo</button>
-    <h2 style="font-size:28px">${esc(subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</h2>
+    <h2 style="font-size:28px">${esc(c.subject==="companion"?"Mây & Kem":subjById(c.subject)?.name||"")}${c.topic?": "+esc(c.topic):""}</h2>
     <p class="muted" style="margin:4px 0 0">${fmtDate(c.started_at)}</p>
+    ${T.learning_memory ? `<div class="card"><h3>Lời bé kể về việc học</h3><p class="muted">Lời bé tự kể, chưa được chấm hoặc xác nhận thành thạo. Có thể xoá cùng lịch sử trò chuyện trong Cài đặt.</p>${(T.learning_memory.recaps||[]).map(r=>`<p><b>${esc(r.day)} · ${esc(r.label||r.subject||"Tự kể")}</b>: ${esc(r.text)}</p>`).join("")}</div>` : ""}
     <div class="transcript">${T.messages.map(m=>`<div class="t ${m.role==="assistant"?"assistant":"user"}">${fmt(m.content)}</div>`).join("")}</div>`;
   document.getElementById("back").onclick=()=>{ state.transcript=null; render(); window.scrollTo(0,0); };
 }

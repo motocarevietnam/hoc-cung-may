@@ -7,6 +7,7 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 
 require __DIR__ . '/../app/lib.php';
+require __DIR__ . '/../app/conversation.php';
 
 $path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
 $route = preg_replace('#^/api/#', '', $path) ?? '';
@@ -35,6 +36,10 @@ if (!is_array($body)) $body = [];
 $routes = [
     'state'               => 'r_state',
     'chat'                => 'r_chat',
+    'companion/session'   => 'r_companion_session',
+    'companion/turn'      => 'r_companion_turn',
+    'companion/checkpoint'=> 'r_companion_checkpoint',
+    'companion/activity'  => 'r_companion_activity',
     'quiz'                => 'r_quiz',
     'answer'              => 'r_answer',
     'review_list'         => 'r_review_list',
@@ -114,7 +119,7 @@ try {
 
 function r_state(array $b): never
 {
-    out(['nick' => setting('nick'), 'stars' => stars(), 'due' => due_count(), 'pron' => speechsuper_enabled(), 'week_words' => week_words(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
+    out(['nick' => setting('nick'), 'chat_first' => setting('chat_first', '1') !== '0', 'stars' => stars(), 'due' => due_count(), 'pron' => speechsuper_enabled(), 'week_words' => week_words(), 'tts' => tts_enabled(), 'tts_voices' => tts_enabled() ? tts_voices() : null,
         'tts_by' => ['google' => 'Google', 'azure' => 'Microsoft', '' => ''][tts_provider()],
          'drive' => drive_connected(), 'now_topics' => current_topics(today())]);
 }
@@ -631,11 +636,14 @@ function reading_or_fail(array $b): array
 // Mở bài đọc hôm nay (chưa làm xong thì làm tiếp); "new" = bé muốn đọc thêm một bài khác
 function r_read_start(array $b): never
 {
+    $lesson = companion_lesson($b, 'read');
     if (empty($b['new'])) {
-        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'read' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'read' AND (? = '' OR topic = ?) ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today(), $lesson, $lesson])->fetch();
         if ($r) out(['reading' => reading_for_kid($r), 'level' => read_level()]);
     }
     [$subject, $topic] = read_topic(today());
+    if (!empty($b['companion_id'])) $subject = 'ceng';
+    if ($lesson !== '') { $subject = 'ceng'; $topic = $lesson; }
     $level = read_level();
     spend(3);
     $titles = array_values(array_filter(array_map(fn($r) => (json_decode((string)$r['data'], true) ?: [])['title'] ?? '',
@@ -798,11 +806,13 @@ function r_read_pron(array $b): never
 
 function r_wp_start(array $b): never
 {
+    $lesson = companion_lesson($b, 'wp');
     if (empty($b['new'])) {
-        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'wp' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'wp' AND (? = '' OR topic = ?) ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today(), $lesson, $lesson])->fetch();
         if ($r) out(['wp' => wp_for_kid($r), 'level' => read_level('wp')]);
     }
     $topic = clean((plan_week(approved_plan(today()), today()) ?: [])['cmath'] ?? '', 120);
+    if ($lesson !== '') $topic = $lesson;
     $level = read_level('wp');
     spend(5);
     $recent = recent_quiz_questions('cmath', $topic);
@@ -933,12 +943,15 @@ function r_wp_answer(array $b): never
 
 function r_listen_start(array $b): never
 {
+    $lesson = companion_lesson($b, 'listen');
     if (empty($b['new'])) {
-        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'listen' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'listen' AND (? = '' OR topic = ?) ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today(), $lesson, $lesson])->fetch();
         if ($r) out(['listening' => listening_for_kid($r), 'level' => read_level('listen'), 'audio' => tts_enabled()]);
     }
     [$subject, $topic] = read_topic(today());
     if (str_starts_with($topic, 'Famous: ')) { $subject = 'ceng'; $topic = clean((plan_week(approved_plan(today()), today()) ?: [])['ceng'] ?? '', 120); }
+    if (!empty($b['companion_id'])) $subject = 'ceng';
+    if ($lesson !== '') { $subject = 'ceng'; $topic = $lesson; }
     $level = read_level('listen');
     ensure_week_words();
     spend(3);
@@ -1626,7 +1639,7 @@ function r_parent_report(array $b): never
     unset($c);
 
     out([
-        'settings' => ['nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen'),
+        'settings' => ['chat_first' => setting('chat_first', '1') !== '0', 'nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen'),
                        'famous_on' => setting('famous_on', '1') !== '0', 'wp_on' => setting('wp_on', '1') !== '0', 'wp_level' => read_level('wp'), 'famous_people' => implode("\n", famous_list())],
         'stars' => stars(),
         'days' => $days,
@@ -1655,7 +1668,8 @@ function r_parent_conversation(array $b): never
     $c = q('SELECT id, subject, topic, started_at FROM conversations WHERE id = ?', [$id])->fetch();
     if (!$c) out(['error' => 'bad_request'], 400);
     $msgs = q('SELECT role, content, created_at FROM messages WHERE conv_id = ? ORDER BY id', [$id])->fetchAll();
-    out(['conversation' => $c, 'messages' => $msgs]);
+    $session = companion_row($id);
+    out(['conversation' => $c, 'messages' => $msgs, 'learning_memory' => $session ? json_decode($session['state'], true) : null]);
 }
 
 function r_parent_homework(array $b): never
@@ -1786,6 +1800,7 @@ function r_parent_google_disconnect(array $b): never
 
 function r_parent_settings(array $b): never
 {
+    if (isset($b['chat_first'])) set_setting('chat_first', $b['chat_first'] ? '1' : '0');
     set_setting('nick', clean($b['nick'] ?? '', 30));
     set_setting('focus', clean($b['focus'] ?? '', 400));
     if (isset($b['read_daily'])) set_setting('read_daily', $b['read_daily'] ? '1' : '0');
