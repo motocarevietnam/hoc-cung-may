@@ -27,7 +27,7 @@ stateDiagram-v2
     REST --> FREE_CHAT: voluntary return
 ```
 
-The four choices stay available. Recap can be skipped, a different subject selected, and activities paused. Rest neither starts a task nor adds/deducts stars. A school story can also enter recap naturally from free text. The deterministic rules intentionally favor explicit requests; the model supplies the conversational wording, not grades, rewards, task execution or state transitions.
+The four choices appear initially and remain available through “Đổi hoạt động” after the conversation starts. Recap can be skipped, a different subject selected, and activities paused. Rest neither starts a task nor adds/deducts stars. A school story can also enter recap naturally from free text. The deterministic rules intentionally favor explicit requests; the model supplies the conversational wording, not grades, rewards, task execution or state transitions.
 
 ## Code boundaries and contracts
 
@@ -93,3 +93,9 @@ node tests/vps_modules.browser.cjs
 ```
 
 They seed synthetic activities only in a database named with the `may_issue47_test` prefix, then verify that both existing modules are discoverable, checkpoint/resume correctly, hide solutions and render in the chat workspace. The production deployment uses a separate staging directory and preserves the existing Git checkout, application configuration, cache and backups.
+
+## Mobile layout
+
+The home chat uses the visible viewport with one scrolling feed and a compact composer below it. Messages cannot shrink inside the feed. The timetable opens in a closeable dialog; subjects outside the timetable are grouped separately under “Môn khác”. Repeated quick actions collapse behind “Đổi hoạt động”, and the chat background omits the notebook grid. The visible height updates when the device viewport or on-screen keyboard changes.
+
+`node tests/conversation.layout.cjs` runs the real page against synthetic API responses and checks long mobile conversations, message/composer overlap, timetable selection, draft preservation and a reduced keyboard viewport. It does not access the production database.

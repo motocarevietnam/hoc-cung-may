@@ -584,7 +584,8 @@ function go(view){
 
 function renderHome(){
   if(Companion.enabled()) return Companion.render();
-  document.body.classList.remove("chat-first");
+  document.body.classList.remove("chat-first","cc-home");
+  document.querySelector(".bar .title").textContent="Học cùng Mây";
   return renderDashboard();
 }
 function renderDashboard(){

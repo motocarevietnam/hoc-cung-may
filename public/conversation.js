@@ -1,7 +1,7 @@
 /* Chat shell around the existing learning renderers. No grading or reward decisions here. */
 const Companion = (() => {
   const C = {session:null, context:null, loading:false, busy:false, error:'', draft:'', pending:null,
-    picker:false, schedule:false, activitySubject:null, mounted:false, mic:null, fields:{}, epoch:0, checkpoint:null};
+    picker:false, schedule:false, actions:null, scrollTop:null, atBottom:true, feedRevision:null, activitySubject:null, mounted:false, mic:null, fields:{}, epoch:0, checkpoint:null};
   const activityViews = ['quiz','homework','write','read','listen','wp','speak','chat','check','tvw','sci'];
   const enabled = () => !PARENT_MODE && me.chatFirst !== false;
   const uuid = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_request';
@@ -46,7 +46,7 @@ const Companion = (() => {
     if(C.pending && JSON.stringify(C.pending.intent)===JSON.stringify({type,extra,text})) Object.assign(request,C.pending.request);
     C.pending={request,intent:{type,extra,text}};
     const epoch=C.epoch;
-    C.busy=true; C.error=''; stopMic(); stopVoice(); saveDrafts(); render();
+    C.busy=true; C.error=''; C.schedule=false; C.actions=false; stopMic(); stopVoice(); saveDrafts(); render();
     try {
       const d=await api('/api/companion/turn',request);
       if(epoch!==C.epoch)return false;accept(d);
@@ -72,8 +72,17 @@ const Companion = (() => {
   function subjectChoices(){
     const expected=C.context?.expected||[], catalog=C.context?.subjects||[];
     const keys=new Set(expected.map(x=>x.subject));
-    return `<div class="chips">${expected.map(x=>`<button class="chip" data-cc-subject="${esc(x.key)}">${esc(x.label)}</button>`).join('')}
-      ${catalog.filter(x=>!keys.has(x.id)).map(x=>`<button class="chip" data-cc-subject="${esc(x.id)}">${esc(x.name)}</button>`).join('')}</div>`;
+    const button=(key,label)=>`<button class="chip" data-cc-subject="${esc(key)}" ${C.busy||!C.session?'disabled':''}>${esc(label)}</button>`;
+    return `<div class="cc-subjects">${expected.map(x=>button(x.key,x.label)).join('')}</div>
+      <details class="cc-other-subjects"><summary>Môn khác</summary><div class="cc-subjects">${catalog.filter(x=>!keys.has(x.id)).map(x=>button(x.id,x.name)).join('')}</div></details>`;
+  }
+  function quickVisible(){ return C.actions ?? !C.session?.messages.some(m=>m.role==='user'); }
+  function scheduleDialog(){
+    if(!C.schedule) return '';
+    const note=C.context?.day_off?'Hôm nay được đánh dấu là ngày nghỉ.':(C.context?.expected?.length?'Đây là lịch dự kiến. Nếu đổi tiết, Kem cứ nói Mây nhé.':'Chưa có lịch hôm nay. Kem có thể chọn môn khác hoặc nghỉ.');
+    return `<dialog id="ccScheduleDialog" class="cc-dialog" aria-labelledby="ccScheduleTitle" aria-describedby="ccScheduleNote">
+      <div class="cc-dialog-head"><h2 id="ccScheduleTitle">Lịch học hôm nay</h2><button class="btn" id="ccScheduleClose" aria-label="Đóng lịch học">✕</button></div>
+      <p id="ccScheduleNote" class="muted">${note}</p>${subjectChoices()}</dialog>`;
   }
   function activities(){
     const subjects=C.context?.subjects||[];
@@ -91,22 +100,50 @@ const Companion = (() => {
     const s=C.session?.state, has=C.session;
     const isRecap=s && ['SCHOOL_RECAP','KNOWLEDGE_RECALL'].includes(s.phase);
     return `<div class="cc-shell ${workspace?'cc-with-workspace':''}"><section class="cc-conversation" aria-label="Mây và Kem">
-      <div class="cc-heading">${mascot()}<div><h1>Mây &amp; ${esc(nick()==='bạn'?'Kem':nick())}</h1><p>Mây đang ở đây với ${esc(nick()==='bạn'?'Kem':nick())}</p></div></div>
-      ${noSampleNotice()}
-      <div class="chips"><button class="chip" id="ccSchedule" aria-expanded="${C.schedule}">📅 Lịch học hôm nay</button><span class="chip">🌱 Học vui mỗi ngày</span></div>
-      ${C.schedule?`<section class="card"><h3>Thời khóa biểu dự kiến</h3><p>${C.context?.day_off?'Hôm nay được đánh dấu là ngày nghỉ.':(C.context?.expected?.length?'Lịch có thể thay đổi; Kem cứ sửa lại cho Mây nhé.':'Chưa có môn dự kiến hôm nay. Kem có thể nghỉ, kể bài hoặc chọn hoạt động mình thích.')}</p>${subjectChoices()}</section>`:''}
-      ${C.loading?'<p role="status">Mây đang mở cuộc trò chuyện…</p>':''}
-      ${history()}
-      ${C.error?`<div class="notice" role="alert">${esc(C.error)} ${!has?'<button class="btn" id="ccRetry">Thử kết nối lại</button>':''}</div>`:''}
-      <div class="cc-quick" aria-label="Kem muốn làm gì?">${[['joy','😊 Có chuyện vui!'],['recap','📚 Kể chuyện học'],['direct','✏️ Làm bài luôn'],['rest','😴 Hơi mệt rồi']].map(([type,label])=>`<button class="btn" data-cc-turn="${type}" ${C.busy||!has?'disabled':''}>${label}</button>`).join('')}</div>
-      ${isRecap?`<section class="card"><h3>Lịch dự kiến · Kể chuyện học</h3><p>Kem có thể kể bằng lời của mình, đổi môn hoặc bỏ qua.</p>${subjectChoices()}<button class="btn" id="ccRecapDone">Kể xong rồi</button> <button class="btn" data-cc-turn="offer">Cùng ôn bài này</button> <button class="btn" data-cc-turn="skip">Bỏ qua</button></section>`:''}
-      ${s?.phase==='REST'?'<button class="btn" data-cc-turn="resume">Mình muốn trò chuyện tiếp</button>':''}
-      ${card()&&!workspace?`<div class="card"><p>Bài đang làm vẫn ở đây.</p><button class="btn primary" id="ccResume">▶ Tiếp tục bài</button><button class="btn" data-cc-turn="reflection">Quay lại trò chuyện</button></div>`:''}
-      ${C.picker||s?.phase==='MISSION_OFFER'?activities():''}
-      <div class="cc-compose"><label class="sr-only" for="ccBox">Nhắn cho Mây</label><textarea id="ccBox" rows="2" maxlength="1500" placeholder="Kể Mây nghe nhé…" ${C.busy?'readonly':''}>${esc(C.draft)}</textarea>
+      <h1 class="sr-only">Trò chuyện cùng Mây</h1>
+      <nav class="cc-toolbar" aria-label="Lựa chọn trò chuyện"><button class="cc-tool" id="ccSchedule" aria-haspopup="dialog" aria-expanded="${C.schedule}">📅 Lịch học</button>
+        <button class="cc-tool" id="ccActions" aria-expanded="${quickVisible()}" aria-controls="ccQuick">☰ Đổi hoạt động</button></nav>
+      <div class="cc-feed">
+        ${noSampleNotice()}
+        ${C.loading?'<p role="status">Mây đang mở cuộc trò chuyện…</p>':''}
+        ${history()}
+        ${C.error?`<div class="notice" role="alert">${esc(C.error)} ${!has?'<button class="btn" id="ccRetry">Thử kết nối lại</button>':''}</div>`:''}
+        ${quickVisible()?`<div class="cc-quick" id="ccQuick" aria-label="Kem muốn làm gì?">${[['joy','😊 Có chuyện vui!'],['recap','📚 Kể chuyện học'],['direct','✏️ Làm bài luôn'],['rest','😴 Hơi mệt rồi']].map(([type,label])=>`<button class="btn" data-cc-turn="${type}" ${C.busy||!has?'disabled':''}>${label}</button>`).join('')}</div>`:''}
+        ${isRecap?`<section class="cc-recap" aria-label="Kể bài học"><div class="cc-recap-heading"><span>${s.selected?`Đang kể: <b>${esc(s.selected.label)}</b>`:'Kem muốn kể môn nào?'} </span><button class="cc-tool" id="ccChangeSubject">Đổi môn</button></div>
+          <div class="cc-recap-actions">${s.phase==='SCHOOL_RECAP'?'<button class="btn primary" id="ccRecapDone">Kể xong rồi</button>':''}<button class="btn ${s.phase==='KNOWLEDGE_RECALL'?'primary':''}" data-cc-turn="offer">Cùng ôn bài này</button><button class="cc-tool" data-cc-turn="skip">Bỏ qua</button></div></section>`:''}
+        ${s?.phase==='REST'?'<button class="btn" data-cc-turn="resume">Mình muốn trò chuyện tiếp</button>':''}
+        ${card()&&!workspace?`<div class="cc-resume"><p>Bài đang làm vẫn ở đây.</p><button class="btn primary" id="ccResume">▶ Tiếp tục bài</button><button class="cc-tool" data-cc-turn="reflection">Quay lại trò chuyện</button></div>`:''}
+        ${C.picker||s?.phase==='MISSION_OFFER'?activities():''}
+      </div>
+      <div class="cc-compose"><label class="sr-only" for="ccBox">Nhắn cho Mây</label><textarea id="ccBox" rows="1" maxlength="1500" placeholder="Kể Mây nghe nhé…" ${C.busy?'readonly':''}>${esc(C.draft)}</textarea>
         <button class="btn" id="ccMic" aria-label="Nói với Mây" aria-pressed="false" ${C.busy||!has?'disabled':''}>🎤</button><button class="btn primary" id="ccSend" ${C.busy||!has?'disabled':''}>Gửi</button>
         <p id="ccMicStatus" class="muted" role="status">${navigator.onLine?'':'Đang mất mạng. Nội dung đang nhập được giữ trên máy; kết nối lại để gửi nhé.'}</p></div>
-      </section>${workspace?'<section id="ccWorkspace" class="cc-workspace" aria-label="Vùng làm bài"><div class="cc-workspace-tools"><button class="btn" id="ccExpand" aria-pressed="false">⛶ Mở rộng</button><button class="btn" id="ccPause">⏸ Tạm dừng</button><button class="btn" id="ccReflect">Quay lại trò chuyện</button></div><div id="ccActivity"></div></section>':''}</div>`;
+      </section>${workspace?'<section id="ccWorkspace" class="cc-workspace" aria-label="Vùng làm bài"><div class="cc-workspace-tools"><button class="btn" id="ccExpand" aria-pressed="false">⛶ Mở rộng</button><button class="btn" id="ccPause">⏸ Tạm dừng</button><button class="btn" id="ccReflect">Quay lại trò chuyện</button></div><div id="ccActivity"></div></section>':''}${scheduleDialog()}</div>`;
+  }
+  function syncViewport(){
+    document.documentElement.style.setProperty('--cc-visible-height',`${window.visualViewport?.height||window.innerHeight}px`);
+    const header=document.querySelector('.bar');
+    if(header) document.documentElement.style.setProperty('--cc-header-height',`${header.getBoundingClientRect().bottom}px`);
+    const feed=app.querySelector('.cc-feed');
+    if(C.atBottom && feed)requestAnimationFrame(()=>{if(feed.isConnected)feed.scrollTop=feed.scrollHeight;});
+  }
+  function chrome(workspace=false){
+    document.body.classList.add('chat-first');
+    document.body.classList.toggle('cc-home',!workspace);
+    document.querySelector('.bar .title').textContent=`Mây & ${nick()==='bạn'?'Kem':nick()}`;
+    syncViewport();
+  }
+  function resizeBox(){
+    const box=document.getElementById('ccBox');
+    if(box){box.style.height='auto';box.style.height=Math.min(box.scrollHeight,116)+'px';}
+  }
+  function restoreFeed(){
+    const feed=app.querySelector('.cc-feed');if(!feed)return;
+    const newest=C.scrollTop===null || C.atBottom || C.feedRevision!==C.session?.revision;
+    const top=C.scrollTop;
+    C.feedRevision=C.session?.revision;
+    requestAnimationFrame(()=>{if(feed.isConnected)feed.scrollTop=newest?feed.scrollHeight:top;});
+    feed.addEventListener('scroll',()=>{C.scrollTop=feed.scrollTop;C.atBottom=feed.scrollHeight-feed.clientHeight-feed.scrollTop<32;},{passive:true});
   }
   function wire(){
     const on=(id,fn)=>{const e=document.getElementById(id);if(e)e.onclick=fn;};
@@ -121,16 +158,26 @@ const Companion = (() => {
     document.querySelectorAll('[data-cc-say]').forEach(b=>b.onclick=()=>speak(C.session.messages.find(m=>String(m.id)===b.dataset.ccSay)?.content||'', 'vi'));
     on('ccRecapDone',()=>C.draft.trim()?turn():turn('offer'));
     on('ccSend',()=>turn()); on('ccRetry',load); on('ccResume',resume);
-    on('ccSchedule',()=>{ C.schedule=!C.schedule; render(); });
+    const openSchedule=()=>{C.schedule=true;render();};
+    on('ccSchedule',openSchedule); on('ccChangeSubject',openSchedule);
+    on('ccActions',()=>{C.actions=!quickVisible();if(C.actions)C.atBottom=true;render();});
+    const closeSchedule=()=>{C.schedule=false;render();document.getElementById('ccSchedule')?.focus();};
+    on('ccScheduleClose',closeSchedule);
+    const dialog=document.getElementById('ccScheduleDialog');
+    if(dialog){
+      dialog.onclose=()=>{if(dialog.isConnected){C.schedule=false;render();document.getElementById('ccSchedule')?.focus();}};
+      dialog.onclick=e=>{if(e.target===dialog){const b=dialog.getBoundingClientRect();if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)closeSchedule();}};
+      if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+    }
     on('ccMic',mic);
     on('ccPause',()=>go('home'));
     on('ccReflect',async()=>{ if(await turn('reflection')){ C.fields={}; go('home'); saveDrafts(); } });
     on('ccExpand',()=>{const e=document.querySelector('.cc-shell');const expanded=e.classList.toggle('cc-expanded');document.getElementById('ccExpand').setAttribute('aria-pressed',String(expanded));});
     const box=document.getElementById('ccBox');
-    if(box){box.oninput=()=>{C.draft=box.value;saveDrafts();};box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();turn();}};}
+    if(box){box.oninput=()=>{C.draft=box.value;resizeBox();saveDrafts();};box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();turn();}};}
   }
   function renderHome(){
-    document.body.classList.add("chat-first");
+    chrome();
     if(!C.session && !C.draft){
       try { const local=JSON.parse(localStorage.getItem('may_companion_draft')||'null');
         if(local?.expires>Date.now()) C.draft=String(local.draft||'');
@@ -139,11 +186,12 @@ const Companion = (() => {
     }
     stopMic();
     app.innerHTML=markup(); wire();
-    const log=app.querySelector('.cc-history'); if(log) log.scrollTop=log.scrollHeight;
+    resizeBox();restoreFeed();
     if(!C.session && !C.loading && !C.error && ready()) load();
   }
   function decorate(){
     if(!activeHere()) return;
+    chrome(true);
     stopMic();
     const nodes=Array.from(app.childNodes);
     app.innerHTML=markup(true);
@@ -156,7 +204,7 @@ const Companion = (() => {
       }
     });
     C.mounted=true;
-    const log=app.querySelector('.cc-history');if(log)log.scrollTop=log.scrollHeight;
+    resizeBox();restoreFeed();
   }
   async function start(view,subject){
     if(C.busy) return;
@@ -242,7 +290,7 @@ const Companion = (() => {
     C.mic=r;r.lang='vi-VN';r.interimResults=true;r.continuous=false;
     r.onstart=()=>{document.getElementById('ccMic')?.setAttribute('aria-pressed','true');status.textContent='Mây đang nghe. Nói xong Kem xem lại chữ rồi bấm Gửi nhé.';};
     r.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){if(e.results[i].isFinal)final+=e.results[i][0].transcript;else interim+=e.results[i][0].transcript;}
-      C.draft=[base,final+interim].filter(Boolean).join(' ').slice(0,1500);box.value=C.draft;saveDrafts();};
+      C.draft=[base,final+interim].filter(Boolean).join(' ').slice(0,1500);box.value=C.draft;resizeBox();saveDrafts();};
     r.onerror=e=>{status.textContent=e.error==='not-allowed'?'Micro chưa được cấp quyền. Nội dung đang gõ vẫn còn; Kem có thể tiếp tục gõ nhé.':'Mây chưa nghe rõ. Kem thử lại hoặc gõ nhé.';};
     r.onend=()=>{C.mic=null;document.getElementById('ccMic')?.setAttribute('aria-pressed','false');};
     try{r.start();}catch{C.mic=null;status.textContent='Micro chưa sẵn sàng. Kem gõ hoặc thử lại nhé.';}
@@ -253,6 +301,7 @@ const Companion = (() => {
   }
   function beforeGo(view){
     const box=document.getElementById('ccBox');if(box) C.draft=box.value;
+    document.body.classList.remove('cc-home');
     stopMic();saveDrafts();
     return enabled()&&card()&&view==='subject' ? 'home' : view;
   }
@@ -262,8 +311,10 @@ const Companion = (() => {
       C.fields[el.id]=el.value.slice(0,1500);if(Object.keys(C.fields).length>30) delete C.fields[Object.keys(C.fields)[0]];saveDrafts();
     }
   });
+  window.addEventListener('resize',syncViewport);
+  window.visualViewport?.addEventListener('resize',syncViewport);
   window.addEventListener('pagehide',()=>{stopMic();saveDrafts();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden){stopMic();saveDrafts();}});
-  function clear(){stopMic();C.epoch++;C.error='';C.busy=false;C.loading=false;C.session=null;C.context=null;C.draft='';C.fields={};C.pending=null;C.checkpoint=null;C.mounted=false;localStorage.removeItem('may_companion_draft');}
+  function clear(){stopMic();C.epoch++;C.actions=null;C.schedule=false;C.scrollTop=null;C.feedRevision=null;C.error='';C.busy=false;C.loading=false;C.session=null;C.context=null;C.draft='';C.fields={};C.pending=null;C.checkpoint=null;C.mounted=false;localStorage.removeItem('may_companion_draft');}
   return {enabled,render:renderHome,decorate,beforeGo,afterApi,request,clear,reload:load};
 })();

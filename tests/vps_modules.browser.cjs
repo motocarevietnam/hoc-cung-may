@@ -14,6 +14,7 @@ const assert=require('node:assert/strict');
     await page.locator('#ccResume').click();
     await page.locator('#ccActivity #sciText').waitFor();
     await page.locator('#ccReflect').click();
+    await page.locator('#ccActions').click();
     await page.locator('[data-cc-turn="direct"]').click();
     await page.locator('[data-cc-pick="tv"]').click();
     await page.locator('[data-cc-start="tvw"]').click();
