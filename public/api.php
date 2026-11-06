@@ -27,7 +27,7 @@ if ($route === 'img' && ($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
 }
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') out(['error' => 'method_not_allowed'], 405);
 // Ảnh bài tập cần nhiều chỗ hơn (tối đa 4 ảnh đã thu nhỏ trên máy); mọi yêu cầu khác giới hạn 64 KB
-$maxBody = in_array($route, ['homework', 'write_submit', 'speak_pron', 'read_pron'], true) ? 9 * 1024 * 1024 : 65536;
+$maxBody = in_array($route, ['homework', 'write_submit', 'speak_pron', 'read_pron', 'parent/lessons_import'], true) ? 9 * 1024 * 1024 : 65536;
 $raw = file_get_contents('php://input', false, null, 0, $maxBody);
 $body = json_decode($raw !== false && $raw !== '' ? $raw : '{}', true);
 if (!is_array($body)) $body = [];
@@ -83,6 +83,9 @@ $routes = [
     'parent/settings'     => 'r_parent_settings',
     'parent/clear'        => 'r_parent_clear',
     'parent/schedule'     => 'r_parent_schedule',
+    'parent/lessons'      => 'r_parent_lessons',
+    'parent/lessons_import' => 'r_parent_lessons_import',
+    'parent/lessons_delete' => 'r_parent_lessons_delete',
     'parent/plan'         => 'r_parent_plan',
     'parent/plan_generate'=> 'r_parent_plan_generate',
     'parent/plan_save'    => 'r_parent_plan_save',
@@ -1471,6 +1474,51 @@ function r_parent_schedule(array $b): never
         ], JSON_UNESCAPED_UNICODE));
     }
     out(['schedule' => schedule()]);
+}
+
+// Lịch báo bài của trường: các tuần đã nhập
+function r_parent_lessons(array $b): never
+{
+    out(['weeks' => lessons_weeks()]);
+}
+
+// Ba mẹ tải file PDF "Nội dung học tập" một tuần; Mây đọc ra từng tiết rồi lưu (thay dữ liệu cũ của tuần đó)
+function r_parent_lessons_import(array $b): never
+{
+    $pdf = (string)($b['pdf'] ?? '');
+    if (!preg_match('#^data:application/pdf;base64,([A-Za-z0-9+/=]+)$#', $pdf, $m)) out(['error' => 'bad_pdf'], 400);
+    $bin = base64_decode($m[1], true);
+    if ($bin === false || strlen($bin) > 6_000_000 || !str_starts_with($bin, '%PDF')) out(['error' => 'bad_pdf'], 400);
+    spend(3);
+    $text = ask_claude(
+        (string)cfg('quiz_model', 'claude-sonnet-5-5'),
+        "Bạn chép chính xác lịch báo bài của trường tiểu học thành JSON để ba mẹ dùng lập kế hoạch ôn tập. Chỉ trả lời bằng JSON.",
+        [['role' => 'user', 'content' => [
+            ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $m[1]]],
+            ['type' => 'text', 'text' => lessons_prompt()],
+        ]]],
+        32000, 140, 'low'
+    );
+    $start = strpos($text, '{');
+    $end = strrpos($text, '}');
+    $data = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
+    if (is_array($data) && ($data['error'] ?? '') === 'not_lesson_plan') out(['error' => 'not_lesson_plan'], 422);
+    $saved = is_array($data) ? lessons_store($data) : null;
+    if (!$saved) out(['error' => 'bad_lessons'], 502);
+    // Danh sách "Hôm nay" chưa ai bắt đầu thì xếp lại theo lịch mới
+    if (!q("SELECT 1 FROM daily_tasks WHERE day = ? AND status <> 'planned' LIMIT 1", [today()])->fetchColumn()) {
+        q('DELETE FROM daily_tasks WHERE day = ?', [today()]);
+    }
+    out(['saved' => ['from' => $saved[0], 'to' => $saved[1], 'count' => $saved[2], 'class' => clean($data['class'] ?? '', 20)], 'weeks' => lessons_weeks()]);
+}
+
+function r_parent_lessons_delete(array $b): never
+{
+    $from = (string)($b['from'] ?? '');
+    $to = (string)($b['to'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)) out(['error' => 'bad_request'], 400);
+    q('DELETE FROM lessons WHERE day >= ? AND day <= ?', [$from, $to]);
+    out(['weeks' => lessons_weeks()]);
 }
 
 // Giữ xuống dòng (cho mục lục sách), bỏ ký tự điều khiển khác

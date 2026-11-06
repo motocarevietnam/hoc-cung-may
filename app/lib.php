@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -185,6 +185,14 @@ const SCHEMA = [
        channel VARCHAR(120) NOT NULL DEFAULT '', seconds INT NOT NULL DEFAULT 0, status VARCHAR(10) NOT NULL DEFAULT 'candidate',
        added_by VARCHAR(10) NOT NULL DEFAULT 'may', watched INT NOT NULL DEFAULT 0, created_at INT UNSIGNED NOT NULL,
        UNIQUE KEY uq_videos_yt (yt_id), KEY idx_videos_subject (subject, status)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    // Nội dung học tập từng tiết do trường gửi mỗi tuần (ba mẹ tải PDF "Nội dung học tập" lên, Mây đọc ra từng dòng).
+    // subject: mã môn trong app (toan, tv, cmath, ceng, csci) hoặc '' với môn khác (Khoa học, Tin học, STEM…)
+    "CREATE TABLE IF NOT EXISTS lessons (
+       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, day CHAR(10) NOT NULL, period TINYINT UNSIGNED NOT NULL,
+       time VARCHAR(15) NOT NULL DEFAULT '', subject_raw VARCHAR(60) NOT NULL, subject VARCHAR(10) NOT NULL DEFAULT '',
+       content TEXT NOT NULL, prepare VARCHAR(300) NOT NULL DEFAULT '', created_at INT UNSIGNED NOT NULL,
+       UNIQUE KEY uq_lessons_day_period (day, period), KEY idx_lessons_subject (subject, day)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 ];
 
@@ -620,6 +628,9 @@ function current_topics(string $day): array
     $sch = schedule();
     $week = plan_week(approved_plan($day), $day) ?: [];
     $exam = next_exam($day, $sch['exams']);
+    $lToday = lesson_topics($day);
+    $nd = next_lesson_day($day);
+    $lNext = $nd ? lesson_topics($nd) : [];
     $out = [];
     foreach (array_keys(SUBJECTS) as $id) {
         $list = [];
@@ -628,6 +639,9 @@ function current_topics(string $day): array
                        'topic' => mb_substr("Ôn thi {$exam['name']}: " . ($exam['scope'] !== '' ? $exam['scope'] : 'các bài đã học trong kỳ'), 0, 200)];
         }
         if (!empty($week[$id])) $list[] = ['label' => '📌 Tuần này: ' . clean($week[$id], 80), 'topic' => clean($week[$id], 200)];
+        // Lịch báo bài của trường: bài hôm nay trên lớp và bài của buổi học tới
+        if (!empty($lToday[$id])) $list[] = ['label' => '📚 Hôm nay trên lớp: ' . $lToday[$id], 'topic' => $lToday[$id]];
+        if (!empty($lNext[$id]) && $lNext[$id] !== ($lToday[$id] ?? '')) $list[] = ['label' => '👀 Buổi học tới: ' . $lNext[$id], 'topic' => $lNext[$id]];
         $out[$id] = $list;
     }
     return $out;
@@ -649,6 +663,11 @@ function quiz_context(string $id): string
     $n = (int)date('N', strtotime($day));
     $todayTxt = $sch['timetable'][(string)$n] ?? '';
     if ($todayTxt !== '' && in_array($id, subjects_in($todayTxt), true)) $lines[] = 'Hôm nay trên lớp bé có học môn này.';
+    $recent = recent_lessons_text($id, $day);
+    if ($recent !== '') {
+        $lines[] = "Các bài lớp đã học gần đây theo lịch báo bài của trường (mới nhất trước). Ưu tiên hỏi kiến thức của các bài này,"
+                 . " KHÔNG hỏi bài lớp chưa học tới:\n" . $recent;
+    }
     if ($sch['syllabus'] !== '') {
         $lines[] = "Mục lục sách / tiến độ của lớp do ba mẹ nhập. CHỈ dùng phần \"" . SYLLABUS_LABEL[$id] . "\"; chỉ hỏi kiến thức thuộc các bài có trong đó,"
                  . " ưu tiên bài lớp đang học hoặc vừa học (theo tiến độ, tuần học); KHÔNG hỏi bài lớp chưa học tới:\n" . $sch['syllabus'];
@@ -1208,6 +1227,236 @@ function fmt_minutes(int $m): string
     return $h ? ($h . ' giờ' . ($r ? " {$r} phút" : '')) : "{$r} phút";
 }
 
+/* ---------------- Lịch báo bài của trường (nội dung học tập từng tiết) ---------------- */
+
+// Môn trong app ứng với tên môn ghi trên lịch báo bài ("Toán", "English LT", "Math"…); môn khác trả ''
+function lesson_subject(string $raw): string
+{
+    if (preg_match('/sự kiện|kiểm tra/iu', $raw)) return '';
+    return subjects_in($raw)[0] ?? '';
+}
+
+function lessons_on(string $day): array
+{
+    static $memo = [];
+    return $memo[$day] ??= q('SELECT period, time, subject_raw, subject, content, prepare FROM lessons WHERE day = ? ORDER BY period', [$day])->fetchAll();
+}
+
+// Rút gọn nội dung một tiết thành tên bài ngắn để làm chủ đề đố vui / trò chuyện
+function lesson_short(string $content, int $max = 80): string
+{
+    $t = trim(preg_replace('/\s+/u', ' ', $content) ?? '');
+    // "UNIT 5 - Addition… Students will learn how to solve…" → "UNIT 5 - Addition…: solve…"; câu "Students will be tasked…" thì bỏ
+    $t = preg_replace('/\s*-?\s*Students\s+(will\s+learn\s+how\s+to|will\s+learn\s+to|are\s+learning\s+to)\s+/iu', ': ', $t, 1) ?? $t;
+    if (preg_match('/^(.{10,}?)[\s.\-]*\bStudents\b/u', $t, $m)) $t = rtrim($m[1], ' .');
+    if (mb_strlen($t) <= $max) return $t;
+    $cut = mb_substr($t, 0, $max - 1);
+    $sp = mb_strrpos($cut, ' ');
+    return rtrim($sp !== false && $sp > $max / 2 ? mb_substr($cut, 0, $sp) : $cut, ' ,.;:-') . '…';
+}
+
+// Bài học trên lớp của từng môn trong app trong một ngày: ['toan' => 'Bài 24. Tính chất giao hoán…', ...]
+function lesson_topics(string $day, int $max = 80): array
+{
+    $by = [];
+    foreach (lessons_on($day) as $r) {
+        if ($r['subject'] === '' || !isset(SUBJECTS[$r['subject']])) continue;
+        $c = lesson_short($r['content'], $max);
+        if ($c !== '' && !in_array($c, $by[$r['subject']] ?? [], true)) $by[$r['subject']][] = $c;
+    }
+    $out = [];
+    foreach (array_keys(SUBJECTS) as $id) {
+        if (empty($by[$id])) continue;
+        // Nhiều bài trong ngày: ghép các bài còn vừa độ dài, ít nhất giữ bài đầu
+        $txt = array_shift($by[$id]);
+        foreach ($by[$id] as $c) {
+            if (str_starts_with($txt, rtrim($c, '.…')) || mb_strlen($txt) + 3 + mb_strlen($c) > $max) continue;
+            $txt .= ' / ' . $c;
+        }
+        $out[$id] = $txt;
+    }
+    return $out;
+}
+
+// Cả ngày học gì (mọi môn, kể cả môn không có trong app), để Mây và ba mẹ đọc
+function lessons_day_text(string $day): string
+{
+    $by = [];
+    foreach (lessons_on($day) as $r) {
+        $c = lesson_short($r['content'], 70);
+        if ($c === '') continue;
+        $k = $r['subject_raw'];
+        if (!in_array($c, $by[$k] ?? [], true)) $by[$k][] = $c;
+    }
+    $parts = [];
+    foreach ($by as $sub => $list) $parts[] = "{$sub}: " . implode(' / ', $list);
+    return mb_substr(implode('; ', $parts), 0, 700);
+}
+
+// Cô dặn chuẩn bị gì cho một ngày: "Xem trước bài: Toán, Tiếng Việt; BĐ/BR/Aerobics: Học sinh mặc đồng phục thể dục…"
+function lesson_prepare_text(string $day): string
+{
+    $preview = [];
+    $other = [];
+    foreach (lessons_on($day) as $r) {
+        $p = trim(preg_replace('/\s+/u', ' ', $r['prepare']) ?? '');
+        if ($p === '') continue;
+        if (preg_match('/^xem trước bài\.?$/iu', $p)) { $preview[$r['subject_raw']] = true; continue; }
+        $other[$p] ??= $r['subject_raw'];
+    }
+    $out = [];
+    if ($preview) $out[] = 'Xem trước bài: ' . implode(', ', array_keys($preview));
+    foreach ($other as $p => $sub) $out[] = "{$sub}: {$p}";
+    return mb_substr(implode('; ', $out), 0, 400);
+}
+
+// Cô có dặn "Xem trước bài" cho môn này vào ngày đó không
+function lesson_has_preview(?string $day, string $subject): bool
+{
+    if (!$day) return false;
+    foreach (lessons_on($day) as $r) if ($r['subject'] === $subject && preg_match('/xem trước bài/iu', $r['prepare'])) return true;
+    return false;
+}
+
+// Ngày học tiếp theo có lịch báo bài (trong 5 ngày tới), hoặc null
+function next_lesson_day(string $day): ?string
+{
+    static $memo = [];
+    if (!array_key_exists($day, $memo)) {
+        $d = q('SELECT MIN(day) FROM lessons WHERE day > ? AND day <= ?', [$day, date('Y-m-d', strtotime($day . ' +5 days'))])->fetchColumn();
+        $memo[$day] = $d ? (string)$d : null;
+    }
+    return $memo[$day];
+}
+
+// Bài gần nhất lớp đã học của một môn (trong 10 ngày, tính cả hôm nay)
+function recent_lesson_topic(string $subject, string $day): string
+{
+    static $memo = [];
+    $k = "{$subject}|{$day}";
+    if (!isset($memo[$k])) {
+        $d = q("SELECT MAX(day) FROM lessons WHERE subject = ? AND day <= ? AND day >= ?",
+               [$subject, $day, date('Y-m-d', strtotime($day . ' -10 days'))])->fetchColumn();
+        $memo[$k] = $d ? (lesson_topics((string)$d)[$subject] ?? '') : '';
+    }
+    return $memo[$k];
+}
+
+// Ôn cách quãng bài cũ trên lớp: tìm bài của 3 → 7 → 14 → 28 ngày trước, môn chưa có trong danh sách hôm nay
+const LESSON_REVIEW_GAPS = [3, 7, 14, 28];
+
+function old_lesson_pick(string $day, array $exclude): ?array
+{
+    $doy = (int)date('z', strtotime($day));
+    foreach (LESSON_REVIEW_GAPS as $gap) {
+        $d = date('Y-m-d', strtotime("{$day} -{$gap} days"));
+        $topics = array_diff_key(lesson_topics($d), array_flip($exclude));
+        if (!$topics) continue;
+        $subs = array_keys($topics);
+        $sub = $subs[$doy % count($subs)];
+        return ['subject' => $sub, 'topic' => $topics[$sub], 'day' => $d, 'gap' => $gap];
+    }
+    return null;
+}
+
+// Các bài lớp đã học gần đây của một môn (để đề đố vui bám đúng bài, không hỏi bài chưa học)
+function recent_lessons_text(string $subject, string $day, int $days = 21, int $max = 10): string
+{
+    $rows = q('SELECT day, content FROM lessons WHERE subject = ? AND day <= ? AND day >= ? ORDER BY day DESC, period',
+              [$subject, $day, date('Y-m-d', strtotime("{$day} -{$days} days"))])->fetchAll();
+    $seen = [];
+    $lines = [];
+    foreach ($rows as $r) {
+        $c = mb_substr(trim(preg_replace('/\s+/u', ' ', $r['content']) ?? ''), 0, 240);
+        if ($c === '' || isset($seen[$c])) continue;
+        $seen[$c] = true;
+        $lines[] = date('d/m', strtotime($r['day'])) . ': ' . $c;
+        if (count($lines) >= $max) break;
+    }
+    return implode("\n", $lines);
+}
+
+// Đọc file PDF "Nội dung học tập" (lịch báo bài) của trường thành từng tiết
+function lessons_prompt(): string
+{
+    return <<<TXT
+File đính kèm là thông báo NỘI DUNG HỌC TẬP một tuần (lịch báo bài) của một lớp tiểu học ở Việt Nam, dạng bảng:
+Ngày | Buổi | Tiết | Thời gian | Môn | Nội dung học tập | Dặn dò (nếu có).
+
+Hãy chép lại ĐÚNG từng tiết thành JSON. Quy tắc:
+- "date": ngày của tiết, dạng YYYY-MM-DD, tính từ khoảng ngày ghi ở tiêu đề (ví dụ "TỪ 9/11/2026 - 13/11/2026": Thứ Hai là 2026-11-09).
+- "period": số tiết (1, 2, 3…), "time": giờ ghi trên bảng (ví dụ "08:00 - 08:35").
+- "subject": tên môn ghi trên bảng, giữ nguyên (ví dụ "Toán", "Tiếng Việt", "English ET", "English LT", "Math", "Science", "Khoa học", "Tin học").
+  Nếu tiết đó là KIỂM TRA (ví dụ "KIỂM TRA GIỮA HỌC KÌ I MÔN TOÁN") thì ghi "Kiểm tra"; nếu cả buổi là sự kiện chung
+  (trải nghiệm, lễ hội, ngoại khoá, tham quan…) thay cho môn học thì ghi "Sự kiện". Khi đó "content" ghi rõ tên bài kiểm tra / sự kiện.
+- "content": nội dung học tập của tiết đó, chép nguyên văn, nối các dòng bị xuống dòng thành một câu.
+  Một ô nội dung trải qua nhiều tiết (ô gộp) thì ghi cùng nội dung cho mỗi tiết đó.
+- "prepare": phần Dặn dò của tiết đó (ví dụ "Xem trước bài", "Học sinh mặc đồng phục thể dục, đi giày thể thao"); không có thì "".
+- Không thêm, không bớt, không đoán. Chữ không đọc được thì bỏ qua tiết đó.
+- "from" và "to": ngày đầu và ngày cuối ghi ở tiêu đề. "class": tên lớp ghi trên file (ví dụ "4.3"), không có thì "".
+- File không phải lịch báo bài thì trả về {"error":"not_lesson_plan"}.
+
+Chỉ trả về JSON đúng dạng:
+{"from":"YYYY-MM-DD","to":"YYYY-MM-DD","class":"","lessons":[{"date":"YYYY-MM-DD","period":1,"time":"","subject":"","content":"","prepare":""}]}
+TXT;
+}
+
+// Kiểm tra dữ liệu Mây đọc ra rồi lưu vào bảng lessons (thay toàn bộ các ngày của tuần đó). Trả về [from, to, số tiết]
+function lessons_store(array $data): ?array
+{
+    $from = (string)($data['from'] ?? '');
+    $to = (string)($data['to'] ?? '');
+    $ok = fn($d) => preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) && strtotime($d);
+    if (!$ok($from) || !$ok($to) || $to < $from || strtotime($to) - strtotime($from) > 13 * 86400) return null;
+    $rows = [];
+    foreach (is_array($data['lessons'] ?? null) ? array_slice($data['lessons'], 0, 150) : [] as $l) {
+        if (!is_array($l)) continue;
+        $day = (string)($l['date'] ?? '');
+        $period = (int)($l['period'] ?? 0);
+        $raw = clean($l['subject'] ?? '', 60);
+        $content = clean($l['content'] ?? '', 600);
+        if (!$ok($day) || $day < $from || $day > $to || $period < 1 || $period > 14 || $raw === '' || $content === '') continue;
+        $rows["{$day}|{$period}"] = [$day, $period, clean($l['time'] ?? '', 15), $raw, lesson_subject($raw), $content, clean($l['prepare'] ?? '', 300)];
+    }
+    if (count($rows) < 3) return null;
+    $pdo = db();
+    $pdo->beginTransaction();
+    q('DELETE FROM lessons WHERE day >= ? AND day <= ?', [$from, $to]);
+    $ins = $pdo->prepare('INSERT INTO lessons (day, period, time, subject_raw, subject, content, prepare, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    foreach ($rows as $r) $ins->execute([...$r, time()]);
+    $pdo->commit();
+    return [$from, $to, count($rows)];
+}
+
+// Các tuần đã có lịch báo bài (mới nhất trước), kèm chi tiết từng ngày cho ba mẹ xem lại
+function lessons_weeks(int $limit = 20): array
+{
+    $weeks = [];
+    $rows = q('SELECT day, period, time, subject_raw, subject, content, prepare FROM lessons WHERE day >= ? ORDER BY day DESC, period',
+              [date('Y-m-d', strtotime(today() . ' -150 days'))])->fetchAll();
+    foreach ($rows as $r) {
+        $wk = week_start($r['day']);
+        if (!isset($weeks[$wk])) {
+            if (count($weeks) >= $limit) break;
+            $weeks[$wk] = ['start' => $wk, 'days' => []];
+        }
+        $weeks[$wk]['days'][$r['day']][] = ['period' => (int)$r['period'], 'time' => $r['time'], 'subject' => $r['subject_raw'],
+            'app' => $r['subject'], 'content' => $r['content'], 'prepare' => $r['prepare']];
+    }
+    $out = [];
+    foreach ($weeks as $w) {
+        ksort($w['days']);
+        $days = [];
+        foreach ($w['days'] as $d => $list) {
+            usort($list, fn($a, $b) => $a['period'] <=> $b['period']);
+            $days[] = ['day' => $d, 'weekday' => WEEKDAYS_VI[(int)date('N', strtotime($d))], 'lessons' => $list];
+        }
+        $out[] = ['start' => $w['start'], 'from' => $days[0]['day'], 'to' => end($days)['day'],
+                  'count' => array_sum(array_map(fn($d) => count($d['lessons']), $days)), 'days' => $days];
+    }
+    return $out;
+}
+
 // Kế hoạch đã duyệt đang áp dụng cho một ngày (nếu có)
 function approved_plan(string $day): ?array
 {
@@ -1264,31 +1513,54 @@ function day_plan(string $day): array
     $weekend = $n >= 6;
     $classes = array_values(array_filter($sch['classes'], fn($c) => $c['day'] === $n));
     $week = plan_week(approved_plan($day), $day);
-    $topic = fn(string $subj) => clean($week[$subj] ?? '', 80);
+    $planTopic = fn(string $subj) => clean($week[$subj] ?? '', 80);
+    // Chủ đề ôn của một môn: kế hoạch tuần ba mẹ đã duyệt, nếu không có thì bài gần nhất lớp đã học (lịch báo bài)
+    $topic = fn(string $subj) => $planTopic($subj) !== '' ? $planTopic($subj) : recent_lesson_topic($subj, $day);
+    // Lịch báo bài của trường (nếu ba mẹ đã tải lên): bài thật của hôm nay và của buổi học tới
+    $rowsToday = lessons_on($day);
+    $lessonsToday = lesson_topics($day);
+    $nextDay = next_lesson_day($day);
+    $lessonsNext = $nextDay ? lesson_topics($nextDay) : [];
+    $nextName = $nextDay
+        ? ($nextDay === date('Y-m-d', strtotime($day . ' +1 day')) ? 'Ngày mai' : 'Buổi học tới') . ' (' . WEEKDAYS_VI[(int)date('N', strtotime($nextDay))] . ' ' . date('d/m', strtotime($nextDay)) . ')'
+        : 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ')';
+    $nextPrepare = $nextDay ? lesson_prepare_text($nextDay) : '';
+    // Cả ngày là sự kiện của trường (trải nghiệm, lễ hội…): buổi tối nhẹ như ngày có lớp học thêm
+    $eventDay = $rowsToday && !array_filter($rowsToday, fn($r) => !preg_match('/sự kiện/iu', $r['subject_raw']));
 
     $notes = [];
     foreach ($classes as $c) {
         $notes[] = "Hôm nay có lớp {$c['name']} lúc {$c['time']}" . ($c['minutes'] ? ' (' . fmt_minutes($c['minutes']) . ')' : '')
                  . '. Học với Mây trước giờ đó nhé.';
     }
-    if ($sch['timetable'][(string)$n] !== '') $notes[] = 'Hôm nay trên lớp đã học: ' . $sch['timetable'][(string)$n];
+    if ($rowsToday) $notes[] = 'Hôm nay trên lớp đã học: ' . lessons_day_text($day);
+    elseif ($sch['timetable'][(string)$n] !== '') $notes[] = 'Hôm nay trên lớp đã học: ' . $sch['timetable'][(string)$n];
     $tomorrowText = $sch['timetable'][(string)$tomorrowN];
-    if ($tomorrowText !== '') $notes[] = 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') học: ' . $tomorrowText;
+    if ($nextDay) {
+        $notes[] = "{$nextName} học: " . lessons_day_text($nextDay);
+        if ($nextPrepare !== '') $notes[] = 'Cô dặn chuẩn bị cho ' . mb_strtolower(mb_substr($nextName, 0, 1)) . mb_substr($nextName, 1) . ": {$nextPrepare}";
+    } elseif ($tomorrowText !== '') {
+        $notes[] = 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') học: ' . $tomorrowText;
+    }
     if (!empty($week['note'])) $notes[] = 'Ghi chú tuần này: ' . clean($week['note'], 200);
 
     // Buổi tối (mặc định 60 phút, ba mẹ đặt ở Lịch học): 1) làm bài cô giao, 2) ôn lại bài học trên lớp hôm nay,
     // 3) bổ sung phần còn yếu (câu sai đến hạn, kỹ năng kiểm tra chưa đạt, môn làm sai nhiều), 4) còn giờ thì xem trước bài ngày mai.
     $todayText = $sch['timetable'][(string)$n];
-    $todaySubs = subjects_in($todayText);
-    $tomorrowSubs = subjects_in($tomorrowText);
+    $todaySubs = $rowsToday ? array_keys($lessonsToday) : subjects_in($todayText);
+    $tomorrowSubs = $nextDay ? array_keys($lessonsNext) : subjects_in($tomorrowText);
     $doy = (int)date('z', $ts);
     $budget = $sch['minutes'];
     // Tối có lớp học thêm / cuối tuần: buổi nhẹ hơn, nhưng vẫn đủ mức tối thiểu ba mẹ đặt
-    if ($classes || $weekend) $budget = $sch['min_minutes'];
+    if ($classes || $weekend || $eventDay) $budget = $sch['min_minutes'];
     $floor = min($sch['min_minutes'], $budget);
-    $why = function (string $subj, string $t, string $fallback) : string {
-        return $t !== '' ? 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t : $fallback;
+    $why = function (string $subj, string $t, string $fallback) use ($planTopic) : string {
+        return $t !== '' && $t === $planTopic($subj) ? 'Kế hoạch tuần ba mẹ đã duyệt: ' . SUBJECTS[$subj]['name'] . ' – ' . $t : $fallback;
     };
+    // Lý do dựa trên lịch báo bài của trường (bài thật trên lớp)
+    $whyToday = fn(string $subj, string $t) => 'Hôm nay trên lớp học ' . SUBJECTS[$subj]['name'] . ': ' . $t . ' (theo lịch báo bài của trường)';
+    $whyNext = fn(string $subj, string $t) => "{$nextName} học " . SUBJECTS[$subj]['name'] . ': ' . $t
+        . (lesson_has_preview($nextDay, $subj) ? ' (cô dặn xem trước bài)' : '');
 
     // Sắp kiểm tra: đếm ngược, và trong EXAM_PREP_DAYS ngày trước đó buổi tối chuyển sang ôn thi
     $exam = next_exam($day, $sch['exams']);
@@ -1377,11 +1649,13 @@ function day_plan(string $day): array
         $reviewSubs = array_values(array_diff($todaySubs ?: $tomorrowSubs, [$weak['subject'] ?? ''])) ?: ($todaySubs ?: $tomorrowSubs);
         if ($reviewSubs) {
             $rs = $reviewSubs[$doy % count($reviewSubs)];
-            $t = $topic($rs);
-            $items[] = ['key' => "quiz:{$rs}", 'icon' => '🎯', 'title' => ($todaySubs ? 'Ôn bài hôm nay: đố vui ' : 'Ôn trước cho ngày mai: đố vui ') . SUBJECTS[$rs]['name'] . ($t !== '' ? " – {$t}" : ''),
+            $fromLesson = $todaySubs ? isset($lessonsToday[$rs]) : isset($lessonsNext[$rs]);
+            $t = $todaySubs ? ($lessonsToday[$rs] ?? $topic($rs)) : ($lessonsNext[$rs] ?? $topic($rs));
+            $items[] = ['key' => "quiz:{$rs}", 'icon' => '🎯', 'title' => ($todaySubs ? 'Ôn bài hôm nay: đố vui ' : 'Ôn trước cho buổi học tới: đố vui ') . SUBJECTS[$rs]['name'] . ($t !== '' ? " – {$t}" : ''),
                         'minutes' => $weekend ? 10 : 15,
-                        'reason' => $why($rs, $t, $todaySubs ? 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$rs]['name'] . ': ôn lại cho nhớ'
-                                                               : 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$rs]['name']),
+                        'reason' => $fromLesson ? ($todaySubs ? $whyToday($rs, $t) : $whyNext($rs, $t))
+                                   : $why($rs, $t, $todaySubs ? 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$rs]['name'] . ': ôn lại cho nhớ'
+                                                               : "{$nextName} có môn " . SUBJECTS[$rs]['name']),
                         'action' => ['view' => 'quiz', 'subject' => $rs, 'topic' => $t]];
         }
         $items = array_merge($items, $fix);
@@ -1393,9 +1667,10 @@ function day_plan(string $day): array
             foreach ($todaySubs as $more) {
                 if ($budget - $used < ($tomorrowSubs ? 20 : 10)) break;   // ngày mai nghỉ thì không cần chừa giờ xem trước
                 if (in_array($more, $usedSubs, true)) continue;
-                $t = $topic($more);
+                $t = $lessonsToday[$more] ?? $topic($more);
                 $items[] = ['key' => "quiz:{$more}", 'icon' => '🎯', 'title' => 'Ôn bài hôm nay: đố vui ' . SUBJECTS[$more]['name'] . ($t !== '' ? " – {$t}" : ''),
-                            'minutes' => 10, 'reason' => $why($more, $t, 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$more]['name'] . ': ôn lại cho nhớ'),
+                            'minutes' => 10, 'reason' => isset($lessonsToday[$more]) ? $whyToday($more, $t)
+                                : $why($more, $t, 'Hôm nay (' . WEEKDAYS_VI[$n] . ') trên lớp có học ' . SUBJECTS[$more]['name'] . ': ôn lại cho nhớ'),
                             'action' => ['view' => 'quiz', 'subject' => $more, 'topic' => $t]];
                 $usedSubs[] = $more;
                 $used += 10;
@@ -1406,12 +1681,22 @@ function day_plan(string $day): array
         foreach ($tomorrowSubs as $ts2) {
             if ($budget - $used < 5 || $weekend && $n === 6) break;
             if (in_array($ts2, $usedSubs, true)) continue;
-            $t2 = $topic($ts2);
-            $items[] = ['key' => "chat:{$ts2}", 'icon' => '💬', 'title' => 'Xem trước bài ngày mai: ' . SUBJECTS[$ts2]['name'] . ($t2 !== '' ? " – {$t2}" : ''),
+            $t2 = $lessonsNext[$ts2] ?? $topic($ts2);
+            $items[] = ['key' => "chat:{$ts2}", 'icon' => '💬', 'title' => 'Xem trước bài ' . (str_starts_with($nextName, 'Ngày mai') ? 'ngày mai' : 'buổi học tới') . ': ' . SUBJECTS[$ts2]['name'] . ($t2 !== '' ? " – {$t2}" : ''),
                         'minutes' => min(10, $budget - $used),
-                        'reason' => $why($ts2, $t2, 'Ngày mai (' . WEEKDAYS_VI[$tomorrowN] . ') có môn ' . SUBJECTS[$ts2]['name']),
+                        'reason' => isset($lessonsNext[$ts2]) ? $whyNext($ts2, $t2) : $why($ts2, $t2, "{$nextName} có môn " . SUBJECTS[$ts2]['name']),
                         'action' => ['view' => 'chat', 'subject' => $ts2, 'topic' => $t2, 'preview' => true]];
             break;
+        }
+
+        // Ôn cách quãng bài cũ trên lớp (3 → 7 → 14 → 28 ngày trước), theo lịch báo bài của trường
+        $usedSubs = array_values(array_filter(array_map(fn($it) => ($it['action']['view'] ?? '') === 'quiz' ? ($it['action']['subject'] ?? null) : null, $items)));
+        $old = old_lesson_pick($day, $usedSubs);
+        if ($old && array_sum(array_column($items, 'minutes')) + 10 <= $budget + 5) {
+            $items[] = ['key' => "quiz:{$old['subject']}", 'icon' => '🧠',
+                        'title' => 'Ôn lại bài cũ: đố vui ' . SUBJECTS[$old['subject']]['name'] . ' – ' . $old['topic'], 'minutes' => 10,
+                        'reason' => 'Bài trên lớp ngày ' . date('d/m', strtotime($old['day'])) . " ({$old['gap']} ngày trước): ôn lại cách quãng để nhớ lâu",
+                        'action' => ['view' => 'quiz', 'subject' => $old['subject'], 'topic' => $old['topic']]];
         }
     }
 
@@ -1444,7 +1729,7 @@ function day_plan(string $day): array
     }
 
     // Quá giờ thì bỏ bớt: xem trước bài ngày mai → ôn tập thêm → ôn bài; luôn giữ lại ít nhất 1 đố vui ôn môn học
-    $rank = fn($it) => str_starts_with($it['title'], 'Xem trước') ? 3 : (str_starts_with($it['title'], 'Ôn tập thêm') ? 2 : (str_starts_with($it['title'], 'Ôn ') ? 1 : 0));
+    $rank = fn($it) => str_starts_with($it['title'], 'Xem trước') ? 3 : (str_starts_with($it['title'], 'Ôn tập thêm') || str_starts_with($it['title'], 'Ôn lại bài cũ') ? 2 : (str_starts_with($it['title'], 'Ôn ') ? 1 : 0));
     while (count($items) > 1 && array_sum(array_column($items, 'minutes')) > $budget + 5) {
         $quizzes = count(array_filter($items, fn($it) => ($it['action']['view'] ?? '') === 'quiz'));
         $drop = null; $best = 0;

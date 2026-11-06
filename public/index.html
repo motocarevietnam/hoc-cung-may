@@ -513,6 +513,9 @@ function copyFor(code){
     bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
     http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
     bad_plan: "Mây soạn kế hoạch bị lỗi. Ba mẹ bấm thử lại nhé.",
+    bad_pdf: "File chưa đúng: chọn file PDF (dưới 6 MB) nhé.",
+    not_lesson_plan: "File này không phải lịch báo bài (Nội dung học tập theo tuần).",
+    bad_lessons: "Mây chưa đọc được file này. Ba mẹ thử lại hoặc chọn file khác nhé.",
     google_not_configured: "VPS chưa có thông tin Google (google_client_id, google_client_secret trong config.php).",
     bad_speaking: "Mây soạn bài luyện nói bị lỗi. Bấm thử lại nhé.",
     not_enough_stars: "Bạn chưa đủ sao cho món quà này. Cố thêm chút nữa nhé!",
@@ -1883,6 +1886,7 @@ function todayCard(day){
   return `<div class="today">
     <div class="head"><h3>Hôm nay của ${esc(nick())}</h3><span class="muted" style="margin-left:auto;font-size:14px">${done}/${n} việc</span></div>
     ${exam ? `<div class="pnote">📅 ${esc(exam.split(". ")[0])}</div>` : ""}
+    ${(()=>{ const p = day.notes.find(x=>x.startsWith("Cô dặn chuẩn bị")); return p ? `<div class="pnote">🎒 ${esc(p)}</div>` : ""; })()}
     ${n ? `<div class="fdots" aria-label="Đã xong ${done} trên ${n} việc">${dots}</div>` : ""}
     ${it ? `<div class="focus ${st}" id="focusCard">${n>1?`<button class="farr l" id="focusPrev" aria-label="Việc trước">‹</button><button class="farr r" id="focusNext" aria-label="Việc sau">›</button>`:""}
         <div class="fnum">Việc ${i+1}/${n}${it.done?" · ✅ Đã xong":st==="paused"?" · đang tạm dừng":st==="started"?" · đang làm":st==="needs_help"?" · 🙋 đã nhờ ba mẹ":""}</div>
@@ -2078,7 +2082,13 @@ function renderSchedule(){
       <div class="row"><button class="btn" id="addEx">+ Thêm kỳ kiểm tra</button><button class="btn" id="exSuggest">Điền sẵn 4 kỳ của lớp 4</button></div>
       <datalist id="exNames"><option value="Giữa học kì 1"><option value="Cuối học kì 1"><option value="Giữa học kì 2"><option value="Cuối năm"></datalist>
     </div>
+    <div class="card"><h3>📚 Lịch báo bài của trường</h3>
+      <p class="muted" style="margin:0">Tải file PDF “Nội dung học tập” cô gửi mỗi tuần (chọn được nhiều file một lúc). Mây đọc ra bài học từng tiết, rồi buổi tối xếp việc theo đúng bài: <b>ôn bài hôm nay</b>, <b>xem trước bài ngày mai</b> khi cô dặn, nhắc đồ cần mang, và <b>ôn lại bài cũ</b> sau 3, 7, 14, 28 ngày. Tải lại file của một tuần thì dữ liệu tuần đó được thay mới.</p>
+      <div class="row" style="margin-top:8px"><label class="btn primary" style="margin:0">📄 Chọn file PDF<input type="file" id="lsFile" accept="application/pdf,.pdf" multiple hidden></label><span class="muted" id="lsMsg" style="align-self:center"></span></div>
+      <div id="lsWeeks"><p class="muted">Đang mở…</p></div>
+    </div>
     <div class="row"><button class="btn primary" id="saveSched">Lưu lịch học</button><span class="muted" id="schMsg" style="align-self:center"></span></div>`;
+  wireLessons();
   document.getElementById("back").onclick=()=>{ state.parentPage=null; render(); };
   ttEdit = ttFromSched(S);
   document.getElementById("ttWeekend").checked = ttEdit.weekend;
@@ -2106,6 +2116,44 @@ function renderSchedule(){
       msg.textContent = noDate ? `Đã lưu ✅ (bỏ qua ${noDate} kỳ kiểm tra chưa có ngày)` : "Đã lưu ✅";
       if(noDate===0){ const ex=document.getElementById("exList"); if(ex){ ex.innerHTML=(state.sched.exams||[]).map(exRow).join(""); wireEx(); } } }
     catch(e){ msg.textContent=copyFor(e&&e.code); }
+  };
+}
+/* lịch báo bài của trường: tải PDF từng tuần, xem lại, xoá */
+let lsOpen = null;
+function lessonsDraw(weeks){
+  const box = document.getElementById("lsWeeks"); if(!box) return;
+  if(!weeks.length){ box.innerHTML = `<p class="muted">Chưa có tuần nào.</p>`; return; }
+  box.innerHTML = weeks.map(w=>`<div class="lsweek" style="border-top:1px solid var(--line,#ddd);padding:8px 0">
+      <div class="row" style="align-items:center;margin:0"><b style="flex:1">Tuần ${ddmm(w.from)} – ${ddmm(w.to)}</b><span class="muted">${w.count} tiết</span>
+        <button class="btn" data-lsv="${w.start}">${lsOpen===w.start?"Ẩn":"Xem"}</button><button class="btn" data-lsdel="${w.from}|${w.to}">Xoá</button></div>
+      ${lsOpen===w.start ? w.days.map(d=>`<p style="margin:8px 0 2px"><b>${esc(d.weekday)} ${ddmm(d.day)}</b></p>
+        <ul class="weak" style="margin:0">${d.lessons.map(l=>`<li>${l.app?"⭐ ":""}<b>${esc(l.subject)}</b> (tiết ${l.period}): ${esc(l.content)}${l.prepare?` <i class="muted">– ${esc(l.prepare)}</i>`:""}</li>`).join("")}</ul>`).join("")
+        + `<p class="muted" style="margin:6px 0 0">⭐ = môn có trong app (Mây đố vui, xem trước bài theo đúng nội dung này).</p>` : ""}
+    </div>`).join("");
+  box.querySelectorAll("[data-lsv]").forEach(b=>b.onclick=()=>{ lsOpen = lsOpen===b.dataset.lsv ? null : b.dataset.lsv; lessonsDraw(weeks); });
+  box.querySelectorAll("[data-lsdel]").forEach(b=>b.onclick=async()=>{
+    const [from,to] = b.dataset.lsdel.split("|");
+    if(!confirm(`Xoá lịch báo bài tuần ${ddmm(from)} – ${ddmm(to)}?`)) return;
+    try{ lessonsDraw((await api("/api/parent/lessons_delete",{from,to},true)).weeks); }catch(e){ alert(copyFor(e&&e.code)); } });
+}
+function wireLessons(){
+  api("/api/parent/lessons",{},true).then(d=>lessonsDraw(d.weeks||[])).catch(e=>{ const b=document.getElementById("lsWeeks"); if(b) b.innerHTML=`<p class="muted">${esc(copyFor(e&&e.code))}</p>`; });
+  const input = document.getElementById("lsFile");
+  input.onchange = async()=>{
+    const files = [...input.files]; input.value = "";
+    const msg = document.getElementById("lsMsg");
+    let ok = 0, fail = [];
+    for(let i=0;i<files.length;i++){
+      const f = files[i];
+      msg.textContent = `Mây đang đọc file ${i+1}/${files.length}… (mỗi file khoảng 1 phút)`;
+      try{
+        if(f.size > 6e6) throw {code:"bad_pdf"};
+        const pdf = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej({code:"bad_pdf"}); r.readAsDataURL(f); });
+        const d = await api("/api/parent/lessons_import",{pdf: String(pdf).replace(/^data:[^;,]*;/,"data:application/pdf;")},true);
+        ok++; lessonsDraw(d.weeks||[]);
+      }catch(e){ fail.push(`${f.name}: ${copyFor(e&&e.code)}`); }
+    }
+    msg.textContent = (ok ? `Đã đọc xong ${ok} tuần ✅ ` : "") + (fail.length ? `Chưa đọc được: ${fail.join("; ")}` : "");
   };
 }
 /* thời khoá biểu dạng bảng: hàng = tiết (giờ), cột = ngày */

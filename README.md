@@ -18,6 +18,11 @@ Chạy bằng **PHP 8.1+ và MariaDB/MySQL** có sẵn trên VPS (nginx + PHP-FP
   Trang chính có **"Hôm nay của bé"**: 2–4 việc vừa sức (chấm bài về nhà, sổ ôn tập, đố vui và hỏi Mây môn của ngày mai),
   tự đánh dấu ✓ khi bé làm xong; ngày có lớp học thêm và cuối tuần thì nhẹ hơn. Màn hình **Lịch học** xem theo ngày, tuần, tháng, quý
   kèm tổng kết kết quả. **Kế hoạch quý** (13 tuần × 5 môn): Mây soạn nháp theo chương trình lớp 4 và bộ sách, ba mẹ sửa rồi duyệt mới áp dụng.
+- **Lịch báo bài của trường** 📚: Cổng ba mẹ → Lịch học → tải file PDF "Nội dung học tập" cô gửi mỗi tuần (chọn nhiều file một lúc).
+  Mây (Claude) đọc ra bài học từng tiết, lưu vào bảng `lessons` (tải lại tuần nào thì thay dữ liệu tuần đó). Từ đó "Hôm nay của bé"
+  xếp việc theo đúng bài trên lớp: ôn bài hôm nay, xem trước bài của buổi học tới (ghi rõ khi cô dặn "Xem trước bài"),
+  nhắc đồ cần mang, ôn lại bài cũ cách quãng 3 → 7 → 14 → 28 ngày; ngày cả trường đi trải nghiệm thì buổi tối nhẹ hơn.
+  Đề đố vui và Mây khi trò chuyện bám các bài lớp đã học gần đây, không hỏi bài chưa học. File PDF không lưu trên VPS.
 - **Luyện nói tiếng Anh (Speaking)** 🗣️: môn English → Luyện nói, 3 dạng: đọc to câu mẫu, trả lời câu hỏi (kiểu thi nói Cambridge),
   kể/miêu tả ngắn. Bé nghe mẫu (có đọc chậm), bấm 🎤 để nói; iPad chuyển giọng thành chữ, Mây so từng từ với câu mẫu
   và góp ý ngữ pháp, từ vựng, câu mẫu để nói lại. Bé nghe lại giọng mình ngay trên iPad (không gửi âm thanh lên máy chủ).
