@@ -16,6 +16,8 @@ function companion_context(): array
             if (tts_enabled()) $modes['listen'] = 'Luyện nghe';
         }
         if ($id === 'cmath') $modes['wp'] = 'Toán có lời văn';
+        if ($id === 'tv' && function_exists('tvw_for_kid')) $modes['tvw'] = 'Luyện từ và câu';
+        if ($id === 'csci' && function_exists('sci_for_kid')) $modes['sci'] = 'Thí nghiệm nhỏ';
         $subjects[] = ['id' => $id] + $subject + ['modes' => $modes];
     }
     return ['day' => $day, 'timezone' => (string)cfg('timezone', 'Asia/Ho_Chi_Minh'),
@@ -187,14 +189,14 @@ function r_companion_checkpoint(array $b): never
         // A delayed checkpoint cannot reopen a card after reflection/rest or replace another card.
         if (!$card || ($b['view'] ?? '') !== $card['view'] || (int)($b['revision'] ?? -1) !== (int)$row['revision']) return ['error' => 'conversation_conflict'];
         $ref = max(0, (int)($b['ref'] ?? 0));
-        $tables = ['quiz' => 'quizzes', 'read' => 'readings', 'listen' => 'readings', 'wp' => 'readings', 'write' => 'writings', 'speak' => 'speaking', 'homework' => 'homework', 'chat' => 'conversations'];
+        $tables = ['quiz' => 'quizzes', 'read' => 'readings', 'listen' => 'readings', 'wp' => 'readings', 'write' => 'writings', 'speak' => 'speaking', 'homework' => 'homework', 'chat' => 'conversations', 'tvw' => 'readings', 'sci' => 'readings'];
         if ($ref && (!isset($tables[$card['view']]) || !q('SELECT id FROM ' . $tables[$card['view']] . ' WHERE id = ?', [$ref])->fetchColumn())) return ['error' => 'bad_request'];
         if ($ref && isset($tables[$card['view']]) && $card['view'] !== 'speak') {
             $linked = q('SELECT subject FROM ' . $tables[$card['view']] . ' WHERE id = ?', [$ref])->fetchColumn();
             if ($linked !== $card['subject']) return ['error' => 'bad_request'];
         }
-        if ($ref && in_array($card['view'], ['read', 'wp', 'listen'], true)) {
-            if (q('SELECT kind FROM readings WHERE id = ?', [$ref])->fetchColumn() !== $card['view']) return ['error' => 'bad_request'];
+        if ($ref && in_array($card['view'], ['read', 'wp', 'listen', 'tvw', 'sci'], true)) {
+            if (q('SELECT kind FROM readings WHERE id = ?', [$ref])->fetchColumn() !== (['tvw' => 'tvword', 'sci' => 'sciexp'][$card['view']] ?? $card['view'])) return ['error' => 'bad_request'];
         }
         if ($ref) $s['active_card']['ref'] = $ref;
         q('UPDATE companion_sessions SET state = ? WHERE conv_id = ?', [json_encode($s, JSON_UNESCAPED_UNICODE), $row['conv_id']]);
@@ -226,10 +228,10 @@ function r_companion_activity(array $b): never
         unset($question);
         $data['quiz'] = ['kind' => 'quiz', 'id' => $id, 'qs' => $qs, 'i' => count($answers),
             'results' => $results, 'picked' => null, 'hint' => false, 'waiting' => false];
-    } elseif (in_array($view, ['read', 'wp', 'listen'], true)) {
-        $r = q('SELECT * FROM readings WHERE id = ? AND kind = ?', [$id, $view])->fetch();
+    } elseif (in_array($view, ['read', 'wp', 'listen', 'tvw', 'sci'], true)) {
+        $r = q('SELECT * FROM readings WHERE id = ? AND kind = ?', [$id, ['tvw' => 'tvword', 'sci' => 'sciexp'][$view] ?? $view])->fetch();
         if (!$r) out(['error' => 'activity_gone'], 404);
-        $data['activity'] = match ($view) { 'read' => reading_for_kid($r), 'wp' => wp_for_kid($r), 'listen' => listening_for_kid($r) };
+        $data['activity'] = match ($view) { 'read' => reading_for_kid($r), 'wp' => wp_for_kid($r), 'listen' => listening_for_kid($r), 'tvw' => tvw_for_kid($r), 'sci' => sci_for_kid($r) };
     } elseif ($view === 'write') {
         $r = q('SELECT * FROM writings WHERE id = ?', [$id])->fetch();
         if (!$r) out(['error' => 'activity_gone'], 404);

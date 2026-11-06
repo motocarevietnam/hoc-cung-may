@@ -2,7 +2,7 @@
 const Companion = (() => {
   const C = {session:null, context:null, loading:false, busy:false, error:'', draft:'', pending:null,
     picker:false, schedule:false, activitySubject:null, mounted:false, mic:null, fields:{}, epoch:0, checkpoint:null};
-  const activityViews = ['quiz','homework','write','read','listen','wp','speak','chat','check'];
+  const activityViews = ['quiz','homework','write','read','listen','wp','speak','chat','check','tvw','sci'];
   const enabled = () => !PARENT_MODE && me.chatFirst !== false;
   const uuid = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_request';
   const card = () => C.session?.state.active_card;
@@ -176,6 +176,8 @@ const Companion = (() => {
       case 'read': return openRead();
       case 'listen': return openListen();
       case 'wp': return openWp();
+      case 'tvw': return openTvw();
+      case 'sci': return openSci();
       case 'speak': return openSpeak(null,a.topic);
       case 'chat': state.turns=[];state.convId=null;state.vidShown=null;return go('chat');
     }
@@ -184,7 +186,7 @@ const Companion = (() => {
     if(C.busy||!card()) return;
     if(C.checkpoint && !await flushCheckpoint()){render();return;}
     const a=card();
-    if(state.view==='home' && C.mounted && state[({quiz:'quiz',review:'quiz',write:'wr',read:'rd',listen:'ls',wp:'wp',speak:'sp',homework:'hw',chat:'turns'})[a.view]]){
+    if(state.view==='home' && C.mounted && state[({quiz:'quiz',review:'quiz',write:'wr',read:'rd',listen:'ls',wp:'wp',speak:'sp',homework:'hw',chat:'turns',tvw:'tv',sci:'sci'})[a.view]]){
       state.subject=a.subject;state.topic=a.topic||'';return go(modeView(a.view));
     }
     C.busy=true;C.error='';render();
@@ -196,9 +198,9 @@ const Companion = (() => {
       else if(d.speaking) state.sp=d.speaking;
       else if(d.chat){state.turns=d.chat.messages;state.convId=d.chat.id;state.vidShown=true;}
       else if(d.activity){
-        const r=d.activity, key={read:'rd',listen:'ls',wp:'wp'}[a.view];
-        state[key]={r,level:r.level,phase:r.score!==null?'done':({read:'read',listen:'listen',wp:'work'})[a.view],
-          err:'',sel:r.answers||[],typed:'',plays:0,dplays:0,first:{},val:{},wordsSeen:false};
+        const r=d.activity, key={read:'rd',listen:'ls',wp:'wp',tvw:'tv',sci:'sci'}[a.view];
+        state[key]={r,level:r.level,phase:r.score!==null?'done':({read:'read',listen:'listen',wp:'work',tvw:'work',sci:'work'})[a.view],
+          err:'',sel:r.answers||[],typed:'',plays:0,dplays:0,first:{},val:{},chk:{},pick:{},join:{},text:'',wordsSeen:false};
       } else if(a.view==='homework'&&a.ref){openHomework(a.subject);await loadHomeworkList(a.ref);return;}
       else {launch(a);return;}
       go(modeView(a.view));C.mounted=true;
@@ -208,7 +210,7 @@ const Companion = (() => {
   async function afterApi(path,body,data){
     if(!enabled()||!C.session||!card()||path.startsWith('/api/companion/')) return;
     const refs={quiz:data.quiz_id,write:data.writing?.id,read:data.reading?.id,wp:data.wp?.id,
-      listen:data.listening?.id,speak:data.session_id,homework:data.id,chat:data.conv_id};
+      listen:data.listening?.id,speak:data.session_id,homework:data.id,chat:data.conv_id,tvw:data.tvw?.id,sci:data.sci?.id};
     const ref=refs[card().view];
     if(!ref || card().ref===ref) return;
     C.checkpoint={session_id:C.session.id,revision:C.session.revision,view:card().view,ref};saveDrafts();

@@ -1319,6 +1319,19 @@ function day_plan(string $day): array
                     'reason' => 'Đọc hiểu tiếng Anh mỗi ngày: đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu',
                     'action' => ['view' => 'read']];
     }
+    // Tiếng Việt – Luyện từ và câu 8 phút: thứ 3, 5, 7
+    if (setting('tvw_on', '1') !== '0' && in_array($n, [2, 4, 6], true)) {
+        $items[] = ['key' => 'tvword', 'icon' => '🧩', 'title' => 'Luyện từ và câu 8 phút', 'minutes' => 8,
+                    'reason' => 'Tiếng Việt: xếp danh từ / động từ, nối câu bằng từ nối cho mạch lạc',
+                    'action' => ['view' => 'tvw']];
+    }
+    // Science – thí nghiệm nhỏ 15 phút: chủ nhật, nếu tuần này chưa làm
+    if (setting('sci_on', '1') !== '0' && $n === 7 && !q("SELECT 1 FROM readings WHERE kind = 'sciexp' AND score IS NOT NULL AND day >= ? AND day <= ?",
+            [date('Y-m-d', strtotime('monday this week', $ts)), $day])->fetchColumn()) {
+        $items[] = ['key' => 'sciexp', 'icon' => '🔬', 'title' => 'Thí nghiệm nhỏ (Science) 15 phút', 'minutes' => 15,
+                    'reason' => 'Science: làm thí nghiệm an toàn ở nhà, quan sát rồi giải thích "I observe… because…"',
+                    'action' => ['view' => 'sci']];
+    }
     // Word problems (Maths Cambridge) 15 phút: thứ 2 và thứ 6
     if (setting('wp_on', '1') !== '0' && in_array($n, [1, 5], true)) {
         $items[] = ['key' => 'wordprob', 'icon' => '🧮', 'title' => 'Word problems 15 phút', 'minutes' => 15,
@@ -2854,6 +2867,8 @@ function reading_total(array $r): int
 {
     $d = json_decode((string)$r['data'], true) ?: [];
     if ($r['kind'] === 'wp') return count($d['problems'] ?? []) * WP_POINTS;
+    if ($r['kind'] === 'tvword') return count($d['words'] ?? []) + count($d['pairs'] ?? []) * 2;
+    if ($r['kind'] === 'sciexp') return 1;
     if ($r['kind'] === 'listen') return count($d['questions'] ?? []) + 1;
     if (!empty($d['parts'])) return count(array_filter(array_column($d['parts'], 'q'))) + 1;
     return count($d['questions'] ?? []) ?: 3;
@@ -2944,4 +2959,133 @@ function read_attach_images(array $data, string $topic): array
     }
     unset($p);
     return $data;
+}
+
+/* ---------------- Tiếng Việt: Luyện từ và câu (xếp danh từ / động từ + nối câu bằng từ nối) ---------------- */
+// Phần A: 8 từ, bé xếp vào "Danh từ" hoặc "Động từ" (cô nhận xét bé còn nhầm khi phân loại).
+// Phần B: 2 cặp ý, bé nối thành một câu bằng từ nối (cô nhận xét bài viết chưa mạch lạc).
+const TV_CONNECTORS = ['vì … nên …', 'nhưng', 'nên', 'sau đó', 'cuối cùng', 'nếu … thì …', 'khi', 'và'];
+
+function tvw_prompt(string $topic, string $context): string
+{
+    $t = $topic !== '' ? $topic : 'bài Tiếng Việt lớp 4 đang học';
+    $ctx = $context !== '' ? "\n" . $context : '';
+    return <<<TXT
+Soạn bài luyện từ và câu ngắn cho học sinh lớp 4 (Tiếng Việt, sách Kết nối tri thức). Chủ đề tuần: {$t}.{$ctx}
+Phần A: chọn đúng 8 từ quen thuộc với trẻ em: 4 DANH TỪ (chỉ người, vật, con vật, cây cối, hiện tượng…) và 4 ĐỘNG TỪ (chỉ hoạt động, trạng thái). Chỉ chọn từ RÕ RÀNG, không thể hiểu theo hai từ loại (tránh các từ như "học sinh/học", "cày", "cưa", "bào", "đục", "khoá"…). Trộn thứ tự. "why": giải thích rất ngắn vì sao (ví dụ: "chỉ con vật", "chỉ hoạt động của chân").
+Phần B: 2 cặp ý đơn giản, gần gũi (mỗi ý là một câu ngắn), có thể nối thành một câu bằng từ nối (vì… nên…, nhưng, nên, sau đó, nếu… thì…, khi…). "example": một câu nối mẫu hay.
+Chỉ trả về JSON: {"words":[{"w":"...","type":"dt|đt","why":"..."}],"pairs":[{"a":"...","b":"...","example":"..."}]}
+TXT;
+}
+
+function tvw_verify_prompt(array $words): string
+{
+    $list = implode(', ', array_column($words, 'w'));
+    return <<<TXT
+Bạn là giáo viên Tiếng Việt lớp 4. Xếp từng từ sau vào DANH TỪ hoặc ĐỘNG TỪ theo cách hiểu thông thường nhất của học sinh lớp 4. Nếu một từ có thể là cả hai, ghi "mơ hồ".
+Các từ: {$list}
+Chỉ trả về JSON: {"items":[{"w":"...","type":"dt|đt|mơ hồ"}]}
+TXT;
+}
+
+function tvw_clean(array $d, ?array $verify): ?array
+{
+    $vt = [];
+    foreach ($verify['items'] ?? [] as $x) $vt[mb_strtolower(trim((string)($x['w'] ?? '')))] = (string)($x['type'] ?? '');
+    $words = [];
+    foreach (is_array($d['words'] ?? null) ? array_slice($d['words'], 0, 10) : [] as $x) {
+        $w = clean($x['w'] ?? '', 30); $t = ($x['type'] ?? '') === 'đt' ? 'đt' : (($x['type'] ?? '') === 'dt' ? 'dt' : '');
+        if ($w === '' || $t === '') continue;
+        if ($vt && ($vt[mb_strtolower($w)] ?? '') !== $t) continue;      // lượt kiểm tra lại không đồng ý → bỏ từ đó
+        $words[] = ['w' => $w, 'type' => $t, 'why' => clean($x['why'] ?? '', 120)];
+    }
+    $pairs = [];
+    foreach (is_array($d['pairs'] ?? null) ? array_slice($d['pairs'], 0, 2) : [] as $x) {
+        $a = clean($x['a'] ?? '', 160); $b = clean($x['b'] ?? '', 160);
+        if ($a !== '' && $b !== '') $pairs[] = ['a' => $a, 'b' => $b, 'example' => clean($x['example'] ?? '', 240)];
+    }
+    if (count($words) < 6 || count(array_filter($words, fn($w) => $w['type'] === 'dt')) < 2 || count(array_filter($words, fn($w) => $w['type'] === 'đt')) < 2 || !$pairs) return null;
+    shuffle($words);
+    return ['title' => 'Luyện từ và câu', 'words' => array_slice($words, 0, 8), 'pairs' => $pairs];
+}
+
+function tvw_join_prompt(array $p, string $text): string
+{
+    return <<<TXT
+Học sinh lớp 4 nối hai ý sau thành MỘT câu bằng từ nối (vì… nên…, nhưng, nên, sau đó, nếu… thì…, khi…).
+Ý 1: "{$p['a']}"  Ý 2: "{$p['b']}"
+Bé viết: "{$text}"
+Đánh giá: câu có giữ đủ hai ý, dùng từ nối hợp nghĩa (nguyên nhân – kết quả, đối lập, trình tự…), đọc lên tự nhiên, mạch lạc không? Lỗi chính tả nhỏ không trừ nhưng có thể nhắc.
+"good" = đúng và mạch lạc; "partial" = đúng hướng nhưng từ nối chưa hợp hoặc câu còn lủng củng; "no" = chưa nối được hoặc sai nghĩa.
+Nhận xét bằng tiếng Việt thân thiện (gọi bé là "bạn", xưng "Mây"), 1–2 câu ngắn; nếu chưa tốt thì gợi ý từ nối hợp hơn. "better": một câu nối hay (có thể là câu của bé đã sửa).
+Chỉ trả về JSON: {"verdict":"good|partial|no","feedback":"...","better":"..."}
+TXT;
+}
+
+function tvw_for_kid(array $r): array
+{
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: [];
+    $sorted = isset($st['sort']);
+    return ['id' => (int)$r['id'], 'title' => $d['title'] ?? '', 'score' => $r['score'] !== null ? (int)$r['score'] : null,
+            'max' => count($d['words'] ?? []) + count($d['pairs'] ?? []) * 2,
+            'words' => array_map(fn($w) => $sorted ? $w : ['w' => $w['w']], $d['words'] ?? []),
+            'sort' => $st['sort'] ?? null, 'pairs' => array_map(fn($p) => ['a' => $p['a'], 'b' => $p['b']], $d['pairs'] ?? []),
+            'joins' => $st['joins'] ?? [], 'connectors' => TV_CONNECTORS];
+}
+
+/* ---------------- Science: thí nghiệm nhỏ ở nhà + "I observe… because…" ---------------- */
+// Mỗi tuần một thí nghiệm an toàn theo Unit Science đang học. Bé làm, quan sát, rồi nói/viết theo mẫu câu.
+const SCI_WORDS = ['melt', 'freeze', 'solid', 'liquid', 'gas', 'heat', 'cool', 'water', 'ice', 'shadow', 'light', 'sound', 'float', 'sink', 'grow', 'push', 'pull'];
+
+function sci_prompt(string $topic, string $context): string
+{
+    $t = $topic !== '' ? $topic : 'the Cambridge Primary Science Stage 4 unit the class is studying now (see context)';
+    $ctx = $context !== '' ? "\n" . $context : '';
+    return <<<TXT
+Suggest ONE tiny, very SAFE science activity a 9-year-old can do at home in 10–15 minutes with everyday things, linked to: {$t}.{$ctx}
+Absolutely no fire, no stove, no boiling water, no sharp tools, no electricity from sockets, no chemicals other than kitchen water/salt/sugar/vinegar; an adult is nearby. Prefer: ice, water, cups, plates, torch, paper, toys, plants, salt, sugar.
+Write in very simple English (A1–A2) with Vietnamese translations.
+Return JSON only: {"title":"...","title_vi":"...","materials":["..."],"materials_vi":["..."],"steps":["..."],"steps_vi":["..."],"safety":"...","safety_vi":"...",
+"question":"one question about what she will observe","question_vi":"...","answer":"the expected observation and the simple scientific reason (one sentence, starting 'I observe ... because ...')","answer_vi":"...",
+"words":[{"w":"key science word","vi":"..."}]}
+Give 2–4 steps, 2–5 materials and exactly 4 key science words.
+TXT;
+}
+
+function sci_clean(array $d): ?array
+{
+    $arr = fn($k, $n, $m) => array_values(array_filter(array_map(fn($x) => clean($x, $m), is_array($d[$k] ?? null) ? array_slice($d[$k], 0, $n) : [])));
+    $o = ['title' => clean($d['title'] ?? '', 120), 'title_vi' => clean($d['title_vi'] ?? '', 120),
+          'materials' => $arr('materials', 6, 80), 'materials_vi' => $arr('materials_vi', 6, 80),
+          'steps' => $arr('steps', 5, 200), 'steps_vi' => $arr('steps_vi', 5, 200),
+          'safety' => clean($d['safety'] ?? '', 200), 'safety_vi' => clean($d['safety_vi'] ?? '', 200),
+          'question' => clean($d['question'] ?? '', 200), 'question_vi' => clean($d['question_vi'] ?? '', 200),
+          'answer' => clean($d['answer'] ?? '', 300), 'answer_vi' => clean($d['answer_vi'] ?? '', 300), 'words' => []];
+    foreach (is_array($d['words'] ?? null) ? array_slice($d['words'], 0, 4) : [] as $w) {
+        $x = ['w' => clean($w['w'] ?? '', 30), 'vi' => clean($w['vi'] ?? '', 80)];
+        if ($x['w'] !== '') $o['words'][] = $x;
+    }
+    return ($o['title'] === '' || count($o['steps']) < 2 || $o['question'] === '' || $o['answer'] === '') ? null : $o;
+}
+
+function sci_judge_prompt(array $d, string $text): string
+{
+    return <<<TXT
+A Grade 4 child (Vietnamese) did this home science activity: "{$d['title']}". Question: "{$d['question']}". Expected: "{$d['answer']}".
+She wrote her observation and reason (English or Vietnamese, maybe speech-to-text; ignore spelling): "{$text}"
+Judge: did she describe a sensible OBSERVATION and give a REASON ("because…") that matches the science? "good" = observation + correct reason; "partial" = observation but reason missing/unclear; "no" = unrelated or wrong science.
+Feedback in very simple English (A1) and the same in Vietnamese (call the child "bạn", yourself "Mây"). If not "good", give a small hint, not the full answer.
+Return JSON only: {"verdict":"good|partial|no","feedback":"...","feedback_vi":"..."}
+TXT;
+}
+
+function sci_for_kid(array $r): array
+{
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: [];
+    $done = $r['score'] !== null;
+    $o = $d;
+    if (!$done) unset($o['answer'], $o['answer_vi']);
+    return ['id' => (int)$r['id'], 'score' => $done ? (int)$r['score'] : null, 'exp' => $o, 'tries' => $st['tries'] ?? []];
 }

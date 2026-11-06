@@ -57,6 +57,11 @@ $routes = [
     'wp_check'            => 'r_wp_check',
     'wp_first'            => 'r_wp_first',
     'wp_answer'           => 'r_wp_answer',
+    'tvw_start'           => 'r_tvw_start',
+    'tvw_sort'            => 'r_tvw_sort',
+    'tvw_join'            => 'r_tvw_join',
+    'sci_start'           => 'r_sci_start',
+    'sci_answer'          => 'r_sci_answer',
     'read_pron'           => 'r_read_pron',
     'listen_start'        => 'r_listen_start',
     'listen_answer'       => 'r_listen_answer',
@@ -885,9 +890,8 @@ function r_wp_first(array $b): never
     $text = clean($b['text'] ?? '', 600);
     if (mb_strlen($text) < 4) out(['error' => 'retell_short'], 400);
     spend(1);
-    $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(),
-        [['role' => 'user', 'content' => wp_first_prompt($d['problems'][$i], $text)]], 2500, 40, 'low')) ?? [];
-    $verdict = in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true) ? $j['verdict'] : 'partial';
+    $j = judge_json(wp_first_prompt($d['problems'][$i], $text));
+    $verdict = $j['verdict'];
     $st['probs'][$i]['first'] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300), 'fb_vi' => clean($j['feedback_vi'] ?? '', 300)];
     wp_save($r, $st);
     out(['wp' => wp_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'wp']))]);
@@ -907,6 +911,8 @@ function r_wp_answer(array $b): never
         $res['tries']++; $res['last'] = clean($b['value'] ?? '', 30);
         if ($res['first'] === null) $res['first'] = $ok;
         if ($ok || $res['tries'] >= 2) { $res['solved'] = true; $res['ok'] = $ok; }
+        // Soát lại, tự tìm ra lỗi và sửa đúng ở lần 2 → sao "Tự sửa sai"
+        if ($ok && $res['tries'] === 2) award('self_fix', 'wp:' . $r['id'] . ':' . $i, 'Tự soát và sửa đúng bài toán');
         $st['probs'][$i]['ans'] = $res;
         // Sai cả 2 lần: bài này vào Sổ ôn tập (dạng trắc nghiệm đáp số) để làm lại sau 1 → 3 → 7 ngày
         if ($res['solved'] && !$ok) {
@@ -937,6 +943,153 @@ function r_wp_answer(array $b): never
         $extra = ['level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab, 'stars' => stars(), 'awards' => $GLOBALS['AWARDS']];
     }
     out(['wp' => wp_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'wp']))] + $extra);
+}
+
+/* ---------------- Tiếng Việt: Luyện từ và câu ---------------- */
+
+// Gọi Haiku chấm / nhận xét; trả lời hỏng (không có verdict) thì thử lại 1 lần; vẫn hỏng → báo lỗi để bé gửi lại (không ghi kết quả rỗng)
+function judge_json(string $prompt): array
+{
+    for ($i = 0; $i < 2; $i++) {
+        try {
+            $j = claude_json(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'), quiz_system(), [['role' => 'user', 'content' => $prompt]], 2500, 40, 'low')) ?? [];
+            if (in_array($j['verdict'] ?? '', ['good', 'partial', 'no'], true)) return $j;
+        } catch (Throwable $e) { error_log('[hoc-cung-may] judge lỗi: ' . $e->getMessage()); }
+    }
+    out(['error' => 'upstream'], 502);
+}
+
+
+function r_tvw_start(array $b): never
+{
+    if (empty($b['new'])) {
+        $r = q("SELECT * FROM readings WHERE day = ? AND kind = 'tvword' ORDER BY (score IS NULL) DESC, id DESC LIMIT 1", [today()])->fetch();
+        if ($r) out(['tvw' => tvw_for_kid($r)]);
+    }
+    $topic = clean((plan_week(approved_plan(today()), today()) ?: [])['tv'] ?? '', 120);
+    spend(3);
+    $data = null;
+    for ($try = 0; $try < 2 && !$data; $try++) {
+        $d = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+            [['role' => 'user', 'content' => tvw_prompt($topic, quiz_context('tv'))]], 6000, 60, 'low')) ?? [];
+        if (!$d) continue;
+        // Kiểm tra lại từ loại bằng một lượt riêng: từ nào hai lượt không khớp hoặc mơ hồ thì bỏ
+        $v = null;
+        try { $v = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+            [['role' => 'user', 'content' => tvw_verify_prompt(is_array($d['words'] ?? null) ? $d['words'] : [])]], 4000, 45, 'low')); }
+        catch (Throwable $e) { error_log('[hoc-cung-may] tvw verify lỗi: ' . $e->getMessage()); }
+        $data = tvw_clean($d, $v);
+    }
+    if (!$data) out(['error' => 'upstream'], 502);
+    q("INSERT INTO readings (day, kind, subject, topic, level, data, created_at, updated_at) VALUES (?, 'tvword', 'tv', ?, 1, ?, ?, ?)",
+        [today(), $topic, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
+    out(['tvw' => tvw_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId(), '_kind' => 'tvword']))]);
+}
+
+// Phần A: bé gửi cách xếp từ; mỗi từ đúng 1 điểm; từ xếp sai vào Sổ ôn tập
+function r_tvw_sort(array $b): never
+{
+    $r = reading_or_fail(['id' => $b['id'] ?? 0, '_kind' => 'tvword']);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: [];
+    if (!isset($st['sort'])) {
+        $pick = is_array($b['pick'] ?? null) ? $b['pick'] : [];
+        if (count($pick) !== count($d['words'])) out(['error' => 'bad_request'], 400);
+        $res = [];
+        foreach ($d['words'] as $k => $w) {
+            $p = ($pick[$k] ?? '') === 'đt' ? 'đt' : 'dt';
+            $res[] = ['pick' => $p, 'ok' => $p === $w['type']];
+            if ($p !== $w['type']) {
+                $q = "Từ “{$w['w']}” là danh từ hay động từ?";
+                if (!q('SELECT 1 FROM mistakes WHERE subject = ? AND q = ?', ['tv', $q])->fetchColumn())
+                    q('INSERT INTO mistakes (subject, topic, q, options, answer, `explain`, hint, due_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        ['tv', 'Danh từ và động từ', $q, json_encode(['Danh từ', 'Động từ'], JSON_UNESCAPED_UNICODE), $w['type'] === 'dt' ? 0 : 1,
+                         "“{$w['w']}” là " . ($w['type'] === 'dt' ? 'danh từ' : 'động từ') . ($w['why'] !== '' ? " ({$w['why']})." : '.'),
+                         'Hỏi: từ này chỉ người/vật, hay chỉ hoạt động?', strtotime('tomorrow'), time()]);
+            }
+        }
+        $st['sort'] = $res;
+        q('UPDATE readings SET answers = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), time(), $r['id']]);
+    }
+    out(['tvw' => tvw_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'tvword']))]);
+}
+
+// Phần B: bé nối một cặp ý thành một câu; Mây nhận xét. Xong cả hai phần thì chấm cả bài.
+function r_tvw_join(array $b): never
+{
+    $r = reading_or_fail(['id' => $b['id'] ?? 0, '_kind' => 'tvword']);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: [];
+    $i = (int)($b['pair'] ?? -1);
+    if (!isset($st['sort']) || !isset($d['pairs'][$i]) || isset($st['joins'][$i])) out(['error' => 'bad_request'], 400);
+    $text = clean($b['text'] ?? '', 400);
+    if (mb_strlen($text) < 6) out(['error' => 'retell_short'], 400);
+    spend(1);
+    $j = judge_json(tvw_join_prompt($d['pairs'][$i], $text));
+    $verdict = $j['verdict'];
+    $st['joins'][$i] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300),
+                        'better' => clean($j['better'] ?? '', 300) ?: $d['pairs'][$i]['example']];
+    $extra = [];
+    if (count($st['joins']) >= count($d['pairs']) && $r['score'] === null) {
+        $score = count(array_filter($st['sort'], fn($x) => $x['ok']))
+               + array_sum(array_map(fn($x) => ['good' => 2, 'partial' => 1, 'no' => 0][$x['verdict']], $st['joins']));
+        $max = count($d['words']) + count($d['pairs']) * 2;
+        q('UPDATE readings SET answers = ?, score = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), $score, time(), $r['id']]);
+        log_activity('tv', 'Luyện từ và câu: danh từ, động từ, từ nối', 'tvword', $score, $max);
+        $extra = ['stars' => stars(), 'awards' => $GLOBALS['AWARDS']];
+    } else {
+        q('UPDATE readings SET answers = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), time(), $r['id']]);
+    }
+    out(['tvw' => tvw_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'tvword']))] + $extra);
+}
+
+/* ---------------- Science: thí nghiệm nhỏ ở nhà ---------------- */
+
+function r_sci_start(array $b): never
+{
+    // Mỗi tuần một thí nghiệm: tuần này đã có (chưa làm xong) thì làm tiếp
+    if (empty($b['new'])) {
+        $r = q("SELECT * FROM readings WHERE kind = 'sciexp' AND day >= ? ORDER BY (score IS NULL) DESC, id DESC LIMIT 1",
+            [date('Y-m-d', strtotime('monday this week'))])->fetch();
+        if ($r) out(['sci' => sci_for_kid($r)]);
+    }
+    $topic = clean((plan_week(approved_plan(today()), today()) ?: [])['csci'] ?? '', 120);
+    spend(3);
+    $titles = array_values(array_filter(array_map(fn($x) => (json_decode((string)$x['data'], true) ?: [])['title'] ?? '',
+        q("SELECT data FROM readings WHERE kind = 'sciexp' ORDER BY id DESC LIMIT 10")->fetchAll())));
+    $avoid = $titles ? "\nActivities already done (choose a DIFFERENT one): " . implode('; ', $titles) : '';
+    $data = sci_clean(claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
+        [['role' => 'user', 'content' => sci_prompt($topic, quiz_context('csci') . $avoid)]], 6000, 60, 'low')) ?? []);
+    if (!$data) out(['error' => 'upstream'], 502);
+    q("INSERT INTO readings (day, kind, subject, topic, level, data, created_at, updated_at) VALUES (?, 'sciexp', 'csci', ?, 1, ?, ?, ?)",
+        [today(), $topic, json_encode($data, JSON_UNESCAPED_UNICODE), time(), time()]);
+    out(['sci' => sci_for_kid(reading_or_fail(['id' => (int)db()->lastInsertId(), '_kind' => 'sciexp']))]);
+}
+
+// Bé viết "I observe … because …" → Mây nhận xét; đạt hoặc thử 2 lần thì xong
+function r_sci_answer(array $b): never
+{
+    $r = reading_or_fail(['id' => $b['id'] ?? 0, '_kind' => 'sciexp']);
+    if ($r['score'] !== null) out(['sci' => sci_for_kid($r)]);
+    $d = json_decode((string)$r['data'], true) ?: [];
+    $st = json_decode((string)$r['answers'], true) ?: ['tries' => []];
+    $text = clean($b['text'] ?? '', 600);
+    if (mb_strlen($text) < 8) out(['error' => 'retell_short'], 400);
+    spend(1);
+    $j = judge_json(sci_judge_prompt($d, $text));
+    $verdict = $j['verdict'];
+    $st['tries'][] = ['text' => $text, 'verdict' => $verdict, 'fb' => clean($j['feedback'] ?? '', 300), 'fb_vi' => clean($j['feedback_vi'] ?? '', 300)];
+    $extra = [];
+    if ($verdict === 'good' || count($st['tries']) >= 2) {
+        $score = $verdict === 'good' ? 1 : 0;
+        q('UPDATE readings SET answers = ?, score = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), $score, time(), $r['id']]);
+        words_to_review($d['words'] ?? [], 'Science – ' . ($d['title'] ?? ''));
+        log_activity('csci', mb_substr('Experiment: ' . ($d['title'] ?? ''), 0, 200), 'sciexp', $score, 1);
+        $extra = ['stars' => stars(), 'awards' => $GLOBALS['AWARDS']];
+    } else {
+        q('UPDATE readings SET answers = ?, updated_at = ? WHERE id = ?', [json_encode($st, JSON_UNESCAPED_UNICODE), time(), $r['id']]);
+    }
+    out(['sci' => sci_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'sciexp']))] + $extra);
 }
 
 /* ---------------- Nghe tiếng Anh (Listening) ---------------- */
@@ -1640,7 +1793,7 @@ function r_parent_report(array $b): never
 
     out([
         'settings' => ['chat_first' => setting('chat_first', '1') !== '0', 'nick' => setting('nick'), 'focus' => setting('focus'), 'read_daily' => setting('read_daily', '1') !== '0', 'read_level' => read_level(), 'listen_on' => setting('listen_on', '1') !== '0', 'listen_level' => read_level('listen'),
-                       'famous_on' => setting('famous_on', '1') !== '0', 'wp_on' => setting('wp_on', '1') !== '0', 'wp_level' => read_level('wp'), 'famous_people' => implode("\n", famous_list())],
+                       'famous_on' => setting('famous_on', '1') !== '0', 'wp_on' => setting('wp_on', '1') !== '0', 'tvw_on' => setting('tvw_on', '1') !== '0', 'sci_on' => setting('sci_on', '1') !== '0', 'wp_level' => read_level('wp'), 'famous_people' => implode("\n", famous_list())],
         'stars' => stars(),
         'days' => $days,
         'subjects' => $subjects,
@@ -1808,6 +1961,8 @@ function r_parent_settings(array $b): never
     if (isset($b['listen_on'])) set_setting('listen_on', $b['listen_on'] ? '1' : '0');
     if (isset($b['famous_on'])) set_setting('famous_on', $b['famous_on'] ? '1' : '0');
     if (isset($b['wp_on'])) set_setting('wp_on', $b['wp_on'] ? '1' : '0');
+    if (isset($b['tvw_on'])) set_setting('tvw_on', $b['tvw_on'] ? '1' : '0');
+    if (isset($b['sci_on'])) set_setting('sci_on', $b['sci_on'] ? '1' : '0');
     if (isset($b['wp_level'])) set_setting('wp_level', (string)max(1, min(5, (int)$b['wp_level'])));
     if (isset($b['famous_people'])) set_setting('famous_people', implode("\n", array_slice(array_values(array_filter(array_map(fn($x) => clean($x, 80), preg_split('/\R/u', (string)$b['famous_people'])))), 0, 60)));
     if (isset($b['listen_level'])) set_setting('listen_level', (string)max(1, min(5, (int)$b['listen_level'])));

@@ -80,3 +80,16 @@ Before a production rollout, verify on a physical iPad and Android device: micro
 Disable **Mở ứng dụng bằng trò chuyện với Mây** in Parent Settings to use the previous dashboard. A code rollback must roll back the HTML, conversation assets, API/lib/cron files and service-worker version together; the additive tables can remain for review or retention cleanup. No database downgrade or destructive migration is needed. Deployment remains a separate owner decision.
 
 The offline app shell and bounded drafts remain usable; AI replies, grading, rewards and full server history require connectivity. Unsubmitted photos/audio are deliberately not restored. A lost activity-checkpoint acknowledgement is retried separately rather than re-submitting a graded answer. Existing learning-engine internals and their limits remain unchanged. These tests verify integration using a fake model; they do not establish real-model pedagogical quality or physical-device microphone behavior.
+
+## Existing VPS modules
+
+The deployed application also contained Vietnamese word classification/sentence joining, small Science experiments and word-problem self-check/judging improvements that were absent from the original main snapshot. Those changes are preserved here. The chat activity catalog includes TV word work and Science experiments when their existing engine functions are available; checkpoints map their UI modes to the existing `tvword` / `sciexp` records. Word-problem restore initializes the self-check state as well.
+
+After the main suites, run the additional compatibility checks against the same disposable app/server:
+
+```sh
+MAY_TEST_APP=/tmp/may-issue47-test python3 tests/vps_compatibility.py
+node tests/vps_modules.browser.cjs
+```
+
+They seed synthetic activities only in a database named with the `may_issue47_test` prefix, then verify that both existing modules are discoverable, checkpoint/resume correctly, hide solutions and render in the chat workspace. The production deployment uses a separate staging directory and preserves the existing Git checkout, application configuration, cache and backups.
