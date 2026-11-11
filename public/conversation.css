@@ -1,0 +1,224 @@
+/* One chat feed and a compact composer; learning engines keep their own layouts. */
+body.chat-first:not(.pmode) {
+  background: var(--surface-2);
+}
+body.chat-first:not(.pmode) main {
+  max-width: 1160px;
+  padding: 16px;
+}
+body.chat-first main::before { display: none; }
+body.cc-home { overflow: hidden; }
+body.chat-first.cc-home:not(.pmode) main {
+  height: calc(var(--cc-visible-height, 100dvh) - var(--cc-header-height, 60px));
+  min-height: 0;
+  max-width: 780px;
+  padding: 0;
+}
+body.chat-first .bar {
+  min-height: 60px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+body.chat-first .bar .home { min-width: 0; flex: 1; }
+body.chat-first .bar .home svg { width: 34px; height: 30px; flex: none; }
+body.chat-first .bar .title {
+  font-size: 21px;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+body.chat-first .bar .spacer { display: none; }
+body.chat-first .bar .pill { font-size: 17px; padding: 4px 10px; }
+body.chat-first .bar .iconbtn { min-width: 44px; min-height: 44px; }
+.cc-shell {
+  max-width: 1100px;
+  margin: auto;
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+}
+.cc-home .cc-shell { height: 100%; }
+.cc-conversation {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+}
+.cc-home .cc-conversation { height: 100%; border: 0; border-radius: 0; }
+.cc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex: none;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.cc-tool {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  padding: 8px;
+  min-height: 44px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.cc-tool:hover { background: var(--surface-2); }
+.cc-feed {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 18px 14px 14px;
+  scrollbar-width: thin;
+}
+.cc-history {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* Never let flexbox compress long messages inside the scrolling feed. */
+.cc-history > * { flex: none; }
+.cc-history .msg { max-width: 94%; align-items: flex-start; }
+.cc-history .msg svg { width: 30px; height: 27px; margin-top: 8px; }
+.cc-history .bubble { min-width: 0; overflow-wrap: anywhere; padding: 12px 14px; }
+.cc-history .msg.buddy .bubble { background: var(--surface-2); border: 0; }
+.cc-history .speak { min-width: 36px; min-height: 36px; margin-left: 3px; }
+.cc-quick, .cc-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 16px 0 0; }
+.cc-shell .btn {
+  min-height: 44px;
+  padding: 9px 12px;
+  font-size: 14px;
+  border-width: 1px;
+  box-shadow: none;
+}
+.cc-quick .btn { text-align: left; background: var(--surface); border-color: var(--line); }
+.cc-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px auto;
+  align-items: end;
+  flex: none;
+  gap: 8px;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.cc-compose textarea {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  max-height: 116px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.4;
+  background: var(--surface-2);
+  resize: none;
+}
+.cc-compose .btn { min-width: 44px; min-height: 44px; padding: 9px; border-radius: 12px; }
+.cc-compose [aria-pressed=true] { background: var(--coral-bg); }
+.cc-compose p { grid-column: 1 / -1; font-size: 13px; margin: 0; }
+#ccMicStatus:empty { display: none; }
+.cc-recap, .cc-resume {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+}
+.cc-resume p { margin: 0 0 8px; font-size: 14px; }
+.cc-recap-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
+.cc-recap-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cc-activities.card { margin: 16px 0 0; padding: 14px; border: 1px solid var(--line); box-shadow: none; }
+.cc-activities h3 { font-size: 20px; }
+.cc-activities p { margin: 8px 0; font-size: 14px; }
+.cc-activities > .btn { margin-top: 8px; }
+.cc-activities .chip { min-height: 44px; font-size: 14px; padding: 7px 11px; border-width: 1px; }
+.cc-modes .btn { text-align: left; }
+.cc-dialog {
+  position: fixed;
+  inset: 0;
+  width: min(480px, calc(100% - 24px));
+  max-height: calc(var(--cc-visible-height, 100dvh) - 48px);
+  margin: auto;
+  padding: 16px;
+  overflow-y: auto;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 16px 64px #21143933;
+}
+.cc-dialog::backdrop { background: #21143966; }
+.cc-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cc-dialog-head h2 { font-size: 23px; }
+.cc-dialog-head .btn { min-width: 44px; }
+.cc-dialog p { font-size: 14px; margin: 8px 0 16px; }
+.cc-subjects { display: flex; flex-wrap: wrap; gap: 8px; }
+.cc-subjects .chip { min-height: 44px; padding: 8px 12px; font-size: 14px; border-width: 1px; }
+.cc-other-subjects { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 4px; }
+.cc-other-subjects summary { cursor: pointer; padding: 10px 0; font-size: 14px; }
+.cc-workspace { min-width: 0; background: var(--surface); padding: 16px; border: 1px solid var(--line); border-radius: 20px; }
+.cc-workspace-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.cc-workspace-tools .btn { min-height: 44px; }
+.cc-workspace .composer { position: static; }
+.cc-workspace textarea { max-width: 100%; }
+.cc-with-workspace .cc-conversation { height: min(600px, calc(var(--cc-visible-height, 100dvh) - 80px)); }
+.cc-expanded { grid-template-columns: 1fr !important; }
+.cc-expanded .cc-conversation { display: none; }
+.cc-shell button:focus-visible, .cc-shell textarea:focus-visible { outline: 3px solid #6750a4; outline-offset: 2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (min-width: 900px) {
+  .cc-with-workspace { grid-template-columns: minmax(300px, .85fr) minmax(400px, 1.15fr); align-items: start; }
+  .cc-with-workspace .cc-conversation { position: sticky; top: 76px; }
+}
+@media (max-width: 599px) {
+  body.chat-first:not(.pmode) main { padding: 10px; }
+  body.cc-home:not(.pmode) main { padding: 0; }
+  body.chat-first .bar { gap: 8px; }
+  body.chat-first .bar .title { font-size: 20px; }
+  .cc-workspace { padding: 12px; }
+  .cc-with-workspace .cc-conversation { height: 360px; }
+}
+
+.cc-matrix-card{padding:12px;margin:14px 0;min-width:0}
+.cc-matrix-head{display:flex;align-items:center;justify-content:space-between}
+.cc-matrix-scroll{overflow-x:auto;max-width:100%}
+.cc-matrix{border-collapse:collapse;min-width:600px;width:100%;font-size:12px}
+.cc-matrix th,.cc-matrix td{border:1px solid var(--line);padding:5px;text-align:center}
+.cc-matrix th{background:var(--surface-2)}
+.cc-matrix th small{display:block}
+.cc-matrix-cell{border:0;border-radius:6px;padding:8px 3px;min-height:44px;width:100%;background:var(--surface-2);color:var(--ink);font:inherit}
+.cc-cell-detail{margin-top:12px;padding:12px;border:1px solid var(--line);border-radius:10px;white-space:pre-wrap}
+
+.cc-review-card{margin:12px 0;padding:12px;min-width:0}
+.cc-review-item{padding:12px 0;border-top:1px solid var(--line)}
+.cc-review-item p{margin:6px 0;overflow-wrap:anywhere}
+.cc-review-item small{display:block;margin-bottom:8px;color:var(--ink-soft)}
+.cc-review-item .btn{min-height:44px}
+
+/* Lesson cards: iPad and phone; uses existing design tokens */
+.cc-review-card{padding:16px;margin:14px 0;background:var(--surface);border:1px solid var(--line);border-radius:20px;min-width:0}
+.cc-review-card h2{font-size:21px;line-height:1.3;margin:0}
+.cc-review-card h3{font-size:16px;margin:20px 0 10px}
+.cc-review-intro{color:var(--ink-soft);line-height:1.5;margin:12px 0 16px}
+.cc-lesson-list{display:grid;gap:12px}
+.cc-lesson-card{display:grid;grid-template-columns:38px minmax(0,1fr);gap:12px;border:1px solid var(--line);border-radius:16px;padding:14px;background:var(--surface)}
+.cc-lesson-icon{font-size:25px;line-height:1.4;text-align:center}
+.cc-lesson-main{min-width:0}
+.cc-lesson-main strong{font-size:18px;line-height:1.3;display:block}
+.cc-lesson-topic{font-size:15px;line-height:1.5;overflow-wrap:anywhere;margin:7px 0}
+.cc-lesson-main small{font-size:12px;color:var(--ink-soft)}
+.cc-lesson-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.cc-lesson-actions .btn{min-height:44px;white-space:normal;text-align:center}
+.cc-extra-review{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}
+.cc-extra-review summary{cursor:pointer;min-height:44px;font-weight:600}
+@media(min-width:740px){.cc-review-card{padding:22px}.cc-lesson-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){.cc-lesson-card{grid-template-columns:30px minmax(0,1fr);padding:12px;gap:8px}.cc-lesson-main strong{font-size:16px}.cc-lesson-actions .btn{font-size:13px}}
