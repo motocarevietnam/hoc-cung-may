@@ -152,7 +152,7 @@ h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
 .visual-quiz .quiz-progressbar{height:10px;background:var(--grid-strong);border-radius:20px;overflow:hidden;margin:8px 0 14px}
 .visual-quiz .quiz-progressbar span{display:block;height:100%;background:var(--mint)}
 /* Writing Studio mind map */
-.writing-svg-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.writing-svg{display:block;width:100%;min-width:680px;height:auto;max-height:620px}.writing-map{overflow:hidden}
+.writing-svg-scroll{overflow:hidden;width:100%}.writing-svg{display:block;width:100%;min-width:0;height:auto;max-height:none}.writing-map{overflow:hidden}
 .writing-map{margin:14px 0;padding:16px;border:2px solid var(--line);border-radius:22px;background:var(--surface-2)}
 .writing-map h3{text-align:center;margin:0 0 8px}
 .writing-map-center{margin:10px auto;max-width:260px;text-align:center;border-radius:20px;background:var(--mint);color:#fff;padding:12px;font-weight:800;overflow-wrap:anywhere}
@@ -1943,27 +1943,29 @@ async function wrCall(path, body, phaseWhile){
   finally{ R.busy=null; if(state.view==="write" && state.wr===R) render(); }
 }
 function writingMapSvg(prompt, branches, foot){
-  const colors=['#6293CE','#58A781','#B188D2','#D8A147'];
-  const pos=[{x:170,y:84},{x:830,y:84},{x:170,y:530},{x:830,y:530}];
-  const e=x=>esc(String(x||''));
-  const wrap=(value,limit=29)=>{const words=String(value||'').split(/\s+/);let lines=[],line='';for(const w of words){if((line+' '+w).trim().length>limit&&line){lines.push(line);line=w}else line=(line+' '+w).trim()}if(line)lines.push(line);return lines.slice(0,3)};
-  let out='<svg class="writing-svg" viewBox="0 0 1000 620" role="img" aria-label="Sơ đồ tư duy bốn nhánh: Mở bài, Thân bài, Kết bài và cách viết hay" xmlns="http://www.w3.org/2000/svg">';
-  branches.forEach((b,i)=>{
-    const p=pos[i],c=colors[i],left=i%2===0,top=i<2;
-    const x1=left?415:585, x2=left?340:660, y1=top?265:355,y2=top?125:490;
-    out+='<path d="M '+x1+' '+y1+' C '+x2+' '+y1+', '+p.x+' '+y2+', '+p.x+' '+(top?137:477)+'" fill="none" stroke="'+c+'" stroke-width="8" stroke-linecap="round"/>';
-    out+='<rect x="'+(p.x-150)+'" y="'+(p.y-53)+'" width="300" height="106" rx="25" fill="'+c+'"/>';
-    out+='<text x="'+p.x+'" y="'+(p.y-9)+'" fill="white" text-anchor="middle" font-size="26" font-weight="bold">'+e(b[0])+'</text>';
-    const items=(b[1]||[]).slice(0,3);
-    items.forEach((it,j)=>{const yy=top?160+j*47:397+j*47,xx=p.x,lines=wrap(it,35);
-      out+='<path d="M '+xx+' '+(top?137:477)+' L '+xx+' '+yy+'" fill="none" stroke="'+c+'" stroke-width="3" opacity=".5"/>';
-      out+='<rect x="'+(xx-150)+'" y="'+(yy-15)+'" width="300" height="'+(lines.length>1?47:34)+'" rx="12" fill="var(--surface,#fff)" stroke="'+c+'" stroke-width="2"/>';
-      lines.forEach((line,k)=>{out+='<text x="'+xx+'" y="'+(yy+6+k*18)+'" text-anchor="middle" font-size="17" fill="var(--ink,#332052)">'+e(line)+'</text>'});
-    });
+ const colors=['#518AC9','#379A76','#9E75C5','#C68E2B'];
+ const pos=[{x:245,y:92},{x:755,y:92},{x:245,y:670},{x:755,y:670}];
+ const e=x=>esc(String(x||''));
+ const lines=(v,max=34)=>{let out=[],cur='';for(const w of String(v||'').split(/\s+/)){if((cur+' '+w).trim().length>max&&cur){out.push(cur);cur=w}else cur=(cur+' '+w).trim()}if(cur)out.push(cur);return out.slice(0,2)};
+ let out='<svg class="writing-svg" viewBox="0 0 1000 760" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Sơ đồ tư duy bốn nhánh" xmlns="http://www.w3.org/2000/svg">';
+ branches.forEach((b,i)=>{
+  const p=pos[i],c=colors[i],top=i<2,left=i%2===0;
+  const x1=left?405:595, x2=p.x, y1=top?345:425,y2=top?145:615;
+  out+='<path d="M '+x1+' '+y1+' C '+x1+' '+(top?210:560)+', '+x2+' '+(top?260:500)+', '+x2+' '+y2+'" fill="none" stroke="'+c+'" stroke-width="7" stroke-linecap="round"/>';
+  const items=(b[1]||[]).slice(0,3);
+  items.forEach((it,j)=>{
+   const yy=top?179+j*49:465+j*49, arr=lines(it,39), h=arr.length>1?45:36;
+   out+='<rect x="'+(p.x-191)+'" y="'+(yy-h/2)+'" width="382" height="'+h+'" rx="12" fill="var(--surface,#fff)" stroke="'+c+'" stroke-width="2"/>';
+   arr.forEach((line,k)=>out+='<text x="'+p.x+'" y="'+(yy+(k-(arr.length-1)/2)*18+6)+'" text-anchor="middle" font-size="18" fill="var(--ink,#332052)">'+e(line)+'</text>');
   });
-  out+='<rect x="365" y="252" width="270" height="116" rx="44" fill="#3B967B" stroke="#26735E" stroke-width="4"/>';
-  wrap(prompt,22).forEach((line,i,arr)=>{out+='<text x="500" y="'+(312+(i-(arr.length-1)/2)*29)+'" text-anchor="middle" font-size="25" font-weight="bold" fill="white">'+e(line)+'</text>'});
-  return '<div class="writing-map" role="region" aria-label="Sơ đồ tư duy bài văn"><h3>🌱 Sơ đồ tư duy của Kem</h3><div class="writing-svg-scroll">'+out+'</svg></div><p class="writing-note">'+e(foot)+'</p></div>';
+  out+='<rect x="'+(p.x-192)+'" y="'+(p.y-39)+'" width="384" height="78" rx="22" fill="'+c+'"/>';
+  out+='<text x="'+p.x+'" y="'+(p.y+9)+'" fill="white" text-anchor="middle" font-size="29" font-weight="bold">'+e(b[0])+'</text>';
+ });
+ out+='<rect x="355" y="325" width="290" height="115" rx="42" fill="#348D75" stroke="#26735E" stroke-width="4"/>';
+ const title=lines(prompt,23);
+ title.forEach((line,i)=>out+='<text x="500" y="'+(384+(i-(title.length-1)/2)*29)+'" text-anchor="middle" font-size="25" font-weight="bold" fill="white">'+e(line)+'</text>');
+ out+='</svg>';
+ return '<div class="writing-map" role="region" aria-label="Sơ đồ tư duy bài văn"><h3>🌱 Sơ đồ tư duy của Kem</h3><div class="writing-svg-scroll">'+out+'</div><p class="writing-note">'+e(foot)+'</p></div>';
 }
 function writingMapPreview(prompt, answers){
  const branches=[['🌤️ Mở bài',['Giới thiệu đối tượng hoặc kỉ niệm']],['🌿 Thân bài',['Tả đặc điểm và hoạt động']],['💛 Kết bài',['Tình cảm và suy nghĩ']],['✨ Viết hay',['Từ gợi tả, so sánh, nhân hóa']]];
