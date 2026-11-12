@@ -46,3 +46,8 @@ Nêu số kiểm, PASS/FAIL/UNCERTAIN, số approved, số needs_review, số c�
 - Kiểm tra cả trùng lặp xuyên môn Toán Việt Nam/Cambridge Maths nếu có cùng bài, nhưng không tự loại vì khác ngôn ngữ hay mục tiêu kỹ năng.
 - Mỗi lô phải có thống kê: unique exact, numeric-template duplicates, semantic near duplicates, distinct skill types, QA PASS/FAIL/UNCERTAIN.
 - Ưu tiên 100 câu Bài 25 và 100 câu Cambridge Maths Unit 5, rồi các câu pending khác. Chỉ cập nhật QA sau khi tự giải từng câu và đối chiếu đầy đủ.
+
+## BỔ SUNG — BA MÔN MỚI VÀ BẮT BUỘC CHỐNG TRÙNG (12/11)
+ChatGPT đã nhập 60 câu pending mới: 20 Tiếng Việt (Luyện từ và câu: Động từ), 20 Cambridge Science (UNIT 2 - ENERGY - SOUND ... vibrations), 20 Cambridge English (Unit 9: Writing ... cause and effect signal words). Truy vấn DB để lấy ID thực tế.
+Trước khi PASS bất kỳ câu nào: so sánh với toàn bộ question_bank (mọi trạng thái) và các quiz đã dùng; kiểm tra trùng nguyên văn, chuẩn hóa dấu câu/hoa thường, thay số liệu/tên riêng, cùng ý nghĩa và cùng kỹ năng. Báo cáo các cụm trùng theo ID và đánh giá đa dạng kỹ năng. Không tự loại câu vì chỉ cùng chủ đề nhưng kiểm tra rõ câu quá giống nhau; ưu tiên giữ câu có diễn đạt và đáp án tốt nhất, đề xuất các câu khác needs_review. Đặc biệt kiểm tra câu Tiếng Việt có đáp án thực sự là động từ, Cambridge Science không mơ hồ, Cambridge English không có nhiều liên từ đúng tùy ngữ cảnh. Không được chỉ nhìn nhãn đáp án hoặc xác nhận hàng loạt bằng script. Lưu từng verdict cùng lý do vào question_qa_reviews, kiểm tra nguồn kiến thức đã được học trước khi dùng cho Kem.
+Số liệu các lô cũ đã biến động do QA đang diễn ra: không áp dụng cứng số lượng hoặc ghi đè kết quả đã kiểm duyệt; truy vấn mới, xử lý từng câu bằng giao dịch, không gọi API/CLI con, không tự merge.
