@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -292,6 +292,10 @@ function ensure_schema(PDO $pdo): void
         // chưa có bảng settings: tạo mới bên dưới
     }
     foreach (SCHEMA as $sql) $pdo->exec($sql);
+    // Provenance of approval; legacy approved rows are NOT retroactively Claude-reviewed.
+    $cols=$pdo->query("SHOW COLUMNS FROM question_bank LIKE 'approved_by'")->fetchAll();
+    if(!$cols)$pdo->exec("ALTER TABLE question_bank ADD COLUMN approved_by VARCHAR(32) NULL DEFAULT NULL");
+
     // Video ứng viên Mây tìm sẵn (chưa duyệt): ba mẹ xem rồi duyệt hoặc loại trong Cổng ba mẹ → Video bài giảng
     $vid = $pdo->prepare('INSERT IGNORE INTO videos (subject, lesson, keywords, yt_id, title, channel, seconds, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, \'candidate\', \'may\', ?)');
     foreach (VIDEO_SEEDS as $v) $vid->execute([...$v, time()]);

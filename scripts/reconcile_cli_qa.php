@@ -12,7 +12,7 @@ $questions=json_decode(file_get_contents("$dir/questions_blind.json"),true);
 if(!is_array($questions)||!$questions)exit("Invalid blind batch\n");
 $expected=array_column($questions,'id');sort($expected);
 $reviews=[];
-foreach(['claude','gemini'] as $name){
+foreach(['claude'] as $name){
  $rows=parse_review("$dir/{$name}_review.json");
  if($rows===null){echo "$name: no valid review JSON; fail closed\n";exit(3);}
  $byId=[];
@@ -37,9 +37,9 @@ try{
    $v=$results[$id];
    q('INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at) VALUES (?,?,?,?,?,?,?)',[$id,$name,$v['verdict'],$v['predicted_answer'],mb_substr($v['reason'],0,1000),$name.'-cli',time()]);
   }
-  $c=$reviews['claude'][$id];$g=$reviews['gemini'][$id];
-  $pass=$c['verdict']==='pass'&&$g['verdict']==='pass'&&$c['predicted_answer']===(int)$r['answer']&&$g['predicted_answer']===(int)$r['answer'];
-  q('UPDATE question_bank SET status=? WHERE id=?',[$pass?'approved':'needs_review',$id]);
+  $c=$reviews['claude'][$id];
+  $pass=$c['verdict']==='pass'&&$c['predicted_answer']===(int)$r['answer'];
+  q('UPDATE question_bank SET status=?, approved_by=? WHERE id=?',[$pass?'approved':'needs_review',$pass?'claude_qa':null,$id]);
   $pass?$approved++:$held++;
  }
  $pdo->commit();echo "approved=$approved needs_review=$held\n";
