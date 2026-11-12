@@ -85,7 +85,14 @@ function companion_day_start(): int
 function companion_daily_greeting(): string
 {
     $nick=setting('nick') ?: 'Kem';
-    return "Chào {$nick}! ☁️ Hôm nay mình có chuyện gì vui để kể Mây nghe nào?";
+    $minutes=(int)date('G')*60+(int)date('i');
+    if (($minutes>=420 && $minutes<450)||($minutes>=990 && $minutes<1050)) {
+        return "Kem ơi, Mây đây! ☁️ Hôm nay bạn thích hát một đoạn, chơi đoán từ hay kể chuyện vui trước? Nếu Kem đang trên xe và muốn, mình có thể thử một trò English nghe–nói 3 phút nhé. Không cần nhìn màn hình đâu!";
+    }
+    if ($minutes>=1170 && $minutes<1230) {
+        return "Kem ơi, Mây đây! ☁️ Hôm nay có chuyện gì vui không? Nếu bạn đã sẵn sàng, mình cùng xem bài cô giao rồi thử một chút Toán có lời văn hoặc bài đã học nhé. Kem muốn kể chuyện trước cũng được!";
+    }
+    return "Kem ơi, Mây đây! ☁️ Hôm nay có bài hát hay chuyện gì vui muốn kể không? Khi nào bạn thích, mình có thể cùng ôn một bài ngắn theo những gì Kem đã học nhé!";
 }
 function companion_ensure_new_day(array $row): array
 {
@@ -132,14 +139,23 @@ function r_companion_session(array $b): never
                     [$id, json_encode(companion_initial(today()), JSON_UNESCAPED_UNICODE), $now]);
                 $name = setting('nick') ?: 'Kem';
                 q("INSERT INTO messages (conv_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
-                    [$id, "Chào {$name}! Hôm nay có chuyện gì vui không? Mây muốn nghe bạn kể nè! ☁️", $now]);
+                    [$id, companion_daily_greeting(), $now]);
                 $pdo->commit();
             } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
             $row = companion_row($id);
         }
+        // Nếu chưa có lượt Kem trả lời hôm nay, nâng lời chào cũ thành lời mời chủ động.
+        // Không thêm tin mới mỗi lần mở ứng dụng và không chen vào cuộc trò chuyện đã bắt đầu.
+        $row=companion_ensure_new_day($row);
+        $first=q("SELECT id,role,content FROM messages WHERE conv_id=? AND created_at>=? ORDER BY id ASC LIMIT 2",
+            [$row['conv_id'],companion_day_start()])->fetchAll();
+        if (count($first)===1 && $first[0]['role']==='assistant'
+            && !str_contains((string)$first[0]['content'],'mình có thể')) {
+            q('UPDATE messages SET content=? WHERE id=?',[companion_daily_greeting(),$first[0]['id']]);
+        }
         // Điểm danh một lần/ngày khi Kem gặp Mây.
         award('checkin', 'checkin:' . today(), 'Kem gặp Mây và điểm danh');
-        return companion_payload(companion_ensure_new_day($row));
+        return companion_payload($row);
     }));
 }
 
@@ -338,12 +354,23 @@ function school_lesson_confirmation_rows(string $from, string $to): array
 }
 function companion_review_plan(string $day): array
 {
-    $since=date('Y-m-d',strtotime($day.' -14 days'));
+    $since=date('Y-m-d',strtotime($day.' -90 days'));
     try {
         $rows=q('SELECT school_day,period_no,subject,planned_content FROM school_lesson_plan WHERE school_day BETWEEN ? AND ? ORDER BY school_day DESC,period_no',[$since,$day])->fetchAll();
     } catch(PDOException $e) {$rows=[];}
     $confirmed=school_lesson_confirmation_rows($since,$day);
     $map=['Toán'=>'toan','Tiếng Việt'=>'tv','Math'=>'cmath','Science'=>'csci','Khoa học'=>'csci','English ET'=>'ceng','English LT'=>'ceng'];
+    // Existing completed quiz activity is a signal of prior practice, not proof of mastery.
+    $practice=[];
+    try {
+        foreach(q("SELECT subject,topic,MAX(created_at) last_at,COUNT(*) attempts,
+                   SUM(CASE WHEN score IS NOT NULL AND score=total THEN 1 ELSE 0 END) perfect
+                   FROM quizzes WHERE finished_at IS NOT NULL AND created_at>=? GROUP BY subject,topic",
+                   [strtotime($since.' 00:00:00')])->fetchAll() as $a) {
+            $key=$a['subject'].'|'.mb_strtolower(trim((string)$a['topic']));
+            $practice[$key]=['last_at'=>(int)$a['last_at'],'attempts'=>(int)$a['attempts'],'perfect'=>(int)$a['perfect']];
+        }
+    } catch(PDOException $e) { error_log('review practice: '.$e->getCode()); }
     $ready=[];$unconfirmed=[];$seen=[];
     foreach($rows as $r) {
         $label=trim((string)$r['subject']);$id=$map[$label]??null;
@@ -356,14 +383,27 @@ function companion_review_plan(string $day): array
         $dedup=$id.'|'.$topic.'|'.$status;
         if(isset($seen[$dedup]))continue;$seen[$dedup]=true;
         $age=(int)floor((strtotime($day)-strtotime($r['school_day']))/86400);
-        $rank=match(true){$age===1=>0,$age===3=>1,$age===7=>2,$age===14=>3,default=>4};
+        $key=$id.'|'.mb_strtolower($topic);
+        $p=$practice[$key]??null;
+        $last=$p ? (int)floor((strtotime($day)-$p['last_at'])/86400) : $age;
+        // 1/3/7/14/30/60-day ladder. A perfect quiz stretches the next interval;
+        // no quiz history means lesson age drives the first review.
+        $intervals=[1,3,7,14,30,60];
+        $attempts=$p['attempts']??0;
+        $perfect=$p['perfect']??0;
+        $step=$p ? min(5,max(0,$perfect)) : 0;
+        $interval=$intervals[$step];
+        $due=$last >= $interval;
+        $rank=$due ? max(0,$last-$interval) : -1000;
         $item=['key'=>substr(hash('sha256',$dayKey),0,16),'source_day'=>$r['school_day'],'period'=>(int)$r['period_no'],
           'subject'=>$id,'subject_label'=>$label,'topic'=>$topic,'status'=>$status,
           'minutes'=>5,'rank'=>$rank,'days_since'=>$age,
-          'reason'=>$status==='taught'?"Kem đã xác nhận học; ôn lại sau $age ngày":'Trường dự kiến dạy; Kem cần xác nhận trước khi ôn'];
-        if($status==='taught')$ready[]=$item;else $unconfirmed[]=$item;
+          'interval_days'=>$interval,'days_since_review'=>$last,'due'=>$due,
+          'reason'=>$status==='taught'?"Đã xác nhận học $age ngày trước · ".($due?'đến hạn ôn':'chưa đến hạn'):'Trường dự kiến dạy; Kem cần xác nhận trước khi ôn'];
+        if($status==='taught' && $due)$ready[]=$item;
+        elseif($status!=='taught' && $age<=14)$unconfirmed[]=$item;
     }
-    usort($ready,fn($a,$b)=>[$a['rank'],-strtotime($a['source_day'])]<=>[$b['rank'],-strtotime($b['source_day'])]);
+    usort($ready,fn($a,$b)=>[$b['rank'],-$b['days_since']]<=>[$a['rank'],-$a['days_since']]);
     // Chỉ bài trường đã xác nhận mới là nhiệm vụ ôn chính.
     $limit=in_array((int)date('N',strtotime($day)),[2,6],true)?2:3;
     $items=array_slice($ready,0,$limit);
