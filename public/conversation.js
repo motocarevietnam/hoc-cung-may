@@ -2,7 +2,7 @@
 const Companion = (() => {
   const C = {session:null, context:null, loading:false, busy:false, error:'', draft:'', pending:null,
     picker:false, schedule:false, weekStart:null, weekData:null, weekBusy:false, reviewOpen:false, reviewData:null, reviewBusy:false, actions:null, scrollTop:null, atBottom:true, feedRevision:null, activitySubject:null, mounted:false, mic:null, fields:{}, epoch:0, checkpoint:null};
-  const activityViews = ['quiz','homework','write','read','listen','wp','speak','chat','check','tvw','sci'];
+  const activityViews = ['quiz','homework','write','read','listen','wp','speak','chat','check','tvw','sci','ipa'];
   const enabled = () => !PARENT_MODE && me.chatFirst !== false;
   const uuid = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_request';
   const card = () => C.session?.state.active_card;
