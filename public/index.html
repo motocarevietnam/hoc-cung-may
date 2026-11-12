@@ -151,6 +151,14 @@ h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
 .visual-quiz .quiz-banner{border-radius:18px;background:var(--surface-2);padding:18px;text-align:center;font-size:24px;margin:12px 0}
 .visual-quiz .quiz-progressbar{height:10px;background:var(--grid-strong);border-radius:20px;overflow:hidden;margin:8px 0 14px}
 .visual-quiz .quiz-progressbar span{display:block;height:100%;background:var(--mint)}
+
+.ipa-mouth-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:14px 0}
+.ipa-mouth-card{border:2px solid var(--line);border-radius:18px;background:var(--surface-2);padding:10px;text-align:center;min-width:0}
+.ipa-mouth-card svg{display:block;width:100%;max-width:180px;height:auto;margin:0 auto}
+.ipa-mouth-card strong{display:block;font-size:24px;line-height:1.3}
+.ipa-mouth-card small{display:block;color:var(--ink-soft);font-size:12px;line-height:1.4}
+@media(max-width:370px){.ipa-mouth-grid{gap:6px}.ipa-mouth-card{padding:6px}.ipa-mouth-card strong{font-size:21px}}
+
 /* Writing Studio mind map */
 .writing-svg-scroll{overflow:hidden;width:100%}.writing-svg{display:block;width:100%;min-width:0;height:auto;max-height:none}.writing-map{overflow:hidden}
 .writing-map{margin:14px 0;padding:16px;border:2px solid var(--line);border-radius:22px;background:var(--surface-2)}
@@ -1716,12 +1724,37 @@ const IPA_LESSONS=[
  {a:"/ʃ/",b:"/tʃ/",name:"sh và ch",pairs:[["ship","chip"],["share","chair"],["shop","chop"]],tips:["Âm /ʃ/: luồng hơi kéo dài.","Âm /tʃ/: bật âm ngắn trước khi xì hơi."]}
 ];
 let ipaState={lesson:0,pair:0,answer:null,checked:false,target:Math.floor(Math.random()*2)};
+// Simplified teaching diagram (front-facing lips, teeth, tongue), not an anatomical scan.
+function ipaMouthDiagram(phoneme){
+ const shape={
+ '/iː/':{rx:72,ry:15,tongue:0,teeth:1,caption:'Môi kéo rộng · âm dài'},
+ '/ɪ/':{rx:57,ry:19,tongue:0,teeth:1,caption:'Môi thả lỏng · âm ngắn'},
+ '/e/':{rx:59,ry:27,tongue:0,teeth:1,caption:'Mở miệng vừa'},
+ '/æ/':{rx:61,ry:40,tongue:0,teeth:1,caption:'Hạ hàm · mở rộng'},
+ '/θ/':{rx:49,ry:21,tongue:1,teeth:1,caption:'Đầu lưỡi giữa hai hàm răng'},
+ '/ð/':{rx:49,ry:21,tongue:1,teeth:1,caption:'Đầu lưỡi giữa răng · có rung'},
+ '/ʃ/':{rx:32,ry:24,tongue:0,teeth:0,caption:'Môi hơi tròn · hơi kéo dài'},
+ '/tʃ/':{rx:36,ry:25,tongue:0,teeth:0,caption:'Bật âm rồi xì hơi'}
+ }[phoneme];
+ if(!shape)return '';
+ const rx=shape.rx,ry=shape.ry;
+ const teeth=shape.teeth?'<path d="M '+(110-rx+7)+' 111 Q 110 '+(109-ry/2)+' '+(110+rx-7)+' 111 L '+(110+rx-11)+' 119 Q 110 125 '+(110-rx+11)+' 119 Z" fill="#fff" stroke="#E2D9D9" stroke-width="1.4"/>':'';
+ const tongue=shape.tongue?'<ellipse cx="110" cy="120" rx="31" ry="12" fill="#E97987" stroke="#A93E55" stroke-width="2"/>':'<path d="M 77 135 Q 110 120 143 135" stroke="#C75E70" stroke-width="5" fill="none" stroke-linecap="round"/>';
+ return '<div class="ipa-mouth-card"><svg viewBox="0 0 220 192" role="img" aria-label="Hình minh họa khẩu hình cho âm '+esc(phoneme)+'" xmlns="http://www.w3.org/2000/svg">'+
+ '<ellipse cx="110" cy="92" rx="88" ry="87" fill="#F6C6A9" stroke="#C98F76" stroke-width="2"/>'+
+ '<path d="M 58 65 Q 77 55 96 66 M 124 66 Q 143 55 162 65" stroke="#805448" stroke-width="4" fill="none" stroke-linecap="round"/>'+
+ '<circle cx="78" cy="77" r="5" fill="#523B3D"/><circle cx="142" cy="77" r="5" fill="#523B3D"/>'+
+ '<path d="M 110 83 Q 99 99 110 101" fill="none" stroke="#C98F76" stroke-width="3"/>'+
+ '<ellipse cx="110" cy="120" rx="'+(rx+8)+'" ry="'+(ry+8)+'" fill="#B94D64"/>'+
+ '<ellipse cx="110" cy="120" rx="'+rx+'" ry="'+ry+'" fill="#592A3A"/>'+teeth+tongue+
+ '</svg><strong>'+esc(phoneme)+'</strong><small>'+esc(shape.caption)+'</small></div>';
+}
 function renderIPA(){
  const L=IPA_LESSONS[ipaState.lesson],P=L.pairs[ipaState.pair];
  app.innerHTML='<button class="back" id="ipaBack">‹ English</button><div class="sec-title"><div class="badge" style="background:var(--l4)">🔤</div><div><h2>Pronunciation · IPA</h2><div class="muted">Nghe → phân biệt → luyện phát âm</div></div></div>'+
  '<div class="chips">'+IPA_LESSONS.map((x,i)=>'<button class="chip" data-ipa-lesson="'+i+'" aria-pressed="'+(i===ipaState.lesson)+'">'+esc(x.a)+' / '+esc(x.b)+'</button>').join('')+'</div>'+
- '<div class="card"><h3>'+esc(L.name)+'</h3><div class="row" style="justify-content:center;gap:16px"><button class="btn" id="ipaA" style="font-size:26px">'+esc(L.a)+' 🔊</button><button class="btn" id="ipaB" style="font-size:26px">'+esc(L.b)+' 🔊</button></div>'+
- '<p>'+esc(L.tips[0])+'</p><p>'+esc(L.tips[1])+'</p></div>'+
+ '<div class="card"><h3>'+esc(L.name)+'</h3><div class="ipa-mouth-grid">'+ipaMouthDiagram(L.a)+ipaMouthDiagram(L.b)+'</div><div class="row" style="justify-content:center;gap:16px"><button class="btn" id="ipaA" style="font-size:22px">'+esc(L.a)+' 🔊</button><button class="btn" id="ipaB" style="font-size:22px">'+esc(L.b)+' 🔊</button></div>'+
+ '<p>'+esc(L.tips[0])+'</p><p>'+esc(L.tips[1])+'</p><p class="muted" style="font-size:12px">Hình khẩu hình đơn giản để dễ quan sát; không thể hiện chính xác vị trí lưỡi bên trong miệng.</p></div>'+
  '<div class="card"><h3>👂 Nghe và phân biệt</h3><p>Mây đọc một từ. Kem nghe rồi chọn từ đúng nhé!</p><div class="row"><button class="btn primary" id="ipaPlay">🔊 Nghe từ</button><button class="btn" id="ipaNext">Từ tiếp theo</button></div>'+
  '<div class="row" style="justify-content:center">'+P.map((w,i)=>'<button class="btn" data-ipa-pick="'+i+'" '+(ipaState.checked?'disabled':'')+'>'+esc(w)+'</button>').join('')+'</div>'+
  (ipaState.checked?'<p class="pnote">'+(ipaState.answer===ipaState.target?'🌟 Đúng rồi!':'💪 Thử nghe lại và chú ý khẩu hình nhé.')+' Từ được đọc: <b>'+esc(P[ipaState.target])+'</b>.</p>':'')+'</div>'+
