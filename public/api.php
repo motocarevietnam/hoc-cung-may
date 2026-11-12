@@ -287,7 +287,7 @@ function quiz_bank_pick(string $subject,string $topic,int $count=10): array
         if(!is_array($opts)||!isset($opts[(int)$r['answer']]))continue;
         // Spread a general quiz across lessons; never fill ten slots with one lesson.
         $key=(string)$r['topic'];
-        if($topic==='' && ($perTopic[$key]??0)>=3)continue;
+        if($topic==='' && ($perTopic[$key]??0)>=4)continue;
         $duplicate=false;
         foreach(array_merge($recent,array_column($selected,'q')) as $old)
             if(quiz_same($r['q'],$old)){$duplicate=true;break;}
