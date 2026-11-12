@@ -22,7 +22,7 @@ for($i=0;$i<100;$i++){
  $shift=$i%4;
  for($j=0;$j<$shift;$j++)array_unshift($opts,array_pop($opts));
  $fp=hash('sha256',quiz_norm($qtext));
- q("INSERT IGNORE INTO question_bank(subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at) VALUES (?,?,?,?,?,?,?,?,'approved',?)",
+ q("INSERT IGNORE INTO question_bank(subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at) VALUES (?,?,?,?,?,?,?,?,'pending',?)",
  ['toan',$topic,$qtext,json_encode($opts,JSON_UNESCAPED_UNICODE),$shift,
  'Xét chữ số hàng chục nghìn: từ 5 trở lên thì tăng hàng trăm nghìn lên 1, nhỏ hơn 5 thì giữ nguyên.',
  'Quan sát chữ số ở hàng chục nghìn.',$fp,time()]);
