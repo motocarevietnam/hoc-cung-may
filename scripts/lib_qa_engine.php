@@ -48,7 +48,8 @@ function qa_validate_item(array $d): ?string
     if (!is_string($d['expected_hash'] ?? null) || strlen($d['expected_hash']) !== 64) return 'expected_hash';
     if (trim((string)($d['reviewer'] ?? '')) === '' || trim((string)($d['model'] ?? '')) === '') return 'reviewer/model';
     if ($d['decision'] === 'approve' && $d['verdict'] !== 'pass') return 'approve needs pass';
-    if ($d['decision'] === 'fix' && (!is_array($d['fix'] ?? null) || !$d['fix'] || !is_int($d['post_fix_predicted'] ?? null))) return 'fix payload';
+    if ($d['decision'] === 'fix' && (!is_array($d['fix'] ?? null) || !$d['fix'])) return 'fix payload';
+    if ($d['decision'] === 'fix' && array_key_exists('post_fix_predicted', $d) && !is_int($d['post_fix_predicted']) && $d['post_fix_predicted'] !== null) return 'post_fix_predicted';
     if ($d['decision'] === 'reject' && $d['verdict'] !== 'fail' && !is_int($d['duplicate_of'] ?? null)) return 'reject needs fail or duplicate_of';
     return null;
 }
@@ -132,6 +133,12 @@ function qa_apply_item(PDO $pdo, array $d, int $now): array
                 ->execute([$new['q'], json_encode($new['options'], JSON_UNESCAPED_UNICODE), $new['answer'], $new['explain'], $new['hint'], $fp, $id]);
             $review->execute([$id, $d['reviewer'], $d['verdict'], $d['predicted_answer'], $reason . ' [nội dung cũ đã lưu trong question_qa_cases]', $d['model'], $now]);
             $newHash = substr(qa_content_hash($new['q'], $new['options'], $new['answer']), 0, 12);
+            if (!is_int($d['post_fix_predicted'] ?? null)) {
+                // Two-phase fix (default): the edited question goes back to pending and must be
+                // solved again from the stored content before any approval.
+                $setStatus->execute(['pending', null, $id]);
+                return ['outcome' => 'pending', 'detail' => 'fixed, awaiting recheck'];
+            }
             if ($d['post_fix_predicted'] === $new['answer']) {
                 $review->execute([$id, $d['reviewer'], 'pass', $d['post_fix_predicted'], "[qa $newHash recheck] Kiểm lại sau sửa: đáp án duy nhất, khớp.", $d['model'], $now]);
                 $setStatus->execute(['approved', 'claude_qa', $id]);
@@ -147,7 +154,7 @@ function qa_apply_item(PDO $pdo, array $d, int $now): array
 /** Apply a whole list atomically: any error rolls everything back unless $commit is false (dry run always rolls back). */
 function qa_apply_all(PDO $pdo, array $items, bool $commit, int $now): array
 {
-    $sum = ['approved' => [], 'rejected' => [], 'needs_review' => [], 'skipped' => [], 'error' => []];
+    $sum = ['approved' => [], 'rejected' => [], 'needs_review' => [], 'pending' => [], 'skipped' => [], 'error' => []];
     $pdo->beginTransaction();
     try {
         foreach ($items as $d) {
