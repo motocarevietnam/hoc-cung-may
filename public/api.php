@@ -104,6 +104,8 @@ $routes = [
     'companion/activity'  => 'r_companion_activity',
     'parent/question_qa_list' => 'r_parent_question_qa_list',
     'parent/question_qa_report' => 'r_parent_question_qa_report',
+    'parent/question_qa_approve' => 'r_parent_question_qa_approve',
+    'parent/question_qa_edit' => 'r_parent_question_qa_edit',
     'parent/question_qa_reject' => 'r_parent_question_qa_reject',
     'parent/question_qa_resolve' => 'r_parent_question_qa_resolve',
     'quiz'                => 'r_quiz',
@@ -2291,13 +2293,71 @@ function r_parent_question_qa_list(array $b): never
     $pages=max(1,(int)ceil($total/$perPage));
     $page=min($page,$pages);
     $offset=($page-1)*$perPage;
-    $sql="SELECT b.id,b.subject,b.topic,b.q,b.options,b.answer,b.status,b.used_count,
-                 (SELECT COUNT(*) FROM question_qa_cases c WHERE c.question_id=b.id AND c.status='open') AS open_cases
+    $sql="SELECT b.id,b.subject,b.topic,b.q,b.options,b.answer,b.`explain`,b.hint,b.status,b.approved_by,b.used_count,
+                 (SELECT COUNT(*) FROM question_qa_cases c WHERE c.question_id=b.id AND c.status='open') AS open_cases,
+                 (SELECT c.reason FROM question_qa_cases c WHERE c.question_id=b.id ORDER BY c.id DESC LIMIT 1) AS latest_case_reason,
+                 (SELECT r.reason FROM question_qa_reviews r WHERE r.question_id=b.id ORDER BY r.id DESC LIMIT 1) AS latest_review_reason
           FROM question_bank b".$where." ORDER BY b.id DESC LIMIT $perPage OFFSET $offset";
     $rows=q($sql,$params)->fetchAll();
     $counts=q("SELECT status,COUNT(*) n FROM question_bank GROUP BY status")->fetchAll();
     out(['questions'=>$rows,'counts'=>$counts,'page'=>$page,'pages'=>$pages,'per_page'=>$perPage,'total'=>$total]);
 }
+// Parent approval is explicitly distinguished from independent Claude QA.
+function r_parent_question_qa_approve(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $note=clean((string)($b['note']??''),500);
+    if($id<1||mb_strlen($note)<5)out(['error'=>'invalid_resolution'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $row=q('SELECT id,status,answer FROM question_bank WHERE id=? FOR UPDATE',[$id])->fetch();
+        if(!$row){$pdo->rollBack();out(['error'=>'question_not_found'],404);}
+        if(!in_array($row['status'],['pending','needs_review'],true)){$pdo->rollBack();out(['error'=>'invalid_status'],409);}
+        q("UPDATE question_bank SET status='approved',approved_by='parent' WHERE id=?",[$id]);
+        q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
+           VALUES (?,'parent','PASS',?,?,'manual',?)",[$id,(int)$row['answer'],$note,time()]);
+        q("UPDATE question_qa_cases SET status='resolved',resolution=?,resolved_by='parent',resolved_at=?
+           WHERE question_id=? AND status='open'",['parent_approved: '.$note,time(),$id]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>'approved','approved_by'=>'parent']);
+}
+
+// Edits invalidate prior approval; keep a full audit of previous content.
+function r_parent_question_qa_edit(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $q=clean((string)($b['q']??''),500);
+    $explain=clean((string)($b['explain']??''),1000);
+    $hint=clean((string)($b['hint']??''),500);
+    $options=$b['options']??null;
+    $answer=$b['answer']??null;
+    if($id<1||mb_strlen($q)<10||!is_array($options)||count($options)<2||count($options)>4
+       ||!is_int($answer)||$answer<0||$answer>=count($options)||mb_strlen($explain)<5)out(['error'=>'invalid_question'],400);
+    $options=array_map(fn($v)=>is_string($v)?clean($v,250):'',array_values($options));
+    if(in_array('',$options,true)||count(array_unique($options))!==count($options))out(['error'=>'invalid_options'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $old=q('SELECT * FROM question_bank WHERE id=? FOR UPDATE',[$id])->fetch();
+        if(!$old){$pdo->rollBack();out(['error'=>'question_not_found'],404);}
+        if($old['status']==='rejected'){$pdo->rollBack();out(['error'=>'invalid_status'],409);}
+        $fingerprint=hash('sha256',quiz_norm($q));
+        $dupe=q('SELECT id FROM question_bank WHERE subject=? AND fingerprint=? AND id<>? LIMIT 1',[$old['subject'],$fingerprint,$id])->fetchColumn();
+        if($dupe!==false){$pdo->rollBack();out(['error'=>'duplicate_question','duplicate_id'=>(int)$dupe],409);}
+        q("UPDATE question_bank SET q=?,options=?,answer=?,`explain`=?,hint=?,fingerprint=?,status='pending',approved_by=NULL WHERE id=?",
+           [$q,json_encode($options,JSON_UNESCAPED_UNICODE),$answer,$explain,$hint,$fingerprint,$id]);
+        q("INSERT INTO question_qa_cases(question_id,status,reason,reported_by,resolution,resolved_by,created_at,resolved_at)
+           VALUES (?,'resolved','Phụ huynh chỉnh sửa nội dung','parent',?,'parent',?,?)",
+           [$id,'before_edit: '.json_encode(['q'=>$old['q'],'options'=>$old['options'],'answer'=>$old['answer'],'explain'=>$old['explain'],'hint'=>$old['hint'],'status'=>$old['status']],JSON_UNESCAPED_UNICODE),time(),time()]);
+        q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
+           VALUES (?,'parent','RECHECK',?,'Đã sửa câu; chờ QA độc lập','manual',?)",[$id,$answer,time()]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>'pending']);
+}
+
 function r_parent_question_qa_report(array $b): never
 {
     require_parent();

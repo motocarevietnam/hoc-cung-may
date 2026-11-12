@@ -3061,26 +3061,59 @@ function renderQuestionQA(){
   const status=state.qaStatus||"needs_review";
   const labels={needs_review:"Cần xem lại",pending:"Chờ Claude",approved:"Đã duyệt",rejected:"Đã loại",all:"Tất cả"};
   const counts=Object.fromEntries((data?.counts||[]).map(x=>[x.status,+x.n]));
-  app.innerHTML=`<div class="phead"><div><h2>🛡️ Kiểm duyệt câu hỏi</h2><div class="sub">Xem câu hỏi, báo lỗi, yêu cầu kiểm tra lại hoặc loại bỏ. Không tự duyệt khi chưa đạt QA.</div></div></div>
+  app.innerHTML=`<div class="phead"><div><h2>🛡️ Kiểm duyệt câu hỏi</h2><div class="sub">Phụ huynh có thể xác nhận câu đúng, sửa để kiểm tra lại hoặc loại bỏ. Xác nhận của phụ huynh được ghi riêng với QA của Claude.</div></div></div>
     <div class="card"><h3>Ngân hàng câu hỏi</h3>
       <div class="kpis"><div class="kpi"><div class="l">Cần xem lại</div><div class="v">${counts.needs_review||0}</div></div>
       <div class="kpi"><div class="l">Chờ Claude</div><div class="v">${counts.pending||0}</div></div>
       <div class="kpi"><div class="l">Đã duyệt (gồm câu cũ)</div><div class="v">${counts.approved||0}</div></div></div>
       <label for="qaFilter">Lọc trạng thái</label><select class="field" id="qaFilter">${Object.entries(labels).map(([id,label])=>`<option value="${id}" ${id===status?"selected":""}>${label}</option>`).join("")}</select>
-      <p class="muted">Danh sách tối đa 100 câu mới nhất mỗi trạng thái. Câu cũ approved chưa chắc đã được Claude kiểm định.</p></div>
+      <p class="muted">Hiển thị 10 câu/trang. Câu cũ approved chưa chắc đã được Claude kiểm định.</p></div>
     ${!data?'<div class="card">Đang tải danh sách…</div>':(data.questions||[]).length?(data.questions||[]).map(x=>{
       let opts=[];try{opts=JSON.parse(x.options||"[]");}catch(e){}
       return `<div class="card"><h3>#${+x.id} · ${esc(subjById(x.subject)?.name||x.subject)}</h3>
         <p class="muted">${esc(x.topic||"Tổng hợp")} · ${esc(labels[x.status]||x.status)}${+x.open_cases?" · Có báo cáo đang mở":""}</p>
+        ${x.latest_case_reason?`<p class="muted">Báo cáo: ${esc(x.latest_case_reason)}</p>`:""}
+        ${x.latest_review_reason?`<p class="muted">Nhận xét QA: ${esc(x.latest_review_reason)}</p>`:""}
         <p><b>${esc(x.q)}</b></p>
         ${opts.map((v,i)=>`<div class="tline"><span>${"ABCD"[i]}. ${esc(v)}</span>${i===+x.answer?'<span class="st approved">Đáp án</span>':""}</div>`).join("")}
         <div class="row" style="margin-top:12px">
+        ${x.status==="needs_review"||x.status==="pending"?`<button class="btn" data-qa-approve="${+x.id}">✓ Xác nhận đúng</button>`:""}
+        ${x.status!=="rejected"?`<button class="btn" data-qa-edit="${+x.id}">✎ Chỉnh sửa</button>`:""}
         ${x.status!=="rejected"?`<button class="btn" data-qa-report="${+x.id}">Báo lỗi / kiểm tra lại</button>`:""}
         ${x.status==="needs_review"||x.status==="pending"?`<button class="btn" data-qa-reject="${+x.id}">Loại câu</button>`:""}
         </div></div>`;
-    }).join(""):'<div class="card"><p class="muted">Không có câu hỏi trong trạng thái này.</p></div>'}`;
+    }).join(""):'<div class="card"><p class="muted">Không có câu hỏi trong trạng thái này.</p></div>'}
+    ${data?`<div class="pager"><button id="qaPrev" ${data.page<=1?'disabled':''}>‹ Trước</button><span>Trang ${data.page||1}/${data.pages||1} · ${data.total||0} câu</span><button id="qaNext" ${data.page>=data.pages?'disabled':''}>Sau ›</button></div>`:''}`;
+  for(const [id,delta] of [["qaPrev",-1],["qaNext",1]]){const b=app.querySelector("#"+id);if(b)b.onclick=async()=>{state.qaPage=Math.max(1,(data.page||1)+delta);state.questionQA=null;render();try{state.questionQA=await api("/api/parent/question_qa_list",{status:state.qaStatus||"needs_review",page:state.qaPage},true);}catch(e){alert(copyFor(e&&e.code));}render();};}
   const filter=app.querySelector("#qaFilter");
-  if(filter)filter.onchange=async()=>{state.qaStatus=filter.value;state.questionQA=null;render();try{state.questionQA=await api("/api/parent/question_qa_list",{status:state.qaStatus},true);}catch(e){alert(copyFor(e&&e.code));}render();};
+  if(filter)filter.onchange=async()=>{state.qaStatus=filter.value;state.qaPage=1;state.questionQA=null;render();try{state.questionQA=await api("/api/parent/question_qa_list",{status:state.qaStatus,page:1},true);}catch(e){alert(copyFor(e&&e.code));}render();};
+  app.querySelectorAll("[data-qa-approve]").forEach(btn=>btn.onclick=async()=>{
+    const id=+btn.dataset.qaApprove;
+    if(!confirm("Bạn đã tự kiểm tra đề, đáp án và lời giải câu #"+id+"? Câu này sẽ được sử dụng với nhãn duyệt bởi phụ huynh."))return;
+    const note=prompt("Ghi nhận xét xác nhận (ít nhất 5 ký tự):","Đã kiểm tra đề và đáp án, đúng.");
+    if(!note||note.trim().length<5)return;
+    try{await api("/api/parent/question_qa_approve",{question_id:id,note:note.trim()},true);await loadPTab("questionqa");}catch(e){alert(copyFor(e&&e.code));}
+  });
+  app.querySelectorAll("[data-qa-edit]").forEach(btn=>btn.onclick=async()=>{
+    const id=+btn.dataset.qaEdit;
+    const x=(data.questions||[]).find(v=>+v.id===id);
+    if(!x)return;
+    let opts=[];try{opts=JSON.parse(x.options||"[]");}catch(e){}
+    const question=prompt("Sửa nội dung câu hỏi:",x.q);
+    if(question===null)return;
+    const updated=[];
+    for(let i=0;i<opts.length;i++){const v=prompt("Đáp án "+("ABCD"[i])+":",opts[i]);if(v===null)return;updated.push(v.trim());}
+    const choice=prompt("Đáp án đúng (A, B, C hoặc D):","ABCD"[+x.answer]);
+    if(choice===null)return;
+    const answer="ABCD".indexOf(choice.trim().toUpperCase());
+    const explain=prompt("Lời giải (bắt buộc):",x.explain||"");
+    if(explain===null)return;
+    const hint=prompt("Gợi ý:",x.hint||"");
+    if(hint===null)return;
+    if(question.trim().length<10||answer<0||answer>=updated.length||explain.trim().length<5||updated.some(v=>!v)){alert("Kiểm tra lại nội dung, đáp án và lời giải.");return;}
+    if(!confirm("Lưu chỉnh sửa câu #"+id+"? Câu sẽ về Chờ Claude, không dùng cho Kem cho đến khi duyệt lại."))return;
+    try{await api("/api/parent/question_qa_edit",{question_id:id,q:question.trim(),options:updated,answer,explain:explain.trim(),hint:hint.trim()},true);await loadPTab("questionqa");}catch(e){alert(copyFor(e&&e.code));}
+  });
   app.querySelectorAll("[data-qa-report]").forEach(btn=>btn.onclick=async()=>{
     const reason=prompt("Vì sao câu này cần kiểm tra lại? (ít nhất 5 ký tự)");
     if(!reason||reason.trim().length<5)return;
@@ -3141,7 +3174,7 @@ async function loadPTab(t){
     else if(t==="plan") state.pplan=await api("/api/parent/plan",{},true);
     else if(t==="videos") state.vids=(await api("/api/parent/videos",{},true)).videos;
     else if(t==="exercises") state.schoolFiles=(await api("/api/parent/school_exercises",{},true)).files;
-    else if(t==="questionqa") state.questionQA=await api("/api/parent/question_qa_list",{status:state.qaStatus||"needs_review"},true);
+    else if(t==="questionqa") state.questionQA=await api("/api/parent/question_qa_list",{status:state.qaStatus||"needs_review",page:state.qaPage||1},true);
     else if(t==="stars") state.rw=await api("/api/parent/rewards",{},true);
     else return;
   }catch(e){ if(t==="plan") state.pplan={error:copyFor(e&&e.code)}; else if(t==="stars") state.rw={error:copyFor(e&&e.code)}; else alert(copyFor(e&&e.code)); }
