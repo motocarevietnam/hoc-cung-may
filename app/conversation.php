@@ -35,7 +35,8 @@ function companion_context(): array
                       'ipa' => 'Pronunciation & IPA'];
             if (tts_enabled()) $modes['listen'] = 'Listening';
         }
-        if ($id === 'cmath') $modes['wp'] = 'Toán có lời văn';
+        if ($id === 'cmath') $modes = ['homework'=>'Homework','quiz'=>'Quiz','chat'=>'Ask Mây','wp'=>'Word Problems'];
+        if ($id === 'csci') $modes = ['homework'=>'Homework','quiz'=>'Quiz','chat'=>'Ask Mây','sci'=>'Mini Experiment'];
         if ($id === 'tv' && function_exists('tvw_for_kid')) $modes['tvw'] = 'Luyện từ và câu';
         if ($id === 'csci' && function_exists('sci_for_kid')) $modes['sci'] = 'Thí nghiệm nhỏ';
         $subjects[] = ['id' => $id] + $subject + ['modes' => $modes];

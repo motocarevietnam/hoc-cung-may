@@ -140,9 +140,9 @@ const Companion = (() => {
     const subjects=C.context?.subjects||[];
     const selected=subjects.find(s=>s.id===C.activitySubject)||subjects.find(s=>s.id===C.session?.state.selected?.subject);
     const actual=C.session?.state.recaps.filter(r=>r.kind==='lesson_report' && r.subject===selected?.id).at(-1);
-    const en=selected?.id==='ceng';
-    return `<section class="cc-activities card" aria-label="Chọn hoạt động"><h3>${en?'Learn English with Mây':'Học cùng Mây từng chút một'}</h3>
-      <p class="muted">${en?'Choose an activity to practise English. Mây is here to help!':'Kem chọn bài cô giao, phần muốn ôn hoặc hoạt động mình thích nhé.'}</p>
+    const en=['ceng','cmath','csci'].includes(selected?.id);
+    return `<section class="cc-activities card" aria-label="Chọn hoạt động"><h3>${en?'Learn '+(selected?.id==='cmath'?'Maths':selected?.id==='csci'?'Science':'English')+' with Mây':'Học cùng Mây từng chút một'}</h3>
+      <p class="muted">${en?'Choose an activity to practise '+(selected?.id==='cmath'?'Maths':selected?.id==='csci'?'Science':'English')+'. Mây is here to help!':'Kem chọn bài cô giao, phần muốn ôn hoặc hoạt động mình thích nhé.'}</p>
       <div class="chips">${subjects.map(s=>`<button class="chip" data-cc-pick="${esc(s.id)}" aria-pressed="${selected?.id===s.id}">${esc(s.name)}</button>`).join('')}</div>
       ${selected?`<div class="cc-modes">${Object.entries(selected.modes).map(([view,label])=>`<button class="btn" data-cc-start="${view}" data-subject="${esc(selected.id)}">${esc(label)}</button>`).join('')}</div>
         ${actual?`<p class="muted">Theo điều Kem kể: ${esc(actual.text)}. Với bài dài, Kem có thể mở rộng vùng làm bài.</p>`:''}`:'<p>Chọn môn để xem hoạt động có sẵn.</p>'}
