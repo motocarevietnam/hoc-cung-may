@@ -184,7 +184,7 @@ const Companion = (() => {
     return `<section class="cc-activities card" aria-label="Chọn hoạt động"><h3>${en?'Learn '+(selected?.id==='cmath'?'Maths':selected?.id==='csci'?'Science':'English')+' with Mây':'Học cùng Mây từng chút một'}</h3>
       <p class="muted">${en?'Choose an activity to practise '+(selected?.id==='cmath'?'Maths':selected?.id==='csci'?'Science':'English')+'. Mây is here to help!':'Kem chọn bài cô giao, phần muốn ôn hoặc hoạt động mình thích nhé.'}</p>
       <div class="chips">${subjects.map(s=>`<button class="chip" data-cc-pick="${esc(s.id)}" aria-pressed="${selected?.id===s.id}">${esc(s.name)}</button>`).join('')}</div>
-      ${selected?`<div class="cc-modes">${Object.entries(selected.modes).map(([view,label])=>`<button class="btn" data-cc-start="${view}" data-subject="${esc(selected.id)}">${esc(label)}${activityReward(view)}</button>`).join('')}</div>
+      ${selected?`<div class="cc-modes">${Object.entries(selected.modes).map(([view,label])=>`<button class="btn" data-cc-start="${view}" data-subject="${esc(selected.id)}"><span class="cc-mode-label">${esc(label)}</span>${activityReward(view)}</button>`).join('')}</div>
         ${actual?`<p class="muted">Theo điều Kem kể: ${esc(actual.text)}. Với bài dài, Kem có thể mở rộng vùng làm bài.</p>`:''}`:'<p>Chọn môn để xem hoạt động có sẵn.</p>'}
       <button class="btn" data-cc-start="review">${en?'📒 Review mistakes':'📒 Ôn câu đã làm'}</button>
       <button class="btn" data-cc-turn="joy">${en?'Keep chatting with Mây':'Mình muốn trò chuyện tiếp'}</button></section>`;

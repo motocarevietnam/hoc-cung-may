@@ -141,7 +141,7 @@ body.chat-first .bar .iconbtn { min-width: 44px; min-height: 44px; }
 .cc-activities p { margin: 8px 0; font-size: 14px; }
 .cc-activities > .btn { margin-top: 8px; }
 .cc-activities .chip { min-height: 44px; font-size: 14px; padding: 7px 11px; border-width: 1px; }
-.cc-modes .btn { text-align: left; }
+.cc-modes .btn { display:flex; align-items:center; justify-content:space-between; gap:12px; text-align:left; }
 .cc-dialog {
   position: fixed;
   inset: 0;
@@ -223,4 +223,4 @@ body.chat-first .bar .iconbtn { min-width: 44px; min-height: 44px; }
 @media(min-width:740px){.cc-review-card{padding:22px}.cc-lesson-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.cc-lesson-card{grid-template-columns:30px minmax(0,1fr);padding:12px;gap:8px}.cc-lesson-main strong{font-size:16px}.cc-lesson-actions .btn{font-size:13px}}
 
-.cc-reward-hint { display:inline-block; margin-left:7px; color:#795200; font-size:.9em; font-weight:700; white-space:nowrap; }
+.cc-reward-hint { display:inline-flex; flex-shrink:0; align-items:center; margin-left:auto; padding:3px 7px; border-radius:999px; background:#fff5d6; color:#795200; font-size:.82em; font-weight:700; white-space:nowrap; }
