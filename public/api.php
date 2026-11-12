@@ -622,6 +622,27 @@ function r_write_begin(array $b): never
 }
 
 // Bước 4: chụp bài viết tay → Mây nhận xét theo tiêu chí; nộp lại sau khi sửa → so với lần trước
+// Mây xác nhận từng phần của bài viết sau khi đã đọc ảnh nộp; thưởng đúng một lần mỗi bài.
+function award_writing_review(array $w, array $result, bool $revision): void
+{
+    $id=(int)$w['id'];
+    if ($w['subject']==='ceng') {
+        if (!$revision) award('english_writing', 'writing:'.$id.':english', 'Hoàn thành English Writing');
+        return;
+    }
+    $outline=json_decode((string)$w['outline'],true)?:[];
+    if (!empty($outline['than_bai']) && !empty($outline['mo_bai']) && !empty($outline['ket_bai']))
+        award('writing_mindmap','writing:'.$id.':mindmap','Mind Map được xác nhận qua bài nộp');
+    $structure=$result['structure']??[];
+    foreach (['mo_bai'=>'writing_opening','than_bai'=>'writing_body','ket_bai'=>'writing_ending'] as $part=>$rule)
+        if (($structure[$part]??'thiếu')==='ok')
+            award($rule,'writing:'.$id.':'.$part,'Mây xác nhận '.str_replace('_',' ',$part));
+    // Bản cuối: sau khi Mây đã nhận xét lần đầu và Kem nộp bản sửa.
+    if ($revision && ($result['on_topic']??false) && ($result['overall']??'try_again')!=='try_again'
+        && !in_array('thiếu',array_values(array_intersect_key($structure,array_flip(['mo_bai','than_bai','ket_bai']))),true))
+        award('writing_final','writing:'.$id.':final','Hoàn thiện và nộp lại bài văn');
+}
+
 function r_write_submit(array $b): never
 {
     $w = writing_or_fail($b);
@@ -654,6 +675,7 @@ function r_write_submit(array $b): never
                'transcript' => clean_multiline($d['transcript'] ?? '', 4000)];
     q('UPDATE writings SET result = ?, first_result = COALESCE(first_result, ?), submits = submits + 1, updated_at = ? WHERE id = ?',
         [json_encode($result, JSON_UNESCAPED_UNICODE), json_encode($result, JSON_UNESCAPED_UNICODE), time(), $w['id']]);
+    award_writing_review($w, $result, (bool)$previous);
     if (!$previous) log_activity($w['subject'], mb_substr($w['prompt'], 0, 120), 'writing');
     elseif ($result['fixed']) award('self_fix', 'fix:write:' . $w['id'], 'Sửa bài viết: ' . mb_substr($w['prompt'], 0, 60));
     $response = ['readable' => true, 'writing' => writing_for_kid(writing_or_fail($b)), 'stars' => stars()];
@@ -798,6 +820,7 @@ function r_read_answer(array $b): never
     $lv = read_adjust_level($score);
     $vocab = read_vocab_to_review($d);
     log_activity('ceng', mb_substr('Reading: ' . ($d['title'] ?? ''), 0, 200), 'reading', $score, count($d['questions']));
+    award('english_reading','reading:'.$r['id'].':complete','Hoàn thành Reading');
     out(['reading' => reading_for_kid(reading_or_fail($b)), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab,
          'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
 }
@@ -852,6 +875,7 @@ function read_finish_parts(array $r, array $d, array $b): never
     $lv = read_adjust_level($score, $max);
     $vocab = read_vocab_to_review($d);
     log_activity('ceng', mb_substr('Reading: ' . ($d['title'] ?? ''), 0, 200), 'reading', $score, $max);
+    award('english_reading','reading:'.$r['id'].':complete','Hoàn thành Reading');
     out(['reading' => reading_for_kid(reading_or_fail(['id' => $r['id']])), 'level' => $lv['to'], 'level_change' => $lv['to'] - $lv['from'], 'vocab_added' => $vocab,
          'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
 }
@@ -1226,6 +1250,7 @@ function r_listen_answer(array $b): never
         [json_encode(['mc' => $mc, 'typed' => $typed, 'dict' => $dict], JSON_UNESCAPED_UNICODE), $score, time(), $r['id']]);
     $lv = read_adjust_level($score, $total, 'listen');
     log_activity('ceng', mb_substr('Listening: ' . ($d['title'] ?? ''), 0, 200), 'listening', $score, $total);
+    award('english_listening','listening:'.$r['id'].':complete','Hoàn thành Listening');
     out(['listening' => listening_for_kid(reading_or_fail(['id' => $r['id'], '_kind' => 'listen'])), 'level' => $lv['to'],
          'level_change' => $lv['to'] - $lv['from'], 'stars' => stars(), 'awards' => $GLOBALS['AWARDS']]);
 }
@@ -1443,6 +1468,10 @@ function r_speak_check(array $b): never
     q('INSERT INTO speaking_tries (session_id, idx, transcript, result, level, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         [$sess['id'], $idx, $transcript, json_encode($result, JSON_UNESCAPED_UNICODE), $level, time()]);
     if ($first) log_activity('ceng', $sess['topic'], 'speaking', $level === 'try_again' ? 0 : 1, 1);
+    // Chỉ thưởng khi tất cả câu trong phiên đều đã được Kem trả lời thực tế.
+    $attempted=(int)q("SELECT COUNT(DISTINCT idx) FROM speaking_tries WHERE session_id=? AND TRIM(transcript)<>''",[$sess['id']])->fetchColumn();
+    if ($attempted>=count($items))
+        award('english_speaking','speaking:'.$sess['id'].':complete','Hoàn thành Speaking Quest');
     out(['result' => $result, 'stars' => stars()]);
 }
 
