@@ -359,7 +359,8 @@ const Companion = (() => {
     if(C.busy) return;
     if(card() && !confirm('Bài đang làm vẫn có thể tiếp tục. Kem muốn mở hoạt động khác không?')) return;
     const actual=C.session.state.recaps.filter(r=>r.kind==='lesson_report'&&r.subject===subject).at(-1);
-    const selected={view,subject,topic:chosenTopic ? chosenTopic.slice(0,80) : (actual?.text.slice(0,80)||'')};
+    const topicLimit=view==='quiz'?255:80;
+    const selected={view,subject,topic:chosenTopic ? chosenTopic.slice(0,topicLimit) : (actual?.text.slice(0,topicLimit)||'')};
     if(!await turn('learning',{card:selected})) return;
     C.fields={}; saveDrafts(); launch(card());
   }

@@ -8,6 +8,7 @@ header('X-Content-Type-Options: nosniff');
 
 require __DIR__ . '/../app/lib.php';
 require __DIR__ . '/../app/conversation.php';
+require __DIR__ . '/../app/quiz_access.php';
 
 $path = (string)parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
 $route = preg_replace('#^/api/#', '', $path) ?? '';
@@ -261,16 +262,7 @@ function r_chat(array $b): never
 // Only confirmed school lessons may contribute to a general multi-topic quiz.
 function quiz_confirmed_topics(string $subject): array
 {
-    $labels=match($subject){
-      'toan'=>['Toán'],'tv'=>['Tiếng Việt'],'cmath'=>['Math'],
-      'ceng'=>['English ET','English LT'],'csci'=>['Science'],default=>[]
-    };
-    if(!$labels)return [];
-    $ph=implode(',',array_fill(0,count($labels),'?'));
-    $rows=q("SELECT DISTINCT p.planned_content FROM school_lesson_plan p
-             JOIN school_lesson_confirmations c ON c.school_day=p.school_day AND c.period_no=p.period_no
-             WHERE p.subject IN ($ph) AND c.status='taught'",$labels)->fetchAll(PDO::FETCH_COLUMN);
-    return array_values(array_unique(array_filter(array_map(fn($t)=>mb_substr(trim(preg_replace('/\s+/u',' ',(string)$t)),0,255),$rows))));
+    return array_keys(array_filter(quiz_access_catalog($subject), fn($lesson)=>$lesson['confirmed']));
 }
 // Topic-level spaced practice: a new variant is used, not the same recent question.
 // 1,3,7,14,30,60 days for consecutive correct answers; wrong => tomorrow.
@@ -352,145 +344,16 @@ function quiz_start_from_questions(string $subject,string $topic,array $question
         $placeholders=implode(',',array_fill(0,count($ids),'?'));
         q("UPDATE question_bank SET used_count=used_count+1 WHERE id IN ($placeholders)",$ids);
     }
-    out(['quiz_id'=>$id,'questions'=>array_map(fn($x)=>['q'=>$x['q'],'options'=>$x['options'],'hint'=>$x['hint']],$questions)]);
+    out(['quiz_id'=>$id,'topic'=>$topic,'total'=>count($questions),'source'=>'question_bank','questions'=>array_map(fn($x)=>['q'=>$x['q'],'options'=>$x['options'],'hint'=>$x['hint']],$questions)]);
 }
 function r_quiz(array $b): never
 {
     $subject = subject_or_fail($b);
-    $topic = clean($b['topic'] ?? '', 200);
-    // A full set from the approved bank costs zero AI-generation tokens.
-    $bank=quiz_bank_pick($subject,$topic,10);
-    if(count($bank)===10)quiz_start_from_questions($subject,$topic,$bank);
-    $confirmed=quiz_confirmed_topics($subject);
-    if($topic!==''&&!in_array($topic,$confirmed,true))out(['error'=>'quiz_no_new_questions'],409);
-    if(setting('quiz_auto_replenish_enabled','1')!=='1'||trim((string)cfg('anthropic_api_key',''))===''){
-        if($bank)quiz_start_from_questions($subject,$topic,$bank);
-        out(['error'=>'quiz_no_new_questions'],409);
-    }
-    // Two API calls (generation + independent verification) per replenishment.
-    // Daily request cap is a usage guard, not a monetary guarantee.
-    $lock=fopen(sys_get_temp_dir().'/kem_quiz_replenish.lock','c');
-    if(!$lock||!flock($lock,LOCK_EX|LOCK_NB)){
-        if($lock)fclose($lock);
-        if($bank)quiz_start_from_questions($subject,$topic,$bank);
-        out(['error'=>'quiz_no_new_questions'],409);
-    }
-    $limit=max(0,min(20,(int)setting('quiz_auto_daily_api_calls','4')));
-    $key='quiz_auto_calls_'.today();
-    $used=(int)setting($key,'0');
-    if($limit<2||$used+2>$limit){
-        if($bank)quiz_start_from_questions($subject,$topic,$bank);
-        out(['error'=>'quiz_no_new_questions'],409);
-    }
-    $target=$topic;
-    if($target===''){
-        if(!$confirmed)out(['error'=>'quiz_no_new_questions'],409);
-        // Replenish the confirmed lesson with the smallest approved bank.
-        $counts=[];
-        foreach($confirmed as $t)$counts[$t]=(int)q("SELECT COUNT(*) FROM question_bank WHERE subject=? AND topic=? AND status='approved'",[$subject,$t])->fetchColumn();
-        asort($counts);
-        $target=(string)array_key_first($counts);
-    }
-    if($target==='')out(['error'=>'quiz_no_new_questions'],409);
-    set_setting($key,(string)($used+2));
-    $topic=$target;
-    $recent = recent_quiz_questions($subject, $topic);
-    // Only genuinely new questions are eligible for a new quiz; mistakes use /api/review_list.
-
-    try {
-    $text = ask_claude(
-        (string)cfg('quiz_model', 'claude-sonnet-5-5'),
-        quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 12)]],
-        4500,
-        60,
-        (string)cfg('quiz_effort', 'medium')
-    );
-    $start = strpos($text, '{');
-    $end = strrpos($text, '}');
-    $data = ($start !== false && $end !== false) ? json_decode(substr($text, $start, $end - $start + 1), true) : null;
-
-    $questions = [];
-    foreach ((is_array($data['questions'] ?? null) ? $data['questions'] : []) as $item) {
-        if (!is_array($item) || !is_string($item['q'] ?? null) || !is_array($item['options'] ?? null)) continue;
-        $opts = array_values(array_filter($item['options'], 'is_string'));
-        $ans = $item['answer'] ?? null;
-        if (count($opts) < 2 || count($opts) > 4 || count($opts) !== count($item['options'])) continue;
-        if (!is_int($ans) || $ans < 0 || $ans >= count($opts)) continue;
-        $questions[] = [
-            'q' => clean($item['q'], 500),
-            'options' => array_map(fn($o) => clean($o, 200), $opts),
-            'answer' => $ans,
-            'explain' => clean($item['explain'] ?? '', 400),
-            'hint' => clean($item['hint'] ?? '', 300),
-        ];
-    }
-    // Lượt kiểm tra lại: bỏ các câu có đáp án sai hoặc mơ hồ (Mây đôi khi đánh dấu nhầm đáp án)
-    $verified = false;
-    if ($questions) {
-        try {
-            $v = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
-                [['role' => 'user', 'content' => quiz_verify_prompt($subject, $questions)]], 2500, 45, 'medium')) ?? [];
-            $verified = is_array($v['bad'] ?? null);
-            $bad = array_map('intval', is_array($v['bad'] ?? null) ? $v['bad'] : []);
-            if ($bad) error_log('[hoc-cung-may] quiz verify bỏ câu ' . implode(',', $bad) . ': ' . mb_substr((string)($v['notes'] ?? ''), 0, 200));
-            $questions = array_values(array_filter($questions, fn($k) => !in_array($k, $bad, true), ARRAY_FILTER_USE_KEY));
-        } catch (Throwable $e) {
-            error_log('[hoc-cung-may] quiz verify lỗi: ' . $e->getMessage());   // không kiểm được thì vẫn dùng đề, không chặn bé
-        }
-    }
-    // Verification failure must never automatically approve unverified questions.
-    // Bank is populated only if the independent verification completed successfully.
-    // Bỏ câu trùng với câu đã hỏi gần đây hoặc trùng nhau trong cùng đề
-    $kept = [];
-    foreach ($questions as $x) {
-        $dup = false;
-        foreach (array_merge($recent, array_column($kept, 'q')) as $old) if (quiz_same($x['q'], $old)) { $dup = true; break; }
-        if (!$dup) $kept[] = $x;
-    }
-    if (count($kept) < count($questions)) error_log('[hoc-cung-may] quiz bỏ ' . (count($questions) - count($kept)) . ' câu trùng câu cũ');
-    // Keep the child's session short (10 questions), but draw from a larger pool.
-    // Shuffle eligible candidates so the first ten are not always the same easiest patterns.
-    shuffle($kept);
-    $questions = array_slice($kept, 0, 10);
-    if (count($questions) < 1) {
-        error_log('[hoc-cung-may] insufficient novel quiz questions for ' . $subject . ': ' . count($questions));
-        if($bank)quiz_start_from_questions($subject,$b['topic']??'',$bank);
-        out(['error' => 'quiz_no_new_questions'], 409);
-    }
-
-    if(!$verified){
-        if($bank)quiz_start_from_questions($subject,(string)($b['topic']??''),$bank);
-        out(['error'=>'quiz_no_new_questions'],409);
-    }
-    // Verify against the whole bank (including rejected) before approving.
-    $safe=[];
-    $all=q('SELECT q FROM question_bank WHERE subject=?',[$subject])->fetchAll(PDO::FETCH_COLUMN);
-    foreach($questions as $x){
-        $duplicate=false;
-        foreach(array_merge($all,array_column($safe,'q')) as $old)if(quiz_same($x['q'],(string)$old)){$duplicate=true;break;}
-        if(!$duplicate)$safe[]=$x;
-    }
-    if($safe){
-        foreach($safe as $x){
-            $fp=hash('sha256',quiz_norm($x['q']));
-            q("INSERT IGNORE INTO question_bank(subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at,approved_by)
-                VALUES (?,?,?,?,?,?,?,?,'approved',?,'claude_qa')",
-                [$subject,$topic,$x['q'],json_encode($x['options'],JSON_UNESCAPED_UNICODE),$x['answer'],$x['explain'],$x['hint'],$fp,time()]);
-            $id=(int)db()->lastInsertId();
-            if($id>0)q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
-                VALUES (?,'claude','pass',?,'Auto replenishment: independent verification pass',?,?)",
-                [$id,$x['answer'],(string)cfg('quiz_model','claude-sonnet-5-5'),time()]);
-        }
-    }
-    $ready=quiz_bank_pick($subject,(string)($b['topic']??''),10);
-    if($ready)quiz_start_from_questions($subject,(string)($b['topic']??''),$ready);
-    out(['error'=>'quiz_no_new_questions'],409);
-    }catch(Throwable $e){
-        error_log('[hoc-cung-may] auto quiz refill failed: '.$e->getMessage());
-        if($bank)quiz_start_from_questions($subject,(string)($b['topic']??''),$bank);
-        out(['error'=>'quiz_no_new_questions'],409);
-    }
+    $topic = quiz_topic_key(clean($b['topic'] ?? '', 255));
+    $prepared = quiz_prepare_from_bank($subject, $topic);
+    if ($prepared['ready']) quiz_start_from_questions($subject, $prepared['topic'], $prepared['questions']);
+    unset($prepared['ready']);
+    out($prepared, 409);
 }
 
 function remember_mistake(string $subject, string $topic, array $x): void
@@ -541,7 +404,7 @@ function r_answer(array $b): never
         if (array_key_exists((string)$i, $answers) && $answers[(string)$i] === $qq['answer']) $score++;
     }
     if ($done && $first) {
-        award('quiz_complete', 'quiz:' . $quiz['id'] . ':complete', 'Hoàn thành bài ôn tập 10 câu');
+        award('quiz_complete', 'quiz:' . $quiz['id'] . ':complete', 'Hoàn thành bài ôn tập ' . count($questions) . ' câu');
         q('UPDATE quizzes SET score = ?, finished_at = ? WHERE id = ?', [$score, time(), $quiz['id']]);
         log_activity($quiz['subject'], $quiz['topic'], 'quiz', $score, count($questions));
     }
