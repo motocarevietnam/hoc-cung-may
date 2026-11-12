@@ -312,12 +312,13 @@ function quiz_bank_pick(string $subject,string $topic,int $count=10): array
     });
     $recent=recent_quiz_questions($subject,$topic);
     $selected=[];$perTopic=[];
+    foreach([true,false] as $enforceTopicSpread){
     foreach($rows as $r){
         $opts=json_decode((string)$r['options'],true);
         if(!is_array($opts)||!isset($opts[(int)$r['answer']]))continue;
         // Spread a general quiz across lessons; never fill ten slots with one lesson.
         $key=(string)$r['topic'];
-        if($topic==='' && ($perTopic[$key]??0)>=4)continue;
+        if($topic==='' && $enforceTopicSpread && ($perTopic[$key]??0)>=4)continue;
         $duplicate=false;
         foreach(array_merge($recent,array_column($selected,'q')) as $old)
             if(quiz_same($r['q'],$old)){$duplicate=true;break;}
@@ -326,6 +327,8 @@ function quiz_bank_pick(string $subject,string $topic,int $count=10): array
           'explain'=>$r['explain'],'hint'=>$r['hint'],'bank_id'=>(int)$r['id']];
         $perTopic[$key]=($perTopic[$key]??0)+1;
         if(count($selected)>=$count)break;
+    }
+    if(count($selected)>=$count)break;
     }
     return $selected;
 }
@@ -357,7 +360,9 @@ function r_quiz(array $b): never
     $topic = clean($b['topic'] ?? '', 200);
     // A full set from the approved bank costs zero AI-generation tokens.
     $bank=quiz_bank_pick($subject,$topic,10);
-    if(count($bank)===10)quiz_start_from_questions($subject,$topic,$bank);
+    if(count($bank)>0)quiz_start_from_questions($subject,$topic,$bank);
+    // No approved eligible questions: never call a paid AI model as an invisible fallback.
+    out(['error'=>'quiz_no_new_questions'],409);
     // Do not make the child wait for a costly on-demand AI call when the general
     // bank is exhausted. Replenishment is a separate reviewed background workflow.
     if($topic==='')out(['error'=>'quiz_no_new_questions'],409);
