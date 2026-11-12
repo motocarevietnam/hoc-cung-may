@@ -461,7 +461,7 @@ body.pmode label input[type=checkbox]{margin-right:6px}
 <main id="app"></main>
 <div id="overlayHost"></div>
 
-<script src="/conversation.js?v=20261112starspacing2"></script>
+<script src="/conversation.js?v=20261112quizaccess1"></script>
 <script>
 const MASCOT = `<path d="M34 28 L36 6 L50 20 Z M50 20 L64 6 L66 28 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
 <path d="M18 64 A14 14 0 0 1 22 37 A17 17 0 0 1 50 21 A17 17 0 0 1 78 37 A14 14 0 0 1 82 64 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
@@ -516,7 +516,7 @@ async function api(path, body={}, asParent=false){
   try{ res = await fetch(path,{method:"POST",headers,body:JSON.stringify(body)}); }
   catch(e){ throw {code:"offline"}; }
   let data = {}; try{ data = await res.json(); }catch(e){}
-  if(!res.ok) throw {code: data.error || ("http_"+res.status)};
+  if(!res.ok) throw {code: data.error || ("http_"+res.status), data};
   if(Array.isArray(data.awards) && data.awards.length){ setStars(data.stars); showAwards(data.awards); }
   await Companion.afterApi(path, body, data);
   return data;
@@ -555,7 +555,10 @@ function copyFor(code){
     server_not_configured: "App chưa cài đặt xong (thiếu file config.php trên VPS).",
     upstream: "Mây chưa kết nối được tới Claude. Thử lại sau ít phút nhé.",
     bad_quiz: "Mây soạn câu hỏi bị lỗi. Bấm thử lại nhé.",
-    quiz_no_new_questions: "Mây chưa tìm đủ 10 câu mới không trùng bài đã làm. Kem thử chủ đề khác hoặc mở Sổ ôn tập để xem lại câu sai nhé.",
+    quiz_no_new_questions: "Chưa có câu mới phù hợp với bài đã xác nhận. Kem chọn bài khác đã học hoặc mở Sổ ôn tập nhé.",
+    quiz_lesson_confirmation_required: "Mây cần biết Kem đã học bài nào trước khi mở Quiz.",
+    quiz_no_fresh_questions: "Các câu mới phù hợp của bài này đã dùng hết. Mình chọn bài khác đã học hoặc mở Sổ ôn tập nhé.",
+    quiz_bank_not_ready: "Bài này chưa có câu được duyệt để sử dụng. Mình chọn bài khác đã học nhé.",
     bad_photos: "Ảnh chưa gửi được. Bạn chụp lại (tối đa 4 ảnh) rồi thử lần nữa nhé.",
     bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
     http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
@@ -951,12 +954,71 @@ async function sendChat(text, viaMic){
 /* ---------- đố vui và sổ ôn tập ---------- */
 async function startQuiz(){
   if(!ready()){ state.quiz={kind:"quiz", error:"Ba mẹ cần nhập mã PIN của app trong ⚙️ Cài đặt máy trước nhé."}; go("quiz"); return; }
-  state.quiz={kind:"quiz", loading:true}; go("quiz");
+  const requestState={kind:"quiz", loading:true};
+  state.quiz=requestState; go("quiz");
   try{
     const d = await api("/api/quiz",{subject:state.subject, topic:state.topic});
+    if(state.quiz!==requestState)return;
+    if(!Array.isArray(d.questions)||!d.questions.length)throw {code:"bad_quiz"};
+    if(typeof d.topic==='string')state.topic=d.topic;
     state.quiz={kind:"quiz", id:d.quiz_id, qs:d.questions, i:0, results:[], picked:null, hint:false, waiting:false};
-  }catch(e){ state.quiz={kind:"quiz", error: copyFor(e&&e.code) || "Đã dừng."}; }
+  }catch(e){
+    if(state.quiz!==requestState)return;
+    state.quiz={kind:"quiz", error:copyFor(e&&e.code)||"Đã dừng.", errorCode:e?.code,
+      recovery:e?.data && Array.isArray(e.data.choices) ? e.data : null};
+  }
   if(state.view==="quiz") render();
+}
+function quizRecoveryMarkup(Q, s){
+  const en=s?.lang==='en', D=Q.recovery, choices=D?.choices||[];
+  const title=en?'Choose a lesson you have studied':'Chọn bài Kem đã học';
+  let message=Q.error;
+  if(D){
+    if(Q.errorCode==='quiz_lesson_confirmation_required')message=en
+      ? 'I need to know which lesson you have already studied before opening your quiz.'
+      : 'Mây cần Kem xác nhận bài đã học trước khi mở Quiz. Lịch trường chỉ là dự kiến, Mây không tự đánh dấu thay bạn.';
+    else if(Q.errorCode==='quiz_no_fresh_questions')message=en
+      ? 'There are no unused questions ready for this lesson. Choose another lesson you have studied or open the review notebook.'
+      : 'Bài này chưa còn câu mới phù hợp. Kem chọn bài khác đã học hoặc mở Sổ ôn tập nhé.';
+    else message=en?'Questions for this lesson are not ready yet. Please choose another lesson you have studied.':Q.error;
+  }
+  return `<div class="card" role="status"><h3>${esc(title)}</h3><p>${esc(message)}</p>
+    ${D?`<p class="muted">${en?'Approved questions in this subject':'Câu đã duyệt của môn này'}: ${Number(D.approved_subject_count)||0}.</p>`:''}</div>
+    ${choices.map((x,i)=>{
+      const label=x.topic.replace(/\s+Students will.*$/,'');
+      return `<section class="card"><h3>${esc(label)}</h3><p class="muted">${en?'School plan':'Lịch trường'}: ${esc(x.school_day.split('-').reverse().join('/'))} · ${Number(x.available_count)} ${en?'questions ready':'câu sẵn sàng'}</p>
+      <details><summary>${en?'Lesson details':'Nội dung bài'}</summary><p>${esc(x.topic)}</p></details>
+      <button class="btn primary" style="margin-top:12px;white-space:normal" data-quiz-lesson="${i}">${x.requires_confirmation?(en?'I have studied this · Start quiz':'Đã học bài này · Bắt đầu ôn'):(en?'Start quiz':'Bắt đầu ôn')}</button></section>`;
+    }).join('')}
+    <p class="muted">${en?'Only confirm a lesson you have actually studied. Your quiz uses approved questions from the question bank.':'Chỉ xác nhận bài Kem thực sự đã học. Quiz lấy câu đã duyệt từ ngân hàng.'}</p>
+    <div class="row"><button class="btn" id="retry">${en?'Refresh':'Tải lại'}</button><button class="btn" id="quizRecoveryReview">${en?'Open review notebook':'Mở Sổ ôn tập'}</button></div>
+    <p id="quizRecoveryError" role="alert" class="muted"></p>`;
+}
+function wireQuizRecovery(Q, s){
+  const en=s?.lang==='en';
+  document.getElementById('retry').onclick=startQuiz;
+  document.getElementById('quizRecoveryReview').onclick=startReview;
+  app.querySelectorAll('[data-quiz-lesson]').forEach(button=>button.onclick=async()=>{
+    if(Q.recoveryBusy)return;
+    const lesson=Q.recovery?.choices?.[Number(button.dataset.quizLesson)];
+    if(!lesson)return;
+    Q.recoveryBusy=true;
+    app.querySelectorAll('[data-quiz-lesson]').forEach(b=>b.disabled=true);
+    const errorBox=document.getElementById('quizRecoveryError');
+    if(errorBox)errorBox.textContent='';
+    try{
+      if(lesson.requires_confirmation)await api('/api/companion/confirm_lesson',{day:lesson.school_day,period:lesson.period,status:'taught'});
+      if(state.quiz!==Q||state.view!=='quiz')return;
+      state.topic=lesson.topic;
+      await startQuiz();
+    }catch(e){
+      if(state.quiz===Q){
+        Q.recoveryBusy=false;
+        app.querySelectorAll('[data-quiz-lesson]').forEach(b=>b.disabled=false);
+        if(errorBox)errorBox.textContent=en?'Could not save the confirmation. Please try again.':(copyFor(e?.code)||'Chưa lưu được xác nhận. Kem thử lại nhé.');
+      }
+    }
+  });
 }
 async function startReview(){
   state.quiz={kind:"review", loading:true}; go("quiz");
@@ -973,13 +1035,17 @@ function renderQuiz(){
   const head = `<button class="back" id="back">‹ ${review ? "Trang chính" : esc(s.name)}</button>`;
   const backTo = review ? "home" : "subject";
   if(Q.loading){
-    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">${review ? "Mây đang mở Sổ ôn tập…" : `Mây đang soạn câu đố cho ${esc(nick())}…`} <span class="thinking"><i></i><i></i><i></i></span>${review?"":`<br><span class="muted">Có thể mất vài chục giây đó.</span>`}</div></div>`;
+    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">${review ? "Mây đang mở Sổ ôn tập…" : (s.lang==='en'?'Opening your question bank…':'Mây đang lấy câu từ ngân hàng…')} <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
   } else if(Q.empty){
     app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">Hôm nay không còn câu nào cần ôn. Giỏi quá! 🎉</div></div><div class="row"><button class="btn primary" id="homeAgain">Về trang chính</button></div>`;
     document.getElementById("homeAgain").onclick=()=>go("home");
   } else if(Q.error){
-    app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">${esc(Q.error)}</div></div><div class="row"><button class="btn primary" id="retry">Thử lại</button></div>`;
-    document.getElementById("retry").onclick = review ? startReview : startQuiz;
+    if(!review && Q.recovery){
+      app.innerHTML=head+quizRecoveryMarkup(Q,s);wireQuizRecovery(Q,s);
+    }else{
+      app.innerHTML = head + `<div class="greet">${mascot()}<div class="say">${esc(Q.error)}</div></div><div class="row"><button class="btn primary" id="retry">Thử lại</button></div>`;
+      document.getElementById("retry").onclick = review ? startReview : startQuiz;
+    }
   } else if(Q.i >= Q.qs.length){
     const ok = Q.results.filter(Boolean).length, n = Q.qs.length;
     const msg = ok===n ? "Tuyệt vời! Đúng hết luôn!" : ok>=n-1 ? "Giỏi quá đi!" : ok>=n/2 ? "Làm tốt lắm! Cố thêm chút nữa nhé." : "Không sao cả, mình cùng ôn lại nha!";
