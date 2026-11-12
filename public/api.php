@@ -360,21 +360,49 @@ function r_quiz(array $b): never
     $topic = clean($b['topic'] ?? '', 200);
     // A full set from the approved bank costs zero AI-generation tokens.
     $bank=quiz_bank_pick($subject,$topic,10);
-    if(count($bank)>0)quiz_start_from_questions($subject,$topic,$bank);
-    // No approved eligible questions: never call a paid AI model as an invisible fallback.
-    out(['error'=>'quiz_no_new_questions'],409);
-    // Do not make the child wait for a costly on-demand AI call when the general
-    // bank is exhausted. Replenishment is a separate reviewed background workflow.
-    if($topic==='')out(['error'=>'quiz_no_new_questions'],409);
-    spend(5);
+    if(count($bank)===10)quiz_start_from_questions($subject,$topic,$bank);
+    $confirmed=quiz_confirmed_topics($subject);
+    if($topic!==''&&!in_array($topic,$confirmed,true))out(['error'=>'quiz_no_new_questions'],409);
+    if(setting('quiz_auto_replenish_enabled','1')!=='1'||trim((string)cfg('anthropic_api_key',''))===''){
+        if($bank)quiz_start_from_questions($subject,$topic,$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    // Two API calls (generation + independent verification) per replenishment.
+    // Daily request cap is a usage guard, not a monetary guarantee.
+    $lock=fopen(sys_get_temp_dir().'/kem_quiz_replenish.lock','c');
+    if(!$lock||!flock($lock,LOCK_EX|LOCK_NB)){
+        if($lock)fclose($lock);
+        if($bank)quiz_start_from_questions($subject,$topic,$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    $limit=max(0,min(20,(int)setting('quiz_auto_daily_api_calls','4')));
+    $key='quiz_auto_calls_'.today();
+    $used=(int)setting($key,'0');
+    if($limit<2||$used+2>$limit){
+        if($bank)quiz_start_from_questions($subject,$topic,$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    $target=$topic;
+    if($target===''){
+        if(!$confirmed)out(['error'=>'quiz_no_new_questions'],409);
+        // Replenish the confirmed lesson with the smallest approved bank.
+        $counts=[];
+        foreach($confirmed as $t)$counts[$t]=(int)q("SELECT COUNT(*) FROM question_bank WHERE subject=? AND topic=? AND status='approved'",[$subject,$t])->fetchColumn();
+        asort($counts);
+        $target=(string)array_key_first($counts);
+    }
+    if($target==='')out(['error'=>'quiz_no_new_questions'],409);
+    set_setting($key,(string)($used+2));
+    $topic=$target;
     $recent = recent_quiz_questions($subject, $topic);
     // Only genuinely new questions are eligible for a new quiz; mistakes use /api/review_list.
 
+    try {
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 24)]],
-        16000,
+        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 12)]],
+        4500,
         60,
         (string)cfg('quiz_effort', 'medium')
     );
@@ -402,7 +430,7 @@ function r_quiz(array $b): never
     if ($questions) {
         try {
             $v = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
-                [['role' => 'user', 'content' => quiz_verify_prompt($subject, $questions)]], 8000, 45, 'medium')) ?? [];
+                [['role' => 'user', 'content' => quiz_verify_prompt($subject, $questions)]], 2500, 45, 'medium')) ?? [];
             $verified = is_array($v['bad'] ?? null);
             $bad = array_map('intval', is_array($v['bad'] ?? null) ? $v['bad'] : []);
             if ($bad) error_log('[hoc-cung-may] quiz verify bỏ câu ' . implode(',', $bad) . ': ' . mb_substr((string)($v['notes'] ?? ''), 0, 200));
@@ -425,13 +453,44 @@ function r_quiz(array $b): never
     // Shuffle eligible candidates so the first ten are not always the same easiest patterns.
     shuffle($kept);
     $questions = array_slice($kept, 0, 10);
-    if (count($questions) !== 10) {
+    if (count($questions) < 1) {
         error_log('[hoc-cung-may] insufficient novel quiz questions for ' . $subject . ': ' . count($questions));
+        if($bank)quiz_start_from_questions($subject,$b['topic']??'',$bank);
         out(['error' => 'quiz_no_new_questions'], 409);
     }
 
-    if($verified)quiz_bank_save($subject,$topic,$questions);
-    quiz_start_from_questions($subject,$topic,$questions);
+    if(!$verified){
+        if($bank)quiz_start_from_questions($subject,(string)($b['topic']??''),$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    // Verify against the whole bank (including rejected) before approving.
+    $safe=[];
+    $all=q('SELECT q FROM question_bank WHERE subject=?',[$subject])->fetchAll(PDO::FETCH_COLUMN);
+    foreach($questions as $x){
+        $duplicate=false;
+        foreach(array_merge($all,array_column($safe,'q')) as $old)if(quiz_same($x['q'],(string)$old)){$duplicate=true;break;}
+        if(!$duplicate)$safe[]=$x;
+    }
+    if($safe){
+        foreach($safe as $x){
+            $fp=hash('sha256',quiz_norm($x['q']));
+            q("INSERT IGNORE INTO question_bank(subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at,approved_by)
+                VALUES (?,?,?,?,?,?,?,?,'approved',?,'claude_qa')",
+                [$subject,$topic,$x['q'],json_encode($x['options'],JSON_UNESCAPED_UNICODE),$x['answer'],$x['explain'],$x['hint'],$fp,time()]);
+            $id=(int)db()->lastInsertId();
+            if($id>0)q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
+                VALUES (?,'claude','pass',?,'Auto replenishment: independent verification pass',?,?)",
+                [$id,$x['answer'],(string)cfg('quiz_model','claude-sonnet-5-5'),time()]);
+        }
+    }
+    $ready=quiz_bank_pick($subject,(string)($b['topic']??''),10);
+    if($ready)quiz_start_from_questions($subject,(string)($b['topic']??''),$ready);
+    out(['error'=>'quiz_no_new_questions'],409);
+    }catch(Throwable $e){
+        error_log('[hoc-cung-may] auto quiz refill failed: '.$e->getMessage());
+        if($bank)quiz_start_from_questions($subject,(string)($b['topic']??''),$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
 }
 
 function remember_mistake(string $subject, string $topic, array $x): void
