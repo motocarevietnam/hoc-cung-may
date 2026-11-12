@@ -256,6 +256,7 @@ function r_quiz(array $b): never
     $topic = clean($b['topic'] ?? '', 200);
     spend(5);
     $recent = recent_quiz_questions($subject, $topic);
+    // Only genuinely new questions are eligible for a new quiz; mistakes use /api/review_list.
 
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
@@ -305,7 +306,10 @@ function r_quiz(array $b): never
     }
     if (count($kept) < count($questions)) error_log('[hoc-cung-may] quiz bỏ ' . (count($questions) - count($kept)) . ' câu trùng câu cũ');
     $questions = array_slice($kept, 0, 10);
-    if (count($questions) !== 10) out(['error' => 'bad_quiz'], 502);
+    if (count($questions) !== 10) {
+        error_log('[hoc-cung-may] insufficient novel quiz questions for ' . $subject . ': ' . count($questions));
+        out(['error' => 'quiz_no_new_questions'], 409);
+    }
 
     q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
         [$subject, $topic, json_encode($questions, JSON_UNESCAPED_UNICODE), count($questions), time()]);

@@ -666,16 +666,21 @@ function quiz_context(string $id): string
 }
 
 // Câu đố đã hỏi gần đây (cùng môn, ưu tiên cùng chủ đề) để Mây không hỏi lại câu cũ
-function recent_quiz_questions(string $subject, string $topic, int $max = 40): array
+// Remember all completed quizzes for six months, plus recent in-progress quizzes.
+// Do not silently forget completed questions after the latest four quiz sessions.
+function recent_quiz_questions(string $subject, string $topic, int $max = 400): array
 {
-    $rows = q('SELECT topic, questions FROM quizzes WHERE subject = ? AND created_at >= ? ORDER BY (topic = ?) DESC, id DESC LIMIT 12',
-        [$subject, time() - 30 * 86400, $topic])->fetchAll();
-    $out = [];
-    foreach ($rows as $r) {
-        foreach (json_decode((string)$r['questions'], true) ?: [] as $x) {
-            $t = trim((string)($x['q'] ?? ''));
-            if ($t !== '') $out[] = $t;
-            if (count($out) >= $max) return $out;
+    $rows=q('SELECT topic,questions FROM quizzes WHERE subject=? AND created_at>=? AND (finished_at IS NOT NULL OR created_at>=?) ORDER BY (topic=?) DESC, id DESC LIMIT 160',
+        [$subject,time()-180*86400,time()-30*86400,$topic])->fetchAll();
+    $out=[];$seen=[];
+    foreach($rows as $r){
+        foreach(json_decode((string)$r['questions'],true) ?: [] as $x){
+            $t=trim((string)($x['q']??''));
+            if($t==='')continue;
+            $key=quiz_norm($t);
+            if(isset($seen[$key]))continue;
+            $seen[$key]=true;$out[]=$t;
+            if(count($out)>=$max)return $out;
         }
     }
     return $out;
@@ -727,7 +732,8 @@ function school_exercise_quiz_context(string $subject, string $topic): string
 function quiz_avoid_text(array $recent): string
 {
     if (!$recent) return '';
-    $list = implode("\n", array_map(fn($q) => '- ' . mb_substr($q, 0, 160), $recent));
+    // Limit prompt size, but keep the full history for the server-side duplicate gate.
+    $list = implode("\n", array_map(fn($q) => '- ' . mb_substr($q, 0, 160), array_slice($recent, 0, 100)));
     return "\nCác câu bé ĐÃ được hỏi gần đây (KHÔNG hỏi lại câu giống hoặc gần giống: đổi số liệu, đổi bối cảnh, đổi dạng bài; ưu tiên ý/dạng bài chưa hỏi):\n{$list}";
 }
 
