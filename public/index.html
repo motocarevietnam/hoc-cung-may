@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Học cùng Mây</title>
-<link rel="stylesheet" href="/conversation.css?v=20261107clientcompress11">
+<link rel="stylesheet" href="/conversation.css?v=20261112starspacing2">
 <link rel="manifest" href="/manifest.webmanifest" id="manifestLink">
 <script>
   // Cổng ba mẹ /parents/: dùng chung giao diện, nhưng là "app" riêng khi thêm vào màn hình chính
@@ -461,7 +461,7 @@ body.pmode label input[type=checkbox]{margin-right:6px}
 <main id="app"></main>
 <div id="overlayHost"></div>
 
-<script src="/conversation.js?v=20261112ipafix1"></script>
+<script src="/conversation.js?v=20261112starspacing2"></script>
 <script>
 const MASCOT = `<path d="M34 28 L36 6 L50 20 Z M50 20 L64 6 L66 28 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
 <path d="M18 64 A14 14 0 0 1 22 37 A17 17 0 0 1 50 21 A17 17 0 0 1 78 37 A14 14 0 0 1 82 64 Z" fill="var(--surface)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>
@@ -555,6 +555,7 @@ function copyFor(code){
     server_not_configured: "App chưa cài đặt xong (thiếu file config.php trên VPS).",
     upstream: "Mây chưa kết nối được tới Claude. Thử lại sau ít phút nhé.",
     bad_quiz: "Mây soạn câu hỏi bị lỗi. Bấm thử lại nhé.",
+    quiz_no_new_questions: "Mây chưa tìm đủ 10 câu mới không trùng bài đã làm. Kem thử chủ đề khác hoặc mở Sổ ôn tập để xem lại câu sai nhé.",
     bad_photos: "Ảnh chưa gửi được. Bạn chụp lại (tối đa 4 ảnh) rồi thử lần nữa nhé.",
     bad_homework: "Mây chấm bài bị lỗi. Bấm gửi lại nhé.",
     http_413: "Ảnh lớn quá. Bạn bớt số ảnh rồi gửi lại nhé.",
@@ -878,10 +879,32 @@ async function cloudSpeak(chunks, rate){
   if(seq!==ttsSeq) return;
   asrc = c.createBufferSource(); asrc.buffer = buf; asrc.connect(c.destination); asrc.start(0);
 }
+// Expand measurement symbols before Azure/browser TTS, without changing visible maths.
+function expandMeasurementUnits(text, language){
+  const en=language==='en';
+  const units={
+    mm:en?['millimetre','millimetres']:'mi-li-mét',
+    cm:en?['centimetre','centimetres']:'xen-ti-mét',
+    km:en?['kilometre','kilometres']:'ki-lô-mét',
+    m:en?['metre','metres']:'mét'
+  };
+  // Only unit symbols attached to a number; never expand standalone letters or words.
+  return String(text).replace(/(\d(?:[\d., ]*\d)?)\s*(km|mm|cm|m)([²³23])?(?![\p{L}\p{N}_])/giu,(whole,amount,unit,power)=>{
+    const u=units[unit.toLowerCase()];
+    if(!u)return whole;
+    const suffix=power==='²'||power==='2'?(en?'square ':'vuông '):power==='³'||power==='3'?(en?'cubic ':'khối '):'';
+    if(en){
+      const singular=/^1(?:[.,]0+)?$/.test(amount.trim());
+      return amount+' '+(suffix?suffix:'')+u[singular?0:1];
+    }
+    return amount+' '+u+(suffix?' '+suffix.trim():'');
+  });
+}
 function speak(text, lang, rate){
   const chunks = lang==="en-only" ? [{l:"en", t:String(text).replace(/\*\*/g,"")}]
                : lang==="vi-only" ? [{l:"vi", t:String(text).replace(/\*\*/g,"")}]
                : langChunks(text, lang);
+  for(const chunk of chunks)chunk.t=expandMeasurementUnits(chunk.t,chunk.l);
   stopVoice();
   if(cloudOn()){ cloudSpeak(chunks.map(c=>({l:c.l, t:c.t.replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF\uFE0F]/gu,"")})), rate).catch(()=>deviceSpeak(chunks, rate)); return; }
   deviceSpeak(chunks, rate);
