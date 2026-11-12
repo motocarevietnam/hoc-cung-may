@@ -69,6 +69,16 @@ ok(count($s['skipped']) === 1, 'fix rerun skipped');
 // fix colliding fingerprint refused
 $s = qa_apply_all($pdo, [d(6, $h6, 'fix', ['verdict' => 'fail', 'fix' => ['q' => 'Câu 1: 2 + 1 = ?'], 'post_fix_predicted' => 0])], true, 1);
 ok($s['error'] && st($pdo, 6)['status'] === 'pending', 'fix fingerprint collision refused');
+// two-phase fix: no post_fix_predicted -> back to pending; approval only via a fresh review of the new content
+$h10 = add($pdo, 10, 'pending');
+$s = qa_apply_all($pdo, [d(10, $h10, 'fix', ['verdict' => 'fail', 'fix' => ['q' => 'Câu 10 đã sửa: 2 + 10 = ?']])], true, 1);
+ok(st($pdo, 10) === ['status' => 'pending', 'approved_by' => null] && count($s['pending']) === 1, 'two-phase fix -> pending, not approved');
+$s = qa_apply_all($pdo, [d(10, $h10, 'approve')], true, 2);
+ok($s['error'] && st($pdo, 10)['status'] === 'pending', 'old-hash approval after fix refused');
+$r10 = $pdo->query('SELECT q,options,answer FROM question_bank WHERE id=10')->fetch();
+$nh = qa_content_hash($r10['q'], json_decode($r10['options'], true), (int)$r10['answer']);
+qa_apply_all($pdo, [d(10, $nh, 'approve')], true, 3);
+ok(st($pdo, 10) === ['status' => 'approved', 'approved_by' => 'claude_qa'], 'recheck of new content approves');
 // approve with verdict uncertain invalid
 ok(qa_validate_item(d(6, $h6, 'approve', ['verdict' => 'uncertain'])) !== null, 'approve requires pass');
 foreach (['question_bank', 'question_qa_reviews', 'question_qa_cases'] as $t) $pdo->exec("DROP TABLE $t");
