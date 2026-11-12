@@ -1,7 +1,7 @@
 /* Chat shell around the existing learning renderers. No grading or reward decisions here. */
 const Companion = (() => {
   const C = {session:null, context:null, loading:false, busy:false, error:'', draft:'', pending:null,
-    picker:false, schedule:false, weekStart:null, weekData:null, weekBusy:false, reviewOpen:false, reviewData:null, reviewBusy:false, actions:null, scrollTop:null, atBottom:true, feedRevision:null, activitySubject:null, mounted:false, mic:null, fields:{}, epoch:0, checkpoint:null};
+    picker:false, schedule:false, weekStart:null, weekData:null, weekBusy:false, reviewOpen:false, reviewData:null, reviewBusy:false, actions:null, scrollTop:null, atBottom:true, feedRevision:null, activitySubject:null, mounted:false, mic:null, fields:{}, epoch:0, checkpoint:null,proactiveDismissed:false};
   const activityViews = ['quiz','homework','write','read','listen','wp','speak','chat','check','tvw','sci','ipa'];
   const enabled = () => !PARENT_MODE && me.chatFirst !== false;
   const uuid = () => globalThis.crypto?.randomUUID?.() || Date.now().toString(36)+'_'+Math.random().toString(36).slice(2)+'_request';
@@ -28,10 +28,39 @@ const Companion = (() => {
     if(oldId && oldId!==d.session.id){ C.fields={}; C.draft=''; C.pending=null; C.checkpoint=null; }
     if(typeof d.stars==='number') setStars(d.stars);
   }
+  async function refreshReviewSuggestions(){
+    if(!C.session || !ready())return;
+    try{
+      const d=await api('/api/companion/review_plan');
+      C.reviewData=d.plan;
+      if(state.view==='home')render();
+    }catch(e){ /* Suggestions are optional; chat must remain usable. */ }
+  }
+  function proactiveCard(){
+    const messages=C.session?.messages||[];
+    const turns=messages.filter(m=>m.role==='user');
+    const last=turns.at(-1)?.content||'';
+    if(turns.length<2||C.proactiveDismissed||C.reviewOpen||card()||C.session?.state.phase==='REST')return '';
+    if(/(?:không muốn|đừng|thôi|nghỉ|hết rồi|mệt|chỉ muốn nói chuyện)/iu.test(last))return '';
+    const plan=C.reviewData;
+    if(!plan)return '';
+    const ready=plan.items||[],pending=plan.awaiting_confirmation||[];
+    const x=ready[0]||pending[0];
+    if(!x)return '';
+    const confirmed=ready.length>0;
+    const label=confirmed?'Mây thấy có một bài đến hạn ôn, mình thử 5 phút nhé?':'Mây thấy một bài trong lịch cũ. Kem đã học bài này chưa?';
+    return '<section class="cc-review-card cc-proactive" aria-label="Mây gợi ý ôn tập">'+
+      '<div class="cc-matrix-head"><strong>☁️ Mây rủ Kem ôn bài</strong><button class="cc-tool" id="ccProactiveDismiss" aria-label="Để sau">Để sau ✕</button></div>'+
+      '<p>'+esc(label)+'</p><p><b>'+esc(x.subject_label)+'</b> · '+esc(x.topic)+'</p>'+
+      '<div class="cc-lesson-actions">'+(confirmed?
+       '<button class="btn primary" data-cc-suggest-start="'+esc(x.key)+'">Cùng ôn 5 phút</button>':
+       '<button class="btn primary" data-cc-suggest-confirm="'+esc(x.key)+'">Đã học · Cùng ôn</button>')+
+      '<button class="btn" id="ccProactiveMore">Xem các môn khác</button></div></section>';
+  }
   async function load(){
     if(C.loading || !ready()) return;
     C.loading=true; C.error=''; const epoch=C.epoch;
-    try { const d=await api('/api/companion/session'); if(epoch!==C.epoch)return;accept(d); restoreDrafts(); }
+    try { const d=await api('/api/companion/session'); if(epoch!==C.epoch)return;accept(d); restoreDrafts(); await refreshReviewSuggestions(); }
     catch(e){ C.error=copyFor(e.code); }
     finally { C.loading=false; if(state.view==='home') render(); }
   }
@@ -57,6 +86,7 @@ const Companion = (() => {
         C.draft='';
       }
       C.pending=null; C.picker=false; saveDrafts();
+      if(type==='text' && !C.proactiveDismissed)await refreshReviewSuggestions();
       if(autoRead) speak(C.session.messages.at(-1)?.content||'', 'vi');
       return true;
     } catch(e){
@@ -162,6 +192,7 @@ const Companion = (() => {
         ${history()}
         ${weekMatrix()}
         ${reviewCard()}
+        ${proactiveCard()}
         ${C.error?`<div class="notice" role="alert">${esc(C.error)} ${!has?'<button class="btn" id="ccRetry">Thử kết nối lại</button>':''}</div>`:''}
         ${quickVisible()?`<div class="cc-quick" id="ccQuick" aria-label="Kem muốn làm gì?">${[['joy','😊 Có chuyện vui!'],['recap','📚 Kể chuyện học'],['direct','✏️ Làm bài luôn'],['rest','😴 Hơi mệt rồi']].map(([type,label])=>`<button class="btn" data-cc-turn="${type}" ${C.busy||!has?'disabled':''}>${label}</button>`).join('')}</div>`:''}
         ${isRecap?`<section class="cc-recap" aria-label="Kể bài học"><div class="cc-recap-heading"><span>${s.selected?`Đang kể: <b>${esc(s.selected.label)}</b>`:'Kem muốn kể môn nào?'} </span><button class="cc-tool" id="ccChangeSubject">Đổi môn</button></div>
@@ -217,6 +248,21 @@ const Companion = (() => {
     on('ccSchedule',()=>openWeek(weekMonday(C.context?.day||new Date().toISOString().slice(0,10))));
     on('ccChangeSubject',openSchedule);
     on('ccWeekClose',()=>{C.weekStart=null;C.weekData=null;render();});
+    on('ccProactiveDismiss',()=>{C.proactiveDismissed=true;render();});
+    on('ccProactiveMore',openReview);
+    document.querySelectorAll('[data-cc-suggest-start]').forEach(b=>b.onclick=async()=>{
+      const x=C.reviewData?.items.find(v=>v.key===b.dataset.ccSuggestStart);
+      if(!x)return;C.proactiveDismissed=true;await start('quiz',x.subject,x.topic);
+    });
+    document.querySelectorAll('[data-cc-suggest-confirm]').forEach(b=>b.onclick=async()=>{
+      const x=C.reviewData?.awaiting_confirmation.find(v=>v.key===b.dataset.ccSuggestConfirm);
+      if(!x)return;
+      try{
+        const d=await api('/api/companion/confirm_lesson',{day:x.source_day,period:x.period,status:'taught'});
+        C.reviewData=d.plan;C.proactiveDismissed=true;
+        await start('quiz',x.subject,x.topic);
+      }catch(e){C.error=copyFor(e.code)||'Chưa xác nhận được bài học';render();}
+    });
     on('ccReview',openReview);
     on('ccReviewClose',()=>{C.reviewOpen=false;render();});
     on('ccOpenMistakes',()=>{C.reviewOpen=false;render();start('review');});
