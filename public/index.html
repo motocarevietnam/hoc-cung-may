@@ -151,6 +151,17 @@ h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
 .visual-quiz .quiz-banner{border-radius:18px;background:var(--surface-2);padding:18px;text-align:center;font-size:24px;margin:12px 0}
 .visual-quiz .quiz-progressbar{height:10px;background:var(--grid-strong);border-radius:20px;overflow:hidden;margin:8px 0 14px}
 .visual-quiz .quiz-progressbar span{display:block;height:100%;background:var(--mint)}
+/* Writing Studio mind map */
+.writing-map{margin:14px 0;padding:16px;border:2px solid var(--line);border-radius:22px;background:var(--surface-2)}
+.writing-map h3{text-align:center;margin:0 0 8px}
+.writing-map-center{margin:10px auto;max-width:260px;text-align:center;border-radius:20px;background:var(--mint);color:#fff;padding:12px;font-weight:800;overflow-wrap:anywhere}
+.writing-map-branches{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.writing-map-node{border:2px solid var(--line);border-radius:16px;background:var(--surface);padding:12px;min-width:0;overflow-wrap:anywhere}
+.writing-map-node b{display:block;margin-bottom:5px}
+.writing-map-node p{margin:0;font-size:14px}
+.writing-map-node.open{border-color:#6a9fc5}.writing-map-node.body{border-color:#6cae8b}.writing-map-node.end{border-color:#b18acf}.writing-map-node.words{border-color:#d5a653}
+.writing-map .writing-note{font-size:14px;margin:12px 0 0}
+@media(max-width:360px){.writing-map-branches{grid-template-columns:1fr}}
 /* quiz */
 .dots{display:flex;gap:8px;margin:8px 0 16px}
 .dots span{width:30px;height:10px;border-radius:6px;background:var(--line)}
@@ -647,7 +658,7 @@ function renderSubject(){
     <div class="modes">
       <button class="mode" id="toChat"><div class="big">💬</div><h3>Hỏi bài Mây</h3><div class="muted">Mây gợi ý từng bước để bạn tự giải</div></button>
       <button class="mode" id="toQuiz"><div class="big">🎯</div><h3>Đố vui 10 câu</h3><div class="muted">Ôn bài vui, câu sai vào Sổ ôn tập 📒</div></button>
-      ${["tv","ceng"].includes(s.id) ? `<button class="mode" id="toWrite"><div class="big">✍️</div><h3>${s.id==="ceng"?"Writing":"Viết đoạn văn"}</h3><div class="muted">Lập dàn ý cùng Mây, viết vào vở 35 phút rồi chụp gửi Mây nhận xét</div></button>` : ""}
+      ${["tv","ceng"].includes(s.id) ? `<button class="mode" id="toWrite"><div class="big">✍️</div><h3>${s.id==="ceng"?"Writing":"Tập làm văn · Mind Map"}</h3><div class="muted">Lập dàn ý cùng Mây, viết vào vở 35 phút rồi chụp gửi Mây nhận xét</div></button>` : ""}
       ${s.id==="tv" ? `<button class="mode" id="toTvw"><div class="big">🧩</div><h3>Luyện từ và câu</h3><div class="muted">Xếp danh từ / động từ, nối câu bằng từ nối</div></button>` : ""}
       ${s.id==="csci" ? `<button class="mode" id="toSci"><div class="big">🔬</div><h3>Mini experiment</h3><div class="muted">Thí nghiệm nhỏ ở nhà, quan sát rồi giải thích “I observe… because…”</div></button>` : ""}
       ${s.id==="cmath" ? `<button class="mode" id="toWp"><div class="big">🧮</div><h3>Word problems</h3><div class="muted">Toán có lời văn tiếng Anh: đề hỏi gì, chọn phép tính, nói bước đầu tiên, tự giải</div></button>` : ""}
@@ -1930,6 +1941,19 @@ async function wrCall(path, body, phaseWhile){
   catch(e){ R.err = {write_no_prompt:"Bạn nhập đề bài trước nhé.", write_few_answers:"Bạn trả lời ít nhất 2 câu để Mây giúp lập dàn ý nhé."}[e&&e.code] || copyFor(e&&e.code); return null; }
   finally{ R.busy=null; if(state.view==="write" && state.wr===R) render(); }
 }
+function writingMindmap(W){
+  const O=W&&W.outline;
+  if(!O)return '';
+  const node=(kind,icon,title,items)=>'<section class="writing-map-node '+kind+'"><b>'+icon+' '+title+'</b>'+(items.length?'<ul>'+items.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p>Chưa có ý</p>')+'</section>';
+  return '<div class="writing-map" role="region" aria-label="Sơ đồ tư duy bài văn"><h3>🌱 Mind Map của Kem</h3>'+
+    '<div class="writing-map-center">'+esc(W.prompt)+'</div>'+
+    '<div class="writing-map-branches">'+
+    node('open','🌤️','Mở bài',O.mo_bai||[])+
+    node('body','🌿','Thân bài',O.than_bai||[])+
+    node('end','💛','Kết bài',O.ket_bai||[])+
+    node('words','✨','Từ ngữ và cách viết hay',O.words||[])+
+    '</div><p class="writing-note">Đây là ý tưởng của Kem được Mây sắp xếp. Kem có thể thêm chi tiết, so sánh hoặc nhân hóa khi phù hợp. Không cần chép nguyên câu gợi ý.</p></div>';
+}
 function renderWrite(){
   const R = state.wr, s = subjById(R.subject), en = R.subject==="ceng", W = R.w;
   if(wrTimer){ clearInterval(wrTimer); wrTimer=null; }
@@ -1957,6 +1981,7 @@ function renderWrite(){
   } else if(!W.result){
     const O = W.outline, left = wrLeft(W), started = !!W.started_at;
     body = `${err}${O.warning?`<div class="notice">⚠️ ${esc(O.warning)}</div>`:""}
+      ${!en?writingMindmap(W):''}
       <div class="card wrol"><h3>Dàn ý của bạn</h3>
         <b>Mở bài</b><ul>${O.mo_bai.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
         <b>Thân bài</b><ul>${O.than_bai.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>
