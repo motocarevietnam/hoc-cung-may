@@ -171,9 +171,9 @@ const Companion = (() => {
     const star=(key)=>Number(rules[key]||0);
     // Show a number only for a single, fixed completion award. Variable,
     // multi-step or unconfigured activities get a star without a promise.
-    const fixed=view==='homework'?star('task_complete'):0;
+    const fixed=view==='homework'?star('task_complete'):(view==='write' && C.activitySubject==='tv'?['writing_mindmap','writing_opening','writing_body','writing_ending','writing_final'].reduce((sum,key)=>sum+star(key),0):0);
     const hint=fixed>0?('+'+fixed+' ⭐'):'⭐';
-    const detail=fixed>0?('Có thể nhận '+fixed+' Sao khi hoàn thành nhiệm vụ hợp lệ'):'Cùng Mây săn Sao; thưởng tùy kết quả hoạt động';
+    const detail=fixed>0?(view==='write'?'Tối đa '+fixed+' Sao khi hoàn thành đầy đủ các bước viết văn và đạt yêu cầu':'Có thể nhận '+fixed+' Sao khi hoàn thành nhiệm vụ hợp lệ'):'Cùng Mây săn Sao; thưởng tùy kết quả hoạt động';
     return '<span class="cc-reward-hint" aria-label="'+esc(detail)+'">'+esc(hint)+'</span>';
   }
   function activities(){
