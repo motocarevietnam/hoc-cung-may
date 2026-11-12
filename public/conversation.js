@@ -140,13 +140,14 @@ const Companion = (() => {
     const subjects=C.context?.subjects||[];
     const selected=subjects.find(s=>s.id===C.activitySubject)||subjects.find(s=>s.id===C.session?.state.selected?.subject);
     const actual=C.session?.state.recaps.filter(r=>r.kind==='lesson_report' && r.subject===selected?.id).at(-1);
-    return `<section class="cc-activities card" aria-label="Chọn hoạt động"><h3>Học cùng Mây từng chút một</h3>
-      <p class="muted">Kem chọn bài cô giao, phần muốn ôn hoặc hoạt động mình thích nhé.</p>
+    const en=selected?.id==='ceng';
+    return `<section class="cc-activities card" aria-label="Chọn hoạt động"><h3>${en?'Learn English with Mây':'Học cùng Mây từng chút một'}</h3>
+      <p class="muted">${en?'Choose an activity to practise English. Mây is here to help!':'Kem chọn bài cô giao, phần muốn ôn hoặc hoạt động mình thích nhé.'}</p>
       <div class="chips">${subjects.map(s=>`<button class="chip" data-cc-pick="${esc(s.id)}" aria-pressed="${selected?.id===s.id}">${esc(s.name)}</button>`).join('')}</div>
       ${selected?`<div class="cc-modes">${Object.entries(selected.modes).map(([view,label])=>`<button class="btn" data-cc-start="${view}" data-subject="${esc(selected.id)}">${esc(label)}</button>`).join('')}</div>
         ${actual?`<p class="muted">Theo điều Kem kể: ${esc(actual.text)}. Với bài dài, Kem có thể mở rộng vùng làm bài.</p>`:''}`:'<p>Chọn môn để xem hoạt động có sẵn.</p>'}
-      <button class="btn" data-cc-start="review">📒 Ôn câu đã làm</button>
-      <button class="btn" data-cc-turn="joy">Mình muốn trò chuyện tiếp</button></section>`;
+      <button class="btn" data-cc-start="review">${en?'📒 Review mistakes':'📒 Ôn câu đã làm'}</button>
+      <button class="btn" data-cc-turn="joy">${en?'Keep chatting with Mây':'Mình muốn trò chuyện tiếp'}</button></section>`;
   }
   function markup(workspace=false){
     const s=C.session?.state, has=C.session;
@@ -319,6 +320,7 @@ const Companion = (() => {
       case 'tvw': return openTvw();
       case 'sci': return openSci();
       case 'speak': return openSpeak(null,a.topic);
+      case 'ipa': return go('ipa');
       case 'chat': state.turns=[];state.convId=null;state.vidShown=null;return go('chat');
     }
   }

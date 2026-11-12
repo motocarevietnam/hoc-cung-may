@@ -30,8 +30,10 @@ function companion_context(): array
         $modes = ['homework' => 'Bài cô giao', 'quiz' => 'Đố vui', 'chat' => 'Hỏi bài Mây'];
         if (in_array($id, ['tv', 'ceng'], true)) $modes['write'] = 'Tập làm văn';
         if ($id === 'ceng') {
-            $modes += ['read' => 'Đọc hiểu', 'speak' => 'Luyện nói'];
-            if (tts_enabled()) $modes['listen'] = 'Luyện nghe';
+            $modes = ['homework' => 'Homework', 'quiz' => 'Quiz', 'chat' => 'Ask Mây',
+                      'write' => 'Writing', 'read' => 'Reading', 'speak' => 'Speaking',
+                      'ipa' => 'Pronunciation & IPA'];
+            if (tts_enabled()) $modes['listen'] = 'Listening';
         }
         if ($id === 'cmath') $modes['wp'] = 'Toán có lời văn';
         if ($id === 'tv' && function_exists('tvw_for_kid')) $modes['tvw'] = 'Luyện từ và câu';
