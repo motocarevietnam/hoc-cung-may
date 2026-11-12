@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 19;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -50,6 +50,43 @@ const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS companion_events (
        conv_id INT UNSIGNED NOT NULL, nonce VARCHAR(80) NOT NULL, created_at INT UNSIGNED NOT NULL, PRIMARY KEY (conv_id, nonce),
        CONSTRAINT fk_companion_event FOREIGN KEY (conv_id) REFERENCES conversations(id) ON DELETE CASCADE
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS question_topics (
+       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL,
+       source VARCHAR(32) NOT NULL DEFAULT 'school_plan',
+       target_count SMALLINT UNSIGNED NOT NULL DEFAULT 100,
+       created_at INT UNSIGNED NOT NULL,
+       UNIQUE KEY uq_question_topic (subject,topic)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS question_qa_cases (
+       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       question_id BIGINT UNSIGNED NOT NULL,
+       status VARCHAR(20) NOT NULL DEFAULT 'open',
+       reason VARCHAR(500) NOT NULL,
+       reported_by VARCHAR(32) NOT NULL DEFAULT 'parent',
+       resolution TEXT NULL, resolved_by VARCHAR(32) NULL,
+       created_at INT UNSIGNED NOT NULL, resolved_at INT UNSIGNED NULL,
+       KEY idx_qa_cases_status (status,created_at),
+       KEY idx_qa_cases_question (question_id)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS question_qa_reviews (
+       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       question_id BIGINT UNSIGNED NOT NULL, reviewer VARCHAR(20) NOT NULL,
+       verdict VARCHAR(24) NOT NULL, predicted_answer INT NULL,
+       reason TEXT NOT NULL, model VARCHAR(80) NOT NULL,
+       reviewed_at INT UNSIGNED NOT NULL,
+       KEY idx_qa_question (question_id,reviewer,reviewed_at)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS question_bank (
+       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
+       q TEXT NOT NULL, options TEXT NOT NULL, answer TINYINT UNSIGNED NOT NULL,
+       `explain` TEXT NOT NULL, hint TEXT NOT NULL,
+       fingerprint CHAR(64) NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'approved',
+       used_count INT UNSIGNED NOT NULL DEFAULT 0, created_at INT UNSIGNED NOT NULL,
+       UNIQUE KEY uq_bank_fingerprint (subject, fingerprint),
+       KEY idx_bank_topic (subject, topic, status, used_count)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     "CREATE TABLE IF NOT EXISTS quizzes (
        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
@@ -255,6 +292,10 @@ function ensure_schema(PDO $pdo): void
         // chưa có bảng settings: tạo mới bên dưới
     }
     foreach (SCHEMA as $sql) $pdo->exec($sql);
+    // Provenance of approval; legacy approved rows are NOT retroactively Claude-reviewed.
+    $cols=$pdo->query("SHOW COLUMNS FROM question_bank LIKE 'approved_by'")->fetchAll();
+    if(!$cols)$pdo->exec("ALTER TABLE question_bank ADD COLUMN approved_by VARCHAR(32) NULL DEFAULT NULL");
+
     // Video ứng viên Mây tìm sẵn (chưa duyệt): ba mẹ xem rồi duyệt hoặc loại trong Cổng ba mẹ → Video bài giảng
     $vid = $pdo->prepare('INSERT IGNORE INTO videos (subject, lesson, keywords, yt_id, title, channel, seconds, status, added_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, \'candidate\', \'may\', ?)');
     foreach (VIDEO_SEEDS as $v) $vid->execute([...$v, time()]);
@@ -666,16 +707,21 @@ function quiz_context(string $id): string
 }
 
 // Câu đố đã hỏi gần đây (cùng môn, ưu tiên cùng chủ đề) để Mây không hỏi lại câu cũ
-function recent_quiz_questions(string $subject, string $topic, int $max = 40): array
+// Remember all completed quizzes for six months, plus recent in-progress quizzes.
+// Do not silently forget completed questions after the latest four quiz sessions.
+function recent_quiz_questions(string $subject, string $topic, int $max = 400): array
 {
-    $rows = q('SELECT topic, questions FROM quizzes WHERE subject = ? AND created_at >= ? ORDER BY (topic = ?) DESC, id DESC LIMIT 12',
-        [$subject, time() - 30 * 86400, $topic])->fetchAll();
-    $out = [];
-    foreach ($rows as $r) {
-        foreach (json_decode((string)$r['questions'], true) ?: [] as $x) {
-            $t = trim((string)($x['q'] ?? ''));
-            if ($t !== '') $out[] = $t;
-            if (count($out) >= $max) return $out;
+    $rows=q('SELECT topic,questions FROM quizzes WHERE subject=? AND created_at>=? AND (finished_at IS NOT NULL OR created_at>=?) ORDER BY (topic=?) DESC, id DESC LIMIT 160',
+        [$subject,time()-180*86400,time()-30*86400,$topic])->fetchAll();
+    $out=[];$seen=[];
+    foreach($rows as $r){
+        foreach(json_decode((string)$r['questions'],true) ?: [] as $x){
+            $t=trim((string)($x['q']??''));
+            if($t==='')continue;
+            $key=quiz_norm($t);
+            if(isset($seen[$key]))continue;
+            $seen[$key]=true;$out[]=$t;
+            if(count($out)>=$max)return $out;
         }
     }
     return $out;
@@ -727,7 +773,8 @@ function school_exercise_quiz_context(string $subject, string $topic): string
 function quiz_avoid_text(array $recent): string
 {
     if (!$recent) return '';
-    $list = implode("\n", array_map(fn($q) => '- ' . mb_substr($q, 0, 160), $recent));
+    // Limit prompt size, but keep the full history for the server-side duplicate gate.
+    $list = implode("\n", array_map(fn($q) => '- ' . mb_substr($q, 0, 160), array_slice($recent, 0, 100)));
     return "\nCác câu bé ĐÃ được hỏi gần đây (KHÔNG hỏi lại câu giống hoặc gần giống: đổi số liệu, đổi bối cảnh, đổi dạng bài; ưu tiên ý/dạng bài chưa hỏi):\n{$list}";
 }
 
@@ -747,6 +794,7 @@ Môn: {$s['name']} ({$s['sub']}). Chủ đề: {$topicText}.{$focusText}{$ctx}
 {$lang}
 {$scope}
 Nếu chủ đề bé chọn vượt lớp 4, hãy chọn phần gần nhất thuộc chương trình lớp 4 để ra câu hỏi.
+Yêu cầu ĐA DẠNG: tạo {$count} câu KHÁC NHAU về nội dung, ngữ cảnh, kỹ năng và cách hỏi; không chỉ thay vài từ trong một mẫu quen thuộc. Phân bổ nhiều dạng: nhận biết, giải thích, vận dụng, suy luận, tình huống thực tế; không lặp một mục tiêu kiến thức quá 2 lần. Với English, tránh lặp những câu từ vựng quá cơ bản nếu đã có trong lịch sử; ưu tiên kiến thức thuộc bài đã học.
 Yêu cầu: câu hỏi ngắn, bối cảnh gần gũi với trẻ em Việt Nam, nội dung phù hợp trẻ em; mỗi câu có 3 hoặc 4 lựa chọn, chỉ một đáp án đúng; vị trí đáp án đúng thay đổi giữa các câu; độ khó tăng dần (khoảng một phần ba dễ, một phần ba vừa, một phần ba khó); trải đều các dạng bài trong chủ đề, giống dạng bài trong sách và đề kiểm tra lớp 4, không lặp một dạng quá 3 câu. Kiểm tra kỹ từng đáp án cho chính xác tuyệt đối.
 "explain": giải thích ngắn (dưới 30 từ) vì sao đáp án đúng. "hint": gợi ý không lộ đáp án.
 Chỉ trả về JSON, không thêm chữ nào khác, đúng dạng: {"questions":[{"q":"...","options":["...","..."],"answer":0,"explain":"...","hint":"..."}]} trong đó "answer" là chỉ số (bắt đầu từ 0) của lựa chọn đúng.
@@ -1669,11 +1717,38 @@ function companion_schedule_answer(string $text, string $day): ?string
 }
 
 // Thông tin lịch học đưa cho Mây khi trò chuyện (chỉ dữ liệu ba mẹ nhập và kế hoạch đã duyệt)
+// Parent-defined car-time learning windows; Friday starts after early dismissal.
+function daily_companion_windows(?string $day = null): array
+{
+    $day ??= today();
+    $weekday = (int)date('N', strtotime($day));
+    $default = [
+        'morning' => ['start'=>'07:00','end'=>'07:30','focus'=>'English: vocabulary, speaking, pronunciation, listening, short quiz'],
+        'afternoon' => ['start'=>$weekday===5?'15:45':'16:30','end'=>$weekday===5?'16:45':'17:30','focus'=>'Maths and English: listening, speaking, vocabulary, short quiz; ask Kem to recall and confirm actual school lessons'],
+        'evening' => ['start'=>'19:30','end'=>'20:30','focus'=>'Teacher-assigned homework first, then review confirmed lessons; Visual Quiz only on confirmed taught material'],
+    ];
+    $configured=json_decode(setting('companion_daily_windows','{}'),true);
+    if (!is_array($configured)) return $default;
+    foreach ($default as $key=>&$window) {
+        $source=$configured[$weekday][$key]??null;
+        if (!is_array($source)) continue;
+        foreach (['start','end'] as $field) {
+            if (isset($source[$field]) && preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/',(string)$source[$field])) $window[$field]=(string)$source[$field];
+        }
+    }
+    unset($window);
+    return $default;
+}
+
 function schedule_note(): string
 {
     $p = day_plan(today());
     $lines = [];
     $lines[] = 'Hôm nay là ' . $p['weekday'] . '.';
+    $windows=daily_companion_windows();
+    foreach ($windows as $label=>$window) $lines[]='Khung '. $label .' '. $window['start'].'–'.$window['end'].': '.$window['focus'].'. Chỉ bắt đầu khi Kem mở chat và sẵn sàng; không ép làm đủ phút.';
+    $lines[]='Lịch học của trường là nguồn chính. Buổi chiều hỏi Kem kể lại và xác nhận bài thực học. Không tự tạo nhiệm vụ trùng, không ép đủ phút; tối ưu tiên bài cô giao. Thứ Ba 19:45–21:30 và thứ Bảy 18:00–19:45 có lớp tiếng Anh, không giao việc nặng trùng giờ.';
+
     foreach ($p['notes'] as $n) $lines[] = $n;
     if ($p['week_topics']) {
         $parts = [];
