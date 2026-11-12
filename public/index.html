@@ -1941,6 +1941,12 @@ async function wrCall(path, body, phaseWhile){
   catch(e){ R.err = {write_no_prompt:"Bạn nhập đề bài trước nhé.", write_few_answers:"Bạn trả lời ít nhất 2 câu để Mây giúp lập dàn ý nhé."}[e&&e.code] || copyFor(e&&e.code); return null; }
   finally{ R.busy=null; if(state.view==="write" && state.wr===R) render(); }
 }
+function writingMapPreview(prompt, answers){
+ const value=prompt&&prompt.trim()?prompt.trim():'Chủ đề bài văn của Kem';
+ const notes=(answers||[]).filter(x=>String(x||'').trim()).slice(0,4);
+ const branches=[['🌤️','Mở bài','Giới thiệu đối tượng hoặc kỉ niệm'],['🌿','Thân bài','Đặc điểm, hoạt động, chi tiết nổi bật'],['💛','Kết bài','Tình cảm, suy nghĩ của Kem'],['✨','Cách viết hay','Từ gợi tả, so sánh, nhân hóa phù hợp']];
+ return '<div class="writing-map" role="region" aria-label="Mind Map khởi đầu"><h3>🌱 Mind Map – Cùng Kem tìm ý</h3><div class="writing-map-center">'+esc(value)+'</div><div class="writing-map-branches">'+branches.map((b,i)=>'<section class="writing-map-node '+['open','body','end','words'][i]+'"><b>'+b[0]+' '+b[1]+'</b><p>'+esc(b[2])+'</p></section>').join('')+'</div>'+(notes.length?'<p class="writing-note">💡 Ý Kem đã kể: '+notes.map(esc).join(' · ')+'</p>':'<p class="writing-note">Mây sẽ hỏi Kem từng ý. Sau khi Kem trả lời, sơ đồ sẽ được điền bằng ý của chính Kem.</p>')+'</div>';
+}
 function writingMindmap(W){
   const O=W&&W.outline;
   if(!O)return '';
@@ -1965,7 +1971,7 @@ function renderWrite(){
     body = `<div class="greet">${mascot()}<div class="say">${esc(R.busy)} <span class="thinking"><i></i><i></i><i></i></span></div></div>`;
   } else if(!W){
     const hist = (R.list||[]).filter(x=>x.subject===R.subject).map(x=>`<button data-open="${x.id}"><b>${esc(x.prompt)}</b><small>${fmtDate(x.created_at)}${x.submits?` · đã nộp ${x.submits} lần`:" · chưa nộp"}</small></button>`).join("");
-    body = `${err}<p style="margin:14px 0 4px"><b>1.</b> ${en?"Đề bài (cô cho hoặc chọn một đề luyện):":"Đề bài cô cho (gõ, nói 🎤 hoặc chọn một đề luyện):"}</p>
+    body = `${err}${!en?writingMapPreview(R.prompt,[]):''}<p style="margin:14px 0 4px"><b>1.</b> ${en?"Đề bài (cô cho hoặc chọn một đề luyện):":"Đề bài cô cho (gõ, nói 🎤 hoặc chọn một đề luyện):"}</p>
       <div class="row" style="margin:0;align-items:flex-start"><textarea class="field" id="wrPrompt" rows="2" maxlength="400" style="flex:1" placeholder="${en?"Ví dụ: Write about your family":"Ví dụ: Thuật lại một hoạt động em đã tham gia"}">${esc(R.prompt)}</textarea>
         <button class="btn" id="wrPromptMic" title="Nói đề bài">🎤</button></div>
       <div class="chips">${WR_SAMPLES[R.subject].map(t=>`<button class="chip" data-p="${esc(t)}">${esc(t)}</button>`).join("")}</div>
@@ -1973,7 +1979,7 @@ function renderWrite(){
       ${hist?`<div class="card"><h3>Bài viết gần đây</h3><div class="convlist">${hist}</div></div>`:""}`;
   } else if(!W.outline){
     const Q = W.questions;
-    body = `${err}<div class="pnote">💡 ${esc(Q.tip||"")}</div>
+    body = `${err}${!en?writingMapPreview(W.prompt,R.answers):''}<div class="pnote">💡 ${esc(Q.tip||"")}</div>
       <p style="margin:12px 0 4px"><b>2.</b> Trả lời ngắn từng câu (nói 🎤 hoặc gõ vài chữ). Đây là ý <b>của bạn</b>, Mây chỉ giúp sắp xếp.</p>
       ${Q.list.map((q,i)=>`<div class="wrq"><label for="wa${i}">${i+1}. ${esc(q)} <button class="speak" data-say="${i}" aria-label="Đọc câu hỏi">🔊</button></label>
         <div class="row" style="margin:0"><input class="field" id="wa${i}" data-i="${i}" value="${esc(R.answers[i]||"")}" style="flex:1"><button class="btn" data-mic="${i}">🎤</button></div></div>`).join("")}
