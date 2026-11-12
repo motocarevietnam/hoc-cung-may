@@ -583,6 +583,7 @@ function render(){
   else if(state.view==="homework") renderHomework();
   else if(state.view==="plan") renderPlan();
   else if(state.view==="speak") renderSpeak();
+  else if(state.view==="ipa") renderIPA();
   else if(state.view==="shop") renderShop();
   else if(state.view==="check") renderCheck();
   else if(state.view==="write") renderWrite();
@@ -665,6 +666,7 @@ function renderSubject(){
       ${s.id==="cmath" ? `<button class="mode" id="toWp"><div class="big">🧮</div><h3>Word problems</h3><div class="muted">Toán có lời văn tiếng Anh: đề hỏi gì, chọn phép tính, nói bước đầu tiên, tự giải</div></button>` : ""}
       ${s.id==="ceng" && me.tts ? `<button class="mode" id="toListen"><div class="big">🎧</div><h3>Listening</h3><div class="muted">Nghe hội thoại, trả lời 4 câu, nghe và chép 1 câu</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toRead"><div class="big">📖</div><h3>Reading</h3><div class="muted">Đọc bài ngắn, trả lời 3 câu, học 3 từ mới, đọc to 1 câu</div></button>` : ""}
+      ${s.id==="ceng" ? `<button class="mode" id="toIPA"><div class="big">🔤</div><h3>Pronunciation · IPA</h3><div class="muted">Nghe, nhận biết âm, xem khẩu hình và luyện nói</div></button>` : ""}
       ${s.id==="ceng" ? `<button class="mode" id="toSpeak"><div class="big">🗣️</div><h3>Luyện nói</h3><div class="muted">Speaking: đọc to, trả lời câu hỏi, kể ngắn</div></button>` : ""}
     </div>`;
   document.getElementById("back").onclick=()=>go("home");
@@ -680,6 +682,7 @@ function renderSubject(){
   document.getElementById("toChat").onclick=()=>{ state.turns=[]; state.convId=null; state.vidShown=null; state.pendingMsg=null; go("chat"); };
   document.getElementById("toQuiz").onclick=()=>startQuiz();
   const tw=document.getElementById("toWrite"); if(tw) tw.onclick=()=>openWrite(s.id);
+  const tipa=document.getElementById("toIPA"); if(tipa) tipa.onclick=()=>go("ipa");
   const tsp=document.getElementById("toSpeak"); if(tsp) tsp.onclick=()=>openSpeak(null, state.topic);
   const trd=document.getElementById("toRead"); if(trd) trd.onclick=()=>openRead();
   const tli=document.getElementById("toListen"); if(tli) tli.onclick=()=>openListen();
@@ -1705,6 +1708,37 @@ function renderListen(){
 const SP_TYPES = {read:{ic:"📖", name:"Đọc to câu mẫu", sub:"Nghe mẫu rồi đọc lại"}, answer:{ic:"❓", name:"Trả lời câu hỏi", sub:"Như phần thi nói Cambridge"}, tell:{ic:"💭", name:"Kể / miêu tả ngắn", sub:"Nói 3–5 câu về một chủ đề"}};
 const LEVELS = {great:"🌟 Tuyệt vời!", good:"👍 Khá lắm!", try_again:"💪 Thử lại nhé!"};
 let spRec = null, spMedia = null, spStream = null, spChunks = [];
+/* Pronunciation Studio: curated British-English IPA; SpeechSuper remains in Speaking */
+const IPA_LESSONS=[
+ {a:"/iː/",b:"/ɪ/",name:"Âm dài và âm ngắn",pairs:[["sheep","ship"],["leave","live"],["seat","sit"]],tips:["Âm /iː/: môi kéo nhẹ sang hai bên, giữ âm lâu hơn.","Âm /ɪ/: thả lỏng hơn, âm ngắn."]},
+ {a:"/e/",b:"/æ/",name:"Âm e và ae",pairs:[["bed","bad"],["pen","pan"],["men","man"]],tips:["Âm /e/: mở miệng vừa phải.","Âm /æ/: mở miệng rộng hơn, hạ hàm."]},
+ {a:"/θ/",b:"/ð/",name:"Hai âm th",pairs:[["thin","then"],["thigh","thy"]],tips:["Đặt đầu lưỡi nhẹ giữa hai hàm răng, thổi hơi cho /θ/.","Giữ vị trí lưỡi và rung dây thanh cho /ð/."]},
+ {a:"/ʃ/",b:"/tʃ/",name:"sh và ch",pairs:[["ship","chip"],["share","chair"],["shop","chop"]],tips:["Âm /ʃ/: luồng hơi kéo dài.","Âm /tʃ/: bật âm ngắn trước khi xì hơi."]}
+];
+let ipaState={lesson:0,pair:0,answer:null,checked:false,target:Math.floor(Math.random()*2)};
+function renderIPA(){
+ const L=IPA_LESSONS[ipaState.lesson],P=L.pairs[ipaState.pair];
+ app.innerHTML='<button class="back" id="ipaBack">‹ English</button><div class="sec-title"><div class="badge" style="background:var(--l4)">🔤</div><div><h2>Pronunciation · IPA</h2><div class="muted">Nghe → phân biệt → luyện phát âm</div></div></div>'+
+ '<div class="chips">'+IPA_LESSONS.map((x,i)=>'<button class="chip" data-ipa-lesson="'+i+'" aria-pressed="'+(i===ipaState.lesson)+'">'+esc(x.a)+' / '+esc(x.b)+'</button>').join('')+'</div>'+
+ '<div class="card"><h3>'+esc(L.name)+'</h3><div class="row" style="justify-content:center;gap:16px"><button class="btn" id="ipaA" style="font-size:26px">'+esc(L.a)+' 🔊</button><button class="btn" id="ipaB" style="font-size:26px">'+esc(L.b)+' 🔊</button></div>'+
+ '<p>'+esc(L.tips[0])+'</p><p>'+esc(L.tips[1])+'</p></div>'+
+ '<div class="card"><h3>👂 Nghe và phân biệt</h3><p>Mây đọc một từ. Kem nghe rồi chọn từ đúng nhé!</p><div class="row"><button class="btn primary" id="ipaPlay">🔊 Nghe từ</button><button class="btn" id="ipaNext">Từ tiếp theo</button></div>'+
+ '<div class="row" style="justify-content:center">'+P.map((w,i)=>'<button class="btn" data-ipa-pick="'+i+'" '+(ipaState.checked?'disabled':'')+'>'+esc(w)+'</button>').join('')+'</div>'+
+ (ipaState.checked?'<p class="pnote">'+(ipaState.answer===ipaState.target?'🌟 Đúng rồi!':'💪 Thử nghe lại và chú ý khẩu hình nhé.')+' Từ được đọc: <b>'+esc(P[ipaState.target])+'</b>.</p>':'')+'</div>'+
+ '<div class="card"><h3>🎤 Kem luyện đọc</h3><p>Nghe mẫu từng từ, sau đó mở Speaking để ghi âm và nhận đánh giá từ SpeechSuper.</p>'+
+ P.map(w=>'<button class="chip" data-ipa-word="'+esc(w)+'">🔊 '+esc(w)+'</button>').join(' ')+
+ '<div class="row"><button class="btn primary" id="ipaPractice">Mở Speaking để luyện 🎤</button></div></div>'+
+ '<p class="muted" style="font-size:13px">IPA theo định hướng Anh-Anh. Đây là bài luyện nhận diện âm; điểm phát âm thực tế được đánh giá trong Speaking. Không cộng sao khi chỉ bấm nghe.</p>';
+ document.getElementById('ipaBack').onclick=()=>go('subject');
+ app.querySelectorAll('[data-ipa-lesson]').forEach(b=>b.onclick=()=>{ipaState={lesson:+b.dataset.ipaLesson,pair:0,answer:null,checked:false,target:Math.floor(Math.random()*2)};render()});
+ document.getElementById('ipaA').onclick=()=>speak(P[0],'en-only',.75);
+ document.getElementById('ipaB').onclick=()=>speak(P[1],'en-only',.75);
+ document.getElementById('ipaPlay').onclick=()=>speak(P[ipaState.target],'en-only',.85);
+ document.getElementById('ipaNext').onclick=()=>{ipaState.pair=(ipaState.pair+1)%L.pairs.length;ipaState.checked=false;ipaState.answer=null;ipaState.target=Math.floor(Math.random()*2);render()};
+ app.querySelectorAll('[data-ipa-pick]').forEach(b=>b.onclick=()=>{ipaState.answer=+b.dataset.ipaPick;ipaState.checked=true;render()});
+ app.querySelectorAll('[data-ipa-word]').forEach(b=>b.onclick=()=>speak(b.dataset.ipaWord,'en-only',.8));
+ document.getElementById('ipaPractice').onclick=()=>openSpeak('read',P.join(' / '));
+}
 function openSpeak(type, topic){
   state.sp = {type:type||null, topic:topic||"", phase: type ? "loading" : "setup"};
   go("speak");
