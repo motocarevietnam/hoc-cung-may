@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -58,6 +58,17 @@ const SCHEMA = [
        target_count SMALLINT UNSIGNED NOT NULL DEFAULT 100,
        created_at INT UNSIGNED NOT NULL,
        UNIQUE KEY uq_question_topic (subject,topic)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS question_qa_cases (
+       id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       question_id BIGINT UNSIGNED NOT NULL,
+       status VARCHAR(20) NOT NULL DEFAULT 'open',
+       reason VARCHAR(500) NOT NULL,
+       reported_by VARCHAR(32) NOT NULL DEFAULT 'parent',
+       resolution TEXT NULL, resolved_by VARCHAR(32) NULL,
+       created_at INT UNSIGNED NOT NULL, resolved_at INT UNSIGNED NULL,
+       KEY idx_qa_cases_status (status,created_at),
+       KEY idx_qa_cases_question (question_id)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     "CREATE TABLE IF NOT EXISTS question_qa_reviews (
        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
