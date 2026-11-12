@@ -102,6 +102,12 @@ $routes = [
     'companion/turn'      => 'r_companion_turn',
     'companion/checkpoint'=> 'r_companion_checkpoint',
     'companion/activity'  => 'r_companion_activity',
+    'parent/question_qa_list' => 'r_parent_question_qa_list',
+    'parent/question_qa_report' => 'r_parent_question_qa_report',
+    'parent/question_qa_approve' => 'r_parent_question_qa_approve',
+    'parent/question_qa_edit' => 'r_parent_question_qa_edit',
+    'parent/question_qa_reject' => 'r_parent_question_qa_reject',
+    'parent/question_qa_resolve' => 'r_parent_question_qa_resolve',
     'quiz'                => 'r_quiz',
     'answer'              => 'r_answer',
     'review_list'         => 'r_review_list',
@@ -250,18 +256,153 @@ function r_chat(array $b): never
     out(['conv_id' => $conv, 'text' => $reply, 'stars' => stars()]);
 }
 
+// Database-first question bank. Previously completed questions are not automatically
+// approved; only newly verified candidates enter the reusable bank.
+// Only confirmed school lessons may contribute to a general multi-topic quiz.
+function quiz_confirmed_topics(string $subject): array
+{
+    $labels=match($subject){
+      'toan'=>['Toán'],'tv'=>['Tiếng Việt'],'cmath'=>['Math'],
+      'ceng'=>['English ET','English LT'],'csci'=>['Science'],default=>[]
+    };
+    if(!$labels)return [];
+    $ph=implode(',',array_fill(0,count($labels),'?'));
+    $rows=q("SELECT DISTINCT p.planned_content FROM school_lesson_plan p
+             JOIN school_lesson_confirmations c ON c.school_day=p.school_day AND c.period_no=p.period_no
+             WHERE p.subject IN ($ph) AND c.status='taught'",$labels)->fetchAll(PDO::FETCH_COLUMN);
+    return array_values(array_unique(array_filter(array_map(fn($t)=>mb_substr(trim(preg_replace('/\s+/u',' ',(string)$t)),0,255),$rows))));
+}
+// Topic-level spaced practice: a new variant is used, not the same recent question.
+// 1,3,7,14,30,60 days for consecutive correct answers; wrong => tomorrow.
+function topic_mastery_record(string $subject,string $topic,bool $correct): void
+{
+    $topic=trim($topic);
+    if($topic==='')return; // No reliable lesson identity for general legacy quizzes.
+    $row=q('SELECT correct_streak FROM topic_mastery WHERE subject=? AND topic=?',[$subject,$topic])->fetch();
+    $streak=$correct?min(6,((int)($row['correct_streak']??0))+1):0;
+    $days=$correct?([1,3,7,14,30,60][$streak-1]):1;
+    $now=time();
+    q('INSERT INTO topic_mastery(subject,topic,correct_streak,attempts,correct_count,due_at,last_answered_at)
+       VALUES (?,?,?,1,?,?,?)
+       ON DUPLICATE KEY UPDATE correct_streak=VALUES(correct_streak),attempts=attempts+1,
+       correct_count=correct_count+VALUES(correct_count),due_at=VALUES(due_at),last_answered_at=VALUES(last_answered_at)',
+       [$subject,$topic,$streak,$correct?1:0,$now+$days*86400,$now]);
+}
+function quiz_bank_pick(string $subject,string $topic,int $count=10): array
+{
+    if($topic===''){
+        $topics=quiz_confirmed_topics($subject);
+        // General quizzes can also use the general-topic bank itself.
+        $topics[]='';
+        $topics=array_values(array_unique($topics));
+        $ph=implode(',',array_fill(0,count($topics),'?'));
+        $rows=q("SELECT * FROM question_bank WHERE subject=? AND topic IN ($ph) AND status='approved'
+                 ORDER BY used_count ASC,id ASC LIMIT 500",array_merge([$subject],$topics))->fetchAll();
+    }else{
+        $rows=q("SELECT * FROM question_bank WHERE subject=? AND topic=? AND status='approved'
+                 ORDER BY used_count ASC,id ASC LIMIT 300",[$subject,$topic])->fetchAll();
+    }
+    // Due lessons first, while retaining variety and the 180-day exact-question guard.
+    $dueRows=q('SELECT topic,due_at FROM topic_mastery WHERE subject=? AND due_at<=?',[$subject,time()])->fetchAll();
+    $dueTopics=array_fill_keys(array_column($dueRows,'topic'),true);
+    usort($rows,static function($a,$b) use($dueTopics){
+        $da=isset($dueTopics[(string)$a['topic']])?0:1;
+        $db=isset($dueTopics[(string)$b['topic']])?0:1;
+        return [$da,(int)$a['used_count'],(int)$a['id']] <=> [$db,(int)$b['used_count'],(int)$b['id']];
+    });
+    $recent=recent_quiz_questions($subject,$topic);
+    $selected=[];$perTopic=[];
+    foreach([true,false] as $enforceTopicSpread){
+    foreach($rows as $r){
+        $opts=json_decode((string)$r['options'],true);
+        if(!is_array($opts)||!isset($opts[(int)$r['answer']]))continue;
+        // Spread a general quiz across lessons; never fill ten slots with one lesson.
+        $key=(string)$r['topic'];
+        if($topic==='' && $enforceTopicSpread && ($perTopic[$key]??0)>=4)continue;
+        $duplicate=false;
+        foreach(array_merge($recent,array_column($selected,'q')) as $old)
+            if(quiz_same($r['q'],$old)){$duplicate=true;break;}
+        if($duplicate)continue;
+        $selected[]=['q'=>$r['q'],'options'=>$opts,'answer'=>(int)$r['answer'],
+          'explain'=>$r['explain'],'hint'=>$r['hint'],'bank_id'=>(int)$r['id']];
+        $perTopic[$key]=($perTopic[$key]??0)+1;
+        if(count($selected)>=$count)break;
+    }
+    if(count($selected)>=$count)break;
+    }
+    return $selected;
+}
+function quiz_bank_save(string $subject,string $topic,array $questions): void
+{
+    foreach($questions as $x){
+        $fp=hash('sha256',quiz_norm($x['q']));
+        q("INSERT IGNORE INTO question_bank (subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at)
+           VALUES (?,?,?,?,?,?,?,?,'approved',?)",
+          [$subject,$topic,$x['q'],json_encode($x['options'],JSON_UNESCAPED_UNICODE),
+           $x['answer'],$x['explain'],$x['hint'],$fp,time()]);
+    }
+}
+function quiz_start_from_questions(string $subject,string $topic,array $questions): never
+{
+    q("INSERT INTO quizzes (subject,topic,questions,answers,total,created_at) VALUES (?,?,?,'{}',?,?)",
+      [$subject,$topic,json_encode($questions,JSON_UNESCAPED_UNICODE),count($questions),time()]);
+    $id=(int)db()->lastInsertId();
+    $ids=array_values(array_filter(array_map(fn($x)=>(int)($x['bank_id']??0),$questions)));
+    if($ids){
+        $placeholders=implode(',',array_fill(0,count($ids),'?'));
+        q("UPDATE question_bank SET used_count=used_count+1 WHERE id IN ($placeholders)",$ids);
+    }
+    out(['quiz_id'=>$id,'questions'=>array_map(fn($x)=>['q'=>$x['q'],'options'=>$x['options'],'hint'=>$x['hint']],$questions)]);
+}
 function r_quiz(array $b): never
 {
     $subject = subject_or_fail($b);
     $topic = clean($b['topic'] ?? '', 200);
-    spend(5);
+    // A full set from the approved bank costs zero AI-generation tokens.
+    $bank=quiz_bank_pick($subject,$topic,10);
+    if(count($bank)===10)quiz_start_from_questions($subject,$topic,$bank);
+    $confirmed=quiz_confirmed_topics($subject);
+    if($topic!==''&&!in_array($topic,$confirmed,true))out(['error'=>'quiz_no_new_questions'],409);
+    if(setting('quiz_auto_replenish_enabled','1')!=='1'||trim((string)cfg('anthropic_api_key',''))===''){
+        if($bank)quiz_start_from_questions($subject,$topic,$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    // Two API calls (generation + independent verification) per replenishment.
+    // Daily request cap is a usage guard, not a monetary guarantee.
+    $lock=fopen(sys_get_temp_dir().'/kem_quiz_replenish.lock','c');
+    if(!$lock||!flock($lock,LOCK_EX|LOCK_NB)){
+        if($lock)fclose($lock);
+        if($bank)quiz_start_from_questions($subject,$topic,$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    $limit=max(0,min(20,(int)setting('quiz_auto_daily_api_calls','4')));
+    $key='quiz_auto_calls_'.today();
+    $used=(int)setting($key,'0');
+    if($limit<2||$used+2>$limit){
+        if($bank)quiz_start_from_questions($subject,$topic,$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    $target=$topic;
+    if($target===''){
+        if(!$confirmed)out(['error'=>'quiz_no_new_questions'],409);
+        // Replenish the confirmed lesson with the smallest approved bank.
+        $counts=[];
+        foreach($confirmed as $t)$counts[$t]=(int)q("SELECT COUNT(*) FROM question_bank WHERE subject=? AND topic=? AND status='approved'",[$subject,$t])->fetchColumn();
+        asort($counts);
+        $target=(string)array_key_first($counts);
+    }
+    if($target==='')out(['error'=>'quiz_no_new_questions'],409);
+    set_setting($key,(string)($used+2));
+    $topic=$target;
     $recent = recent_quiz_questions($subject, $topic);
+    // Only genuinely new questions are eligible for a new quiz; mistakes use /api/review_list.
 
+    try {
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 16)]],
-        16000,
+        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 12)]],
+        4500,
         60,
         (string)cfg('quiz_effort', 'medium')
     );
@@ -285,10 +426,12 @@ function r_quiz(array $b): never
         ];
     }
     // Lượt kiểm tra lại: bỏ các câu có đáp án sai hoặc mơ hồ (Mây đôi khi đánh dấu nhầm đáp án)
+    $verified = false;
     if ($questions) {
         try {
             $v = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
-                [['role' => 'user', 'content' => quiz_verify_prompt($subject, $questions)]], 8000, 45, 'medium')) ?? [];
+                [['role' => 'user', 'content' => quiz_verify_prompt($subject, $questions)]], 2500, 45, 'medium')) ?? [];
+            $verified = is_array($v['bad'] ?? null);
             $bad = array_map('intval', is_array($v['bad'] ?? null) ? $v['bad'] : []);
             if ($bad) error_log('[hoc-cung-may] quiz verify bỏ câu ' . implode(',', $bad) . ': ' . mb_substr((string)($v['notes'] ?? ''), 0, 200));
             $questions = array_values(array_filter($questions, fn($k) => !in_array($k, $bad, true), ARRAY_FILTER_USE_KEY));
@@ -296,6 +439,8 @@ function r_quiz(array $b): never
             error_log('[hoc-cung-may] quiz verify lỗi: ' . $e->getMessage());   // không kiểm được thì vẫn dùng đề, không chặn bé
         }
     }
+    // Verification failure must never automatically approve unverified questions.
+    // Bank is populated only if the independent verification completed successfully.
     // Bỏ câu trùng với câu đã hỏi gần đây hoặc trùng nhau trong cùng đề
     $kept = [];
     foreach ($questions as $x) {
@@ -304,15 +449,48 @@ function r_quiz(array $b): never
         if (!$dup) $kept[] = $x;
     }
     if (count($kept) < count($questions)) error_log('[hoc-cung-may] quiz bỏ ' . (count($questions) - count($kept)) . ' câu trùng câu cũ');
+    // Keep the child's session short (10 questions), but draw from a larger pool.
+    // Shuffle eligible candidates so the first ten are not always the same easiest patterns.
+    shuffle($kept);
     $questions = array_slice($kept, 0, 10);
-    if (count($questions) !== 10) out(['error' => 'bad_quiz'], 502);
+    if (count($questions) < 1) {
+        error_log('[hoc-cung-may] insufficient novel quiz questions for ' . $subject . ': ' . count($questions));
+        if($bank)quiz_start_from_questions($subject,$b['topic']??'',$bank);
+        out(['error' => 'quiz_no_new_questions'], 409);
+    }
 
-    q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
-        [$subject, $topic, json_encode($questions, JSON_UNESCAPED_UNICODE), count($questions), time()]);
-    $id = (int)db()->lastInsertId();
-
-    // Không gửi đáp án xuống máy: máy chủ chấm điểm
-    out(['quiz_id' => $id, 'questions' => array_map(fn($x) => ['q' => $x['q'], 'options' => $x['options'], 'hint' => $x['hint']], $questions)]);
+    if(!$verified){
+        if($bank)quiz_start_from_questions($subject,(string)($b['topic']??''),$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
+    // Verify against the whole bank (including rejected) before approving.
+    $safe=[];
+    $all=q('SELECT q FROM question_bank WHERE subject=?',[$subject])->fetchAll(PDO::FETCH_COLUMN);
+    foreach($questions as $x){
+        $duplicate=false;
+        foreach(array_merge($all,array_column($safe,'q')) as $old)if(quiz_same($x['q'],(string)$old)){$duplicate=true;break;}
+        if(!$duplicate)$safe[]=$x;
+    }
+    if($safe){
+        foreach($safe as $x){
+            $fp=hash('sha256',quiz_norm($x['q']));
+            q("INSERT IGNORE INTO question_bank(subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at,approved_by)
+                VALUES (?,?,?,?,?,?,?,?,'approved',?,'claude_qa')",
+                [$subject,$topic,$x['q'],json_encode($x['options'],JSON_UNESCAPED_UNICODE),$x['answer'],$x['explain'],$x['hint'],$fp,time()]);
+            $id=(int)db()->lastInsertId();
+            if($id>0)q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
+                VALUES (?,'claude','pass',?,'Auto replenishment: independent verification pass',?,?)",
+                [$id,$x['answer'],(string)cfg('quiz_model','claude-sonnet-5-5'),time()]);
+        }
+    }
+    $ready=quiz_bank_pick($subject,(string)($b['topic']??''),10);
+    if($ready)quiz_start_from_questions($subject,(string)($b['topic']??''),$ready);
+    out(['error'=>'quiz_no_new_questions'],409);
+    }catch(Throwable $e){
+        error_log('[hoc-cung-may] auto quiz refill failed: '.$e->getMessage());
+        if($bank)quiz_start_from_questions($subject,(string)($b['topic']??''),$bank);
+        out(['error'=>'quiz_no_new_questions'],409);
+    }
 }
 
 function remember_mistake(string $subject, string $topic, array $x): void
@@ -348,6 +526,12 @@ function r_answer(array $b): never
     if ($first) {
         if ($right) award('quiz_correct', 'quiz:' . $quiz['id'] . ':question:' . $index, 'Trả lời đúng câu ' . ($index + 1));
         if (!$right) remember_mistake($quiz['subject'], $quiz['topic'], $x);
+        // Update topic proficiency once per first answer, never on retries.
+        $lesson=(string)($x['bank_id']??0)!=='0'
+            ? (string)(q('SELECT topic FROM question_bank WHERE id=?',[(int)$x['bank_id']])->fetchColumn() ?: '')
+            : (string)$quiz['topic'];
+        topic_mastery_record((string)$quiz['subject'],$lesson,$right);
+
         q('UPDATE quizzes SET answers = ? WHERE id = ?', [json_encode($answers), $quiz['id']]);
     }
 
@@ -2156,4 +2340,138 @@ function r_parent_school_exercise_analyze(array $b): never
         'unclear'=>array_slice(array_map(fn($x)=>mb_substr((string)$x,0,300),array_filter((array)($parsed['unclear']??[]),'is_string')),0,10)];
     q("UPDATE school_exercises SET analysis_json=?,review_status='pending' WHERE id=?",[json_encode($clean,JSON_UNESCAPED_UNICODE),$id]);
     out(['ok'=>true,'analysis'=>$clean]);
+}
+
+
+// Parent-only QA governance endpoints. Reporting immediately quarantines a question.
+function r_parent_question_qa_list(array $b): never
+{
+    require_parent();
+    $status=(string)($b['status']??'needs_review');
+    if(!in_array($status,['pending','approved','needs_review','rejected','all'],true))out(['error'=>'bad_status'],400);
+    $page=max(1,min(100000,(int)($b['page']??1)));
+    $perPage=10;
+    $where=$status==='all'?'':' WHERE b.status=?';
+    $params=$status==='all'?[]:[$status];
+    $total=(int)q("SELECT COUNT(*) FROM question_bank b".$where,$params)->fetchColumn();
+    $pages=max(1,(int)ceil($total/$perPage));
+    $page=min($page,$pages);
+    $offset=($page-1)*$perPage;
+    $sql="SELECT b.id,b.subject,b.topic,b.q,b.options,b.answer,b.`explain`,b.hint,b.status,b.approved_by,b.used_count,
+                 (SELECT COUNT(*) FROM question_qa_cases c WHERE c.question_id=b.id AND c.status='open') AS open_cases,
+                 (SELECT c.reason FROM question_qa_cases c WHERE c.question_id=b.id ORDER BY c.id DESC LIMIT 1) AS latest_case_reason,
+                 (SELECT r.reason FROM question_qa_reviews r WHERE r.question_id=b.id ORDER BY r.id DESC LIMIT 1) AS latest_review_reason
+          FROM question_bank b".$where." ORDER BY b.id DESC LIMIT $perPage OFFSET $offset";
+    $rows=q($sql,$params)->fetchAll();
+    $counts=q("SELECT status,COUNT(*) n FROM question_bank GROUP BY status")->fetchAll();
+    out(['questions'=>$rows,'counts'=>$counts,'page'=>$page,'pages'=>$pages,'per_page'=>$perPage,'total'=>$total]);
+}
+// Parent approval is explicitly distinguished from independent Claude QA.
+function r_parent_question_qa_approve(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $note=clean((string)($b['note']??''),500);
+    if($id<1||mb_strlen($note)<5)out(['error'=>'invalid_resolution'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $row=q('SELECT id,status,answer FROM question_bank WHERE id=? FOR UPDATE',[$id])->fetch();
+        if(!$row){$pdo->rollBack();out(['error'=>'question_not_found'],404);}
+        if(!in_array($row['status'],['pending','needs_review'],true)){$pdo->rollBack();out(['error'=>'invalid_status'],409);}
+        q("UPDATE question_bank SET status='approved',approved_by='parent' WHERE id=?",[$id]);
+        q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
+           VALUES (?,'parent','PASS',?,?,'manual',?)",[$id,(int)$row['answer'],$note,time()]);
+        q("UPDATE question_qa_cases SET status='resolved',resolution=?,resolved_by='parent',resolved_at=?
+           WHERE question_id=? AND status='open'",['parent_approved: '.$note,time(),$id]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>'approved','approved_by'=>'parent']);
+}
+
+// Edits invalidate prior approval; keep a full audit of previous content.
+function r_parent_question_qa_edit(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $q=clean((string)($b['q']??''),500);
+    $explain=clean((string)($b['explain']??''),1000);
+    $hint=clean((string)($b['hint']??''),500);
+    $options=$b['options']??null;
+    $answer=$b['answer']??null;
+    if($id<1||mb_strlen($q)<10||!is_array($options)||count($options)<2||count($options)>4
+       ||!is_int($answer)||$answer<0||$answer>=count($options)||mb_strlen($explain)<5)out(['error'=>'invalid_question'],400);
+    $options=array_map(fn($v)=>is_string($v)?clean($v,250):'',array_values($options));
+    if(in_array('',$options,true)||count(array_unique($options))!==count($options))out(['error'=>'invalid_options'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $old=q('SELECT * FROM question_bank WHERE id=? FOR UPDATE',[$id])->fetch();
+        if(!$old){$pdo->rollBack();out(['error'=>'question_not_found'],404);}
+        if($old['status']==='rejected'){$pdo->rollBack();out(['error'=>'invalid_status'],409);}
+        $fingerprint=hash('sha256',quiz_norm($q));
+        $dupe=q('SELECT id FROM question_bank WHERE subject=? AND fingerprint=? AND id<>? LIMIT 1',[$old['subject'],$fingerprint,$id])->fetchColumn();
+        if($dupe!==false){$pdo->rollBack();out(['error'=>'duplicate_question','duplicate_id'=>(int)$dupe],409);}
+        q("UPDATE question_bank SET q=?,options=?,answer=?,`explain`=?,hint=?,fingerprint=?,status='pending',approved_by=NULL WHERE id=?",
+           [$q,json_encode($options,JSON_UNESCAPED_UNICODE),$answer,$explain,$hint,$fingerprint,$id]);
+        q("INSERT INTO question_qa_cases(question_id,status,reason,reported_by,resolution,resolved_by,created_at,resolved_at)
+           VALUES (?,'resolved','Phụ huynh chỉnh sửa nội dung','parent',?,'parent',?,?)",
+           [$id,'before_edit: '.json_encode(['q'=>$old['q'],'options'=>$old['options'],'answer'=>$old['answer'],'explain'=>$old['explain'],'hint'=>$old['hint'],'status'=>$old['status']],JSON_UNESCAPED_UNICODE),time(),time()]);
+        q("INSERT INTO question_qa_reviews(question_id,reviewer,verdict,predicted_answer,reason,model,reviewed_at)
+           VALUES (?,'parent','RECHECK',?,'Đã sửa câu; chờ QA độc lập','manual',?)",[$id,$answer,time()]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>'pending']);
+}
+
+function r_parent_question_qa_report(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $reason=clean((string)($b['reason']??''),500);
+    if($id<1||mb_strlen($reason)<5)out(['error'=>'invalid_report'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $st=q('SELECT id FROM question_bank WHERE id=? FOR UPDATE',[$id]);
+        if(!$st->fetchColumn()){ $pdo->rollBack();out(['error'=>'question_not_found'],404); }
+        q("UPDATE question_bank SET status='needs_review' WHERE id=?",[$id]);
+        q("INSERT INTO question_qa_cases(question_id,status,reason,reported_by,created_at) VALUES (?,'open',?,'parent',?)",[$id,$reason,time()]);
+        $caseId=(int)$pdo->lastInsertId();$pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'case_id'=>$caseId,'status'=>'needs_review']);
+}
+function r_parent_question_qa_resolve(array $b): never
+{
+    require_parent();
+    $caseId=(int)($b['case_id']??0);$decision=(string)($b['decision']??'');
+    $note=clean((string)($b['note']??''),1000);
+    if($caseId<1||!in_array($decision,['reject','request_recheck'],true)||mb_strlen($note)<5)out(['error'=>'invalid_resolution'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $st=q("SELECT question_id,status FROM question_qa_cases WHERE id=? FOR UPDATE",[$caseId]);
+        $case=$st->fetch();
+        if(!$case||$case['status']!=='open'){$pdo->rollBack();out(['error'=>'case_not_open'],409);}
+        $new=$decision==='reject'?'rejected':'needs_review';
+        q('UPDATE question_bank SET status=? WHERE id=?',[$new,$case['question_id']]);
+        q("UPDATE question_qa_cases SET status='resolved',resolution=?,resolved_by='parent',resolved_at=? WHERE id=?",[$decision.': '.$note,time(),$caseId]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>$new]);
+}
+
+function r_parent_question_qa_reject(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $note=clean((string)($b['note']??''),500);
+    if($id<1||mb_strlen($note)<5)out(['error'=>'invalid_resolution'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $st=q('SELECT status FROM question_bank WHERE id=? FOR UPDATE',[$id]);
+        $row=$st->fetch();
+        if(!$row){$pdo->rollBack();out(['error'=>'question_not_found'],404);}
+        q("UPDATE question_bank SET status='rejected' WHERE id=?",[$id]);
+        q("INSERT INTO question_qa_cases(question_id,status,reason,reported_by,resolution,resolved_by,created_at,resolved_at)
+           VALUES (?,'resolved',?,'parent','reject','parent',?,?)",[$id,$note,time(),time()]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>'rejected']);
 }
