@@ -152,6 +152,7 @@ h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
 .visual-quiz .quiz-progressbar{height:10px;background:var(--grid-strong);border-radius:20px;overflow:hidden;margin:8px 0 14px}
 .visual-quiz .quiz-progressbar span{display:block;height:100%;background:var(--mint)}
 /* Writing Studio mind map */
+.writing-svg-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.writing-svg{display:block;width:100%;min-width:680px;height:auto;max-height:620px}.writing-map{overflow:hidden}
 .writing-map{margin:14px 0;padding:16px;border:2px solid var(--line);border-radius:22px;background:var(--surface-2)}
 .writing-map h3{text-align:center;margin:0 0 8px}
 .writing-map-center{margin:10px auto;max-width:260px;text-align:center;border-radius:20px;background:var(--mint);color:#fff;padding:12px;font-weight:800;overflow-wrap:anywhere}
@@ -1941,24 +1942,39 @@ async function wrCall(path, body, phaseWhile){
   catch(e){ R.err = {write_no_prompt:"Bạn nhập đề bài trước nhé.", write_few_answers:"Bạn trả lời ít nhất 2 câu để Mây giúp lập dàn ý nhé."}[e&&e.code] || copyFor(e&&e.code); return null; }
   finally{ R.busy=null; if(state.view==="write" && state.wr===R) render(); }
 }
+function writingMapSvg(prompt, branches, foot){
+  const colors=['#6293CE','#58A781','#B188D2','#D8A147'];
+  const pos=[{x:170,y:84},{x:830,y:84},{x:170,y:530},{x:830,y:530}];
+  const e=x=>esc(String(x||''));
+  const wrap=(value,limit=29)=>{const words=String(value||'').split(/\s+/);let lines=[],line='';for(const w of words){if((line+' '+w).trim().length>limit&&line){lines.push(line);line=w}else line=(line+' '+w).trim()}if(line)lines.push(line);return lines.slice(0,3)};
+  let out='<svg class="writing-svg" viewBox="0 0 1000 620" role="img" aria-label="Sơ đồ tư duy bốn nhánh: Mở bài, Thân bài, Kết bài và cách viết hay" xmlns="http://www.w3.org/2000/svg">';
+  branches.forEach((b,i)=>{
+    const p=pos[i],c=colors[i],left=i%2===0,top=i<2;
+    const x1=left?415:585, x2=left?340:660, y1=top?265:355,y2=top?125:490;
+    out+='<path d="M '+x1+' '+y1+' C '+x2+' '+y1+', '+p.x+' '+y2+', '+p.x+' '+(top?137:477)+'" fill="none" stroke="'+c+'" stroke-width="8" stroke-linecap="round"/>';
+    out+='<rect x="'+(p.x-150)+'" y="'+(p.y-53)+'" width="300" height="106" rx="25" fill="'+c+'"/>';
+    out+='<text x="'+p.x+'" y="'+(p.y-9)+'" fill="white" text-anchor="middle" font-size="26" font-weight="bold">'+e(b[0])+'</text>';
+    const items=(b[1]||[]).slice(0,3);
+    items.forEach((it,j)=>{const yy=top?160+j*47:397+j*47,xx=p.x,lines=wrap(it,35);
+      out+='<path d="M '+xx+' '+(top?137:477)+' L '+xx+' '+yy+'" fill="none" stroke="'+c+'" stroke-width="3" opacity=".5"/>';
+      out+='<rect x="'+(xx-150)+'" y="'+(yy-15)+'" width="300" height="'+(lines.length>1?47:34)+'" rx="12" fill="var(--surface,#fff)" stroke="'+c+'" stroke-width="2"/>';
+      lines.forEach((line,k)=>{out+='<text x="'+xx+'" y="'+(yy+6+k*18)+'" text-anchor="middle" font-size="17" fill="var(--ink,#332052)">'+e(line)+'</text>'});
+    });
+  });
+  out+='<rect x="365" y="252" width="270" height="116" rx="44" fill="#3B967B" stroke="#26735E" stroke-width="4"/>';
+  wrap(prompt,22).forEach((line,i,arr)=>{out+='<text x="500" y="'+(312+(i-(arr.length-1)/2)*29)+'" text-anchor="middle" font-size="25" font-weight="bold" fill="white">'+e(line)+'</text>'});
+  return '<div class="writing-map" role="region" aria-label="Sơ đồ tư duy bài văn"><h3>🌱 Sơ đồ tư duy của Kem</h3><div class="writing-svg-scroll">'+out+'</svg></div><p class="writing-note">'+e(foot)+'</p></div>';
+}
 function writingMapPreview(prompt, answers){
- const value=prompt&&prompt.trim()?prompt.trim():'Chủ đề bài văn của Kem';
- const notes=(answers||[]).filter(x=>String(x||'').trim()).slice(0,4);
- const branches=[['🌤️','Mở bài','Giới thiệu đối tượng hoặc kỉ niệm'],['🌿','Thân bài','Đặc điểm, hoạt động, chi tiết nổi bật'],['💛','Kết bài','Tình cảm, suy nghĩ của Kem'],['✨','Cách viết hay','Từ gợi tả, so sánh, nhân hóa phù hợp']];
- return '<div class="writing-map" role="region" aria-label="Mind Map khởi đầu"><h3>🌱 Mind Map – Cùng Kem tìm ý</h3><div class="writing-map-center">'+esc(value)+'</div><div class="writing-map-branches">'+branches.map((b,i)=>'<section class="writing-map-node '+['open','body','end','words'][i]+'"><b>'+b[0]+' '+b[1]+'</b><p>'+esc(b[2])+'</p></section>').join('')+'</div>'+(notes.length?'<p class="writing-note">💡 Ý Kem đã kể: '+notes.map(esc).join(' · ')+'</p>':'<p class="writing-note">Mây sẽ hỏi Kem từng ý. Sau khi Kem trả lời, sơ đồ sẽ được điền bằng ý của chính Kem.</p>')+'</div>';
+ const branches=[['🌤️ Mở bài',['Giới thiệu đối tượng hoặc kỉ niệm']],['🌿 Thân bài',['Tả đặc điểm và hoạt động']],['💛 Kết bài',['Tình cảm và suy nghĩ']],['✨ Viết hay',['Từ gợi tả, so sánh, nhân hóa']]];
+ const notes=(answers||[]).filter(x=>String(x||'').trim()).slice(0,3);
+ if(notes.length)branches[1][1]=notes;
+ return writingMapSvg(prompt&&prompt.trim()?prompt:'Chủ đề bài văn',branches,'Kem trả lời các câu hỏi của Mây để bổ sung ý vào từng nhánh.');
 }
 function writingMindmap(W){
-  const O=W&&W.outline;
-  if(!O)return '';
-  const node=(kind,icon,title,items)=>'<section class="writing-map-node '+kind+'"><b>'+icon+' '+title+'</b>'+(items.length?'<ul>'+items.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>':'<p>Chưa có ý</p>')+'</section>';
-  return '<div class="writing-map" role="region" aria-label="Sơ đồ tư duy bài văn"><h3>🌱 Mind Map của Kem</h3>'+
-    '<div class="writing-map-center">'+esc(W.prompt)+'</div>'+
-    '<div class="writing-map-branches">'+
-    node('open','🌤️','Mở bài',O.mo_bai||[])+
-    node('body','🌿','Thân bài',O.than_bai||[])+
-    node('end','💛','Kết bài',O.ket_bai||[])+
-    node('words','✨','Từ ngữ và cách viết hay',O.words||[])+
-    '</div><p class="writing-note">Đây là ý tưởng của Kem được Mây sắp xếp. Kem có thể thêm chi tiết, so sánh hoặc nhân hóa khi phù hợp. Không cần chép nguyên câu gợi ý.</p></div>';
+ if(!W||!W.outline)return '';
+ const O=W.outline;
+ return writingMapSvg(W.prompt,[['🌤️ Mở bài',O.mo_bai||[]],['🌿 Thân bài',O.than_bai||[]],['💛 Kết bài',O.ket_bai||[]],['✨ Viết hay',O.words||[]]],'Đây là ý của Kem do Mây sắp xếp. Kem có thể thêm chi tiết và viết bằng lời của mình.');
 }
 function renderWrite(){
   const R = state.wr, s = subjById(R.subject), en = R.subject==="ceng", W = R.w;
