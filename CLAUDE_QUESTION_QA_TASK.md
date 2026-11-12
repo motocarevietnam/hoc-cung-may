@@ -35,3 +35,14 @@ Số lượng là ảnh chụp tại lúc tạo file; luôn truy vấn lại tr�
 Nêu số kiểm, PASS/FAIL/UNCERTAIN, số approved, số needs_review, số còn pending, trùng/gần trùng, dạng kỹ năng còn thiếu, và file/commit/PR nếu có. Nếu thiếu quyền hoặc công cụ, báo rõ thay vì tự động gọi dịch vụ trả phí.
 
 **Bắt đầu từ 100 câu Bài 25, tiếp đến 10 câu Cambridge Maths.**
+
+## BỔ SUNG 12/11 — KIỂM TRA TRÙNG LẶP TOÀN NGÂN HÀNG
+- Lô mới: 100 câu Cambridge Maths, chủ đề UNIT 5 - Addition and Subtraction Students will apply addition and subtraction strategies to solve real-world problems, use sum-and-difference reasoning, and justify their solutions with mathematical language and estimation. Đọc trực tiếp question_bank, trạng thái pending; không dùng số ID đoán trước.
+- Khi kiểm duyệt, đối chiếu với **toàn bộ question_bank cùng môn**, không chỉ cùng lô hoặc cùng topic; so với các câu đã được Kem làm trong quizzes nếu phù hợp.
+- Phân loại: (1) trùng chính xác sau chuẩn hóa Unicode/chữ hoa/khoảng trắng/dấu câu; (2) trùng cấu trúc khi thay các con số/đơn vị/tên riêng; (3) gần trùng về ngữ nghĩa và cách giải; (4) khác biệt thực sự về kỹ năng, bối cảnh và mức độ khó.
+- Chuẩn hóa chữ số thành placeholder để tìm biến thể số liệu; so sánh bộ dữ kiện, thao tác giải, câu hỏi và đáp án; tránh đánh đồng mọi câu cộng/trừ với nhau.
+- Lập báo cáo nhóm trùng có question_id, dạng trùng, số lượng và đề xuất giữ câu đại diện; KHÔNG tự xóa dữ liệu, không tự gộp các câu có lịch sử làm bài.
+- Nếu lô có 100 câu nhưng chỉ 7 cấu trúc câu, báo rõ mức độ đa dạng thấp; không phê duyệt hàng loạt chỉ dựa trên phép tính đúng. Câu có nội dung đúng nhưng lặp máy móc cần đánh dấu kiểm tra chất lượng và đề xuất cải thiện.
+- Kiểm tra cả trùng lặp xuyên môn Toán Việt Nam/Cambridge Maths nếu có cùng bài, nhưng không tự loại vì khác ngôn ngữ hay mục tiêu kỹ năng.
+- Mỗi lô phải có thống kê: unique exact, numeric-template duplicates, semantic near duplicates, distinct skill types, QA PASS/FAIL/UNCERTAIN.
+- Ưu tiên 100 câu Bài 25 và 100 câu Cambridge Maths Unit 5, rồi các câu pending khác. Chỉ cập nhật QA sau khi tự giải từng câu và đối chiếu đầy đủ.
