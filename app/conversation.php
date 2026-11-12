@@ -85,7 +85,14 @@ function companion_day_start(): int
 function companion_daily_greeting(): string
 {
     $nick=setting('nick') ?: 'Kem';
-    return "Chào {$nick}! ☁️ Hôm nay mình có chuyện gì vui để kể Mây nghe nào?";
+    $minutes=(int)date('G')*60+(int)date('i');
+    if (($minutes>=420 && $minutes<450)||($minutes>=990 && $minutes<1050)) {
+        return "Kem ơi, Mây đây! ☁️ Hôm nay bạn thích hát một đoạn, chơi đoán từ hay kể chuyện vui trước? Nếu Kem đang trên xe và muốn, mình có thể thử một trò English nghe–nói 3 phút nhé. Không cần nhìn màn hình đâu!";
+    }
+    if ($minutes>=1170 && $minutes<1230) {
+        return "Kem ơi, Mây đây! ☁️ Hôm nay có chuyện gì vui không? Nếu bạn đã sẵn sàng, mình cùng xem bài cô giao rồi thử một chút Toán có lời văn hoặc bài đã học nhé. Kem muốn kể chuyện trước cũng được!";
+    }
+    return "Kem ơi, Mây đây! ☁️ Hôm nay có bài hát hay chuyện gì vui muốn kể không? Khi nào bạn thích, mình có thể cùng ôn một bài ngắn theo những gì Kem đã học nhé!";
 }
 function companion_ensure_new_day(array $row): array
 {
@@ -132,14 +139,23 @@ function r_companion_session(array $b): never
                     [$id, json_encode(companion_initial(today()), JSON_UNESCAPED_UNICODE), $now]);
                 $name = setting('nick') ?: 'Kem';
                 q("INSERT INTO messages (conv_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)",
-                    [$id, "Chào {$name}! Hôm nay có chuyện gì vui không? Mây muốn nghe bạn kể nè! ☁️", $now]);
+                    [$id, companion_daily_greeting(), $now]);
                 $pdo->commit();
             } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
             $row = companion_row($id);
         }
+        // Nếu chưa có lượt Kem trả lời hôm nay, nâng lời chào cũ thành lời mời chủ động.
+        // Không thêm tin mới mỗi lần mở ứng dụng và không chen vào cuộc trò chuyện đã bắt đầu.
+        $row=companion_ensure_new_day($row);
+        $first=q("SELECT id,role,content FROM messages WHERE conv_id=? AND created_at>=? ORDER BY id ASC LIMIT 2",
+            [$row['conv_id'],companion_day_start()])->fetchAll();
+        if (count($first)===1 && $first[0]['role']==='assistant'
+            && !str_contains((string)$first[0]['content'],'mình có thể')) {
+            q('UPDATE messages SET content=? WHERE id=?',[companion_daily_greeting(),$first[0]['id']]);
+        }
         // Điểm danh một lần/ngày khi Kem gặp Mây.
         award('checkin', 'checkin:' . today(), 'Kem gặp Mây và điểm danh');
-        return companion_payload(companion_ensure_new_day($row));
+        return companion_payload($row);
     }));
 }
 

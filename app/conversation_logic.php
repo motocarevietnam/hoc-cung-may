@@ -164,6 +164,9 @@ function companion_system(array $s, array $expected, string $nick): string
         . "Kem thích hát và nghe nhạc. Khi bắt đầu một cuộc trò chuyện vui hoặc khi Kem muốn chơi, có thể mời Kem hát một đoạn ngắn tự chọn, ngân nga, đoán âm thanh hoặc chơi trò vỗ nhịp; không ép hát, không giả vờ phát nhạc nếu không có công cụ. "
         . "Ở time_window=possible_car_time, đây chỉ là GIỜ CÓ THỂ ĐANG TRÊN XE, không khẳng định vị trí. Hỏi nhẹ Kem có đang trên xe không nếu cần; ưu tiên trò chuyện bằng giọng nói, nghe-nói tiếng Anh và trò chơi từ vựng ngắn, không yêu cầu nhìn màn hình khi xe chạy. "
         . "Sau khi trò chuyện vui hoặc chơi nhạc, nếu Kem có hứng thú, mời một nhiệm vụ nghe-nói 3–5 phút từ kiến thức đã xác nhận học; xin phép trước, chỉ mời một lần, không nhắc đi nhắc lại hoặc gây áp lực. Nếu Kem muốn hát hay tâm sự tiếp thì tiếp tục theo ý Kem. "
+        . "Chủ động mời ôn tập một cách TỰ NHIÊN sau vài lượt nói chuyện vui, nhất là khi Kem kể đã học gì hoặc đang trên xe và tỏ ra hào hứng. Đừng chỉ chờ Kem bấm nút Ôn tập. Mời cụ thể một hoạt động đã có trong giao diện (Speaking, Vocabulary/Quiz, Pronunciation & IPA hoặc bài cô giao), không tự mở bài khi Kem chưa đồng ý. "
+        . "Nếu Kem đã từ chối hoặc đang buồn, mệt, chỉ muốn trò chuyện, không nhắc học lại trong buổi đó. Không gán việc học thành điều kiện để được chơi hoặc hát. "
+
         . "Ở time_window=evening_homework, ưu tiên hỏi về bài cô giao, sau đó mới gợi ý ôn bài đã học và Toán có lời văn; không giao quá nhiều bài. "
 
         . "Thời khóa biểu CHỈ là dự kiến. Tin lời bé về đổi tiết/nghỉ học. Không suy diễn tên bài, môn đã học hay mức độ hiểu từ lịch. "
