@@ -1717,11 +1717,38 @@ function companion_schedule_answer(string $text, string $day): ?string
 }
 
 // Thông tin lịch học đưa cho Mây khi trò chuyện (chỉ dữ liệu ba mẹ nhập và kế hoạch đã duyệt)
+// Parent-defined car-time learning windows; Friday starts after early dismissal.
+function daily_companion_windows(?string $day = null): array
+{
+    $day ??= today();
+    $weekday = (int)date('N', strtotime($day));
+    $default = [
+        'morning' => ['start'=>'07:00','end'=>'07:30','focus'=>'English: vocabulary, speaking, pronunciation, listening, short quiz'],
+        'afternoon' => ['start'=>$weekday===5?'15:45':'16:30','end'=>$weekday===5?'16:45':'17:30','focus'=>'Maths and English: listening, speaking, vocabulary, short quiz; ask Kem to recall and confirm actual school lessons'],
+        'evening' => ['start'=>'19:30','end'=>'20:30','focus'=>'Teacher-assigned homework first, then review confirmed lessons; Visual Quiz only on confirmed taught material'],
+    ];
+    $configured=json_decode(setting('companion_daily_windows','{}'),true);
+    if (!is_array($configured)) return $default;
+    foreach ($default as $key=>&$window) {
+        $source=$configured[$weekday][$key]??null;
+        if (!is_array($source)) continue;
+        foreach (['start','end'] as $field) {
+            if (isset($source[$field]) && preg_match('/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/',(string)$source[$field])) $window[$field]=(string)$source[$field];
+        }
+    }
+    unset($window);
+    return $default;
+}
+
 function schedule_note(): string
 {
     $p = day_plan(today());
     $lines = [];
     $lines[] = 'Hôm nay là ' . $p['weekday'] . '.';
+    $windows=daily_companion_windows();
+    foreach ($windows as $label=>$window) $lines[]='Khung '. $label .' '. $window['start'].'–'.$window['end'].': '.$window['focus'].'. Chỉ bắt đầu khi Kem mở chat và sẵn sàng; không ép làm đủ phút.';
+    $lines[]='Lịch học của trường là nguồn chính. Buổi chiều hỏi Kem kể lại và xác nhận bài thực học. Không tự tạo nhiệm vụ trùng, không ép đủ phút; tối ưu tiên bài cô giao. Thứ Ba 19:45–21:30 và thứ Bảy 18:00–19:45 có lớp tiếng Anh, không giao việc nặng trùng giờ.';
+
     foreach ($p['notes'] as $n) $lines[] = $n;
     if ($p['week_topics']) {
         $parts = [];
