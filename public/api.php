@@ -250,17 +250,95 @@ function r_chat(array $b): never
     out(['conv_id' => $conv, 'text' => $reply, 'stars' => stars()]);
 }
 
+// Database-first question bank. Previously completed questions are not automatically
+// approved; only newly verified candidates enter the reusable bank.
+// Only confirmed school lessons may contribute to a general multi-topic quiz.
+function quiz_confirmed_topics(string $subject): array
+{
+    $labels=match($subject){
+      'toan'=>['Toán'],'tv'=>['Tiếng Việt'],'cmath'=>['Math'],
+      'ceng'=>['English ET','English LT'],'csci'=>['Science'],default=>[]
+    };
+    if(!$labels)return [];
+    $ph=implode(',',array_fill(0,count($labels),'?'));
+    $rows=q("SELECT DISTINCT p.planned_content FROM school_lesson_plan p
+             JOIN school_lesson_confirmations c ON c.school_day=p.school_day AND c.period_no=p.period_no
+             WHERE p.subject IN ($ph) AND c.status='taught'",$labels)->fetchAll(PDO::FETCH_COLUMN);
+    return array_values(array_unique(array_filter(array_map(fn($t)=>mb_substr(trim(preg_replace('/\s+/u',' ',(string)$t)),0,255),$rows))));
+}
+function quiz_bank_pick(string $subject,string $topic,int $count=10): array
+{
+    if($topic===''){
+        $topics=quiz_confirmed_topics($subject);
+        // General quizzes can also use the general-topic bank itself.
+        $topics[]='';
+        $topics=array_values(array_unique($topics));
+        $ph=implode(',',array_fill(0,count($topics),'?'));
+        $rows=q("SELECT * FROM question_bank WHERE subject=? AND topic IN ($ph) AND status='approved'
+                 ORDER BY used_count ASC,id ASC LIMIT 500",array_merge([$subject],$topics))->fetchAll();
+    }else{
+        $rows=q("SELECT * FROM question_bank WHERE subject=? AND topic=? AND status='approved'
+                 ORDER BY used_count ASC,id ASC LIMIT 300",[$subject,$topic])->fetchAll();
+    }
+    $recent=recent_quiz_questions($subject,$topic);
+    $selected=[];$perTopic=[];
+    foreach($rows as $r){
+        $opts=json_decode((string)$r['options'],true);
+        if(!is_array($opts)||!isset($opts[(int)$r['answer']]))continue;
+        // Spread a general quiz across lessons; never fill ten slots with one lesson.
+        $key=(string)$r['topic'];
+        if($topic==='' && ($perTopic[$key]??0)>=4)continue;
+        $duplicate=false;
+        foreach(array_merge($recent,array_column($selected,'q')) as $old)
+            if(quiz_same($r['q'],$old)){$duplicate=true;break;}
+        if($duplicate)continue;
+        $selected[]=['q'=>$r['q'],'options'=>$opts,'answer'=>(int)$r['answer'],
+          'explain'=>$r['explain'],'hint'=>$r['hint'],'bank_id'=>(int)$r['id']];
+        $perTopic[$key]=($perTopic[$key]??0)+1;
+        if(count($selected)>=$count)break;
+    }
+    return $selected;
+}
+function quiz_bank_save(string $subject,string $topic,array $questions): void
+{
+    foreach($questions as $x){
+        $fp=hash('sha256',quiz_norm($x['q']));
+        q("INSERT IGNORE INTO question_bank (subject,topic,q,options,answer,`explain`,hint,fingerprint,status,created_at)
+           VALUES (?,?,?,?,?,?,?,?,'approved',?)",
+          [$subject,$topic,$x['q'],json_encode($x['options'],JSON_UNESCAPED_UNICODE),
+           $x['answer'],$x['explain'],$x['hint'],$fp,time()]);
+    }
+}
+function quiz_start_from_questions(string $subject,string $topic,array $questions): never
+{
+    q("INSERT INTO quizzes (subject,topic,questions,answers,total,created_at) VALUES (?,?,?,'{}',?,?)",
+      [$subject,$topic,json_encode($questions,JSON_UNESCAPED_UNICODE),count($questions),time()]);
+    $id=(int)db()->lastInsertId();
+    $ids=array_values(array_filter(array_map(fn($x)=>(int)($x['bank_id']??0),$questions)));
+    if($ids){
+        $placeholders=implode(',',array_fill(0,count($ids),'?'));
+        q("UPDATE question_bank SET used_count=used_count+1 WHERE id IN ($placeholders)",$ids);
+    }
+    out(['quiz_id'=>$id,'questions'=>array_map(fn($x)=>['q'=>$x['q'],'options'=>$x['options'],'hint'=>$x['hint']],$questions)]);
+}
 function r_quiz(array $b): never
 {
     $subject = subject_or_fail($b);
     $topic = clean($b['topic'] ?? '', 200);
+    // A full set from the approved bank costs zero AI-generation tokens.
+    $bank=quiz_bank_pick($subject,$topic,10);
+    if(count($bank)===10)quiz_start_from_questions($subject,$topic,$bank);
+    // Do not make the child wait for a costly on-demand AI call when the general
+    // bank is exhausted. Replenishment is a separate reviewed background workflow.
+    if($topic==='')out(['error'=>'quiz_no_new_questions'],409);
     spend(5);
     $recent = recent_quiz_questions($subject, $topic);
+    // Only genuinely new questions are eligible for a new quiz; mistakes use /api/review_list.
 
     $text = ask_claude(
         (string)cfg('quiz_model', 'claude-sonnet-5-5'),
         quiz_system(),
-        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 16)]],
+        [['role' => 'user', 'content' => quiz_prompt($subject, $topic, setting('focus'), quiz_context($subject) . school_exercise_quiz_context($subject,$topic) . quiz_avoid_text($recent) . ($subject === 'ceng' ? week_words_text() : ''), 24)]],
         16000,
         60,
         (string)cfg('quiz_effort', 'medium')
@@ -285,10 +363,12 @@ function r_quiz(array $b): never
         ];
     }
     // Lượt kiểm tra lại: bỏ các câu có đáp án sai hoặc mơ hồ (Mây đôi khi đánh dấu nhầm đáp án)
+    $verified = false;
     if ($questions) {
         try {
             $v = claude_json(ask_claude((string)cfg('quiz_model', 'claude-sonnet-5-5'), quiz_system(),
                 [['role' => 'user', 'content' => quiz_verify_prompt($subject, $questions)]], 8000, 45, 'medium')) ?? [];
+            $verified = is_array($v['bad'] ?? null);
             $bad = array_map('intval', is_array($v['bad'] ?? null) ? $v['bad'] : []);
             if ($bad) error_log('[hoc-cung-may] quiz verify bỏ câu ' . implode(',', $bad) . ': ' . mb_substr((string)($v['notes'] ?? ''), 0, 200));
             $questions = array_values(array_filter($questions, fn($k) => !in_array($k, $bad, true), ARRAY_FILTER_USE_KEY));
@@ -296,6 +376,8 @@ function r_quiz(array $b): never
             error_log('[hoc-cung-may] quiz verify lỗi: ' . $e->getMessage());   // không kiểm được thì vẫn dùng đề, không chặn bé
         }
     }
+    // Verification failure must never automatically approve unverified questions.
+    // Bank is populated only if the independent verification completed successfully.
     // Bỏ câu trùng với câu đã hỏi gần đây hoặc trùng nhau trong cùng đề
     $kept = [];
     foreach ($questions as $x) {
@@ -304,15 +386,17 @@ function r_quiz(array $b): never
         if (!$dup) $kept[] = $x;
     }
     if (count($kept) < count($questions)) error_log('[hoc-cung-may] quiz bỏ ' . (count($questions) - count($kept)) . ' câu trùng câu cũ');
+    // Keep the child's session short (10 questions), but draw from a larger pool.
+    // Shuffle eligible candidates so the first ten are not always the same easiest patterns.
+    shuffle($kept);
     $questions = array_slice($kept, 0, 10);
-    if (count($questions) !== 10) out(['error' => 'bad_quiz'], 502);
+    if (count($questions) !== 10) {
+        error_log('[hoc-cung-may] insufficient novel quiz questions for ' . $subject . ': ' . count($questions));
+        out(['error' => 'quiz_no_new_questions'], 409);
+    }
 
-    q('INSERT INTO quizzes (subject, topic, questions, answers, total, created_at) VALUES (?, ?, ?, \'{}\', ?, ?)',
-        [$subject, $topic, json_encode($questions, JSON_UNESCAPED_UNICODE), count($questions), time()]);
-    $id = (int)db()->lastInsertId();
-
-    // Không gửi đáp án xuống máy: máy chủ chấm điểm
-    out(['quiz_id' => $id, 'questions' => array_map(fn($x) => ['q' => $x['q'], 'options' => $x['options'], 'hint' => $x['hint']], $questions)]);
+    if($verified)quiz_bank_save($subject,$topic,$questions);
+    quiz_start_from_questions($subject,$topic,$questions);
 }
 
 function remember_mistake(string $subject, string $topic, array $x): void
