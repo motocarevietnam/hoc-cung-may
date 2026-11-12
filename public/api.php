@@ -104,6 +104,7 @@ $routes = [
     'companion/activity'  => 'r_companion_activity',
     'parent/question_qa_list' => 'r_parent_question_qa_list',
     'parent/question_qa_report' => 'r_parent_question_qa_report',
+    'parent/question_qa_reject' => 'r_parent_question_qa_reject',
     'parent/question_qa_resolve' => 'r_parent_question_qa_resolve',
     'quiz'                => 'r_quiz',
     'answer'              => 'r_answer',
@@ -2295,4 +2296,23 @@ function r_parent_question_qa_resolve(array $b): never
         $pdo->commit();
     }catch(Throwable $e){$pdo->rollBack();throw $e;}
     out(['ok'=>true,'status'=>$new]);
+}
+
+function r_parent_question_qa_reject(array $b): never
+{
+    require_parent();
+    $id=(int)($b['question_id']??0);
+    $note=clean((string)($b['note']??''),500);
+    if($id<1||mb_strlen($note)<5)out(['error'=>'invalid_resolution'],400);
+    $pdo=db();$pdo->beginTransaction();
+    try{
+        $st=q('SELECT status FROM question_bank WHERE id=? FOR UPDATE',[$id]);
+        $row=$st->fetch();
+        if(!$row){$pdo->rollBack();out(['error'=>'question_not_found'],404);}
+        q("UPDATE question_bank SET status='rejected' WHERE id=?",[$id]);
+        q("INSERT INTO question_qa_cases(question_id,status,reason,reported_by,resolution,resolved_by,created_at,resolved_at)
+           VALUES (?,'resolved',?,'parent','reject','parent',?,?)",[$id,$note,time(),time()]);
+        $pdo->commit();
+    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+    out(['ok'=>true,'status'=>'rejected']);
 }
