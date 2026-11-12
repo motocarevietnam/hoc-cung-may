@@ -134,6 +134,8 @@ function r_companion_session(array $b): never
             } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
             $row = companion_row($id);
         }
+        // Điểm danh một lần/ngày khi Kem gặp Mây.
+        award('checkin', 'checkin:' . today(), 'Kem gặp Mây và điểm danh');
         return companion_payload(companion_ensure_new_day($row));
     }));
 }

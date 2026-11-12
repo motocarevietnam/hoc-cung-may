@@ -1352,7 +1352,7 @@ function day_plan(string $day): array
                     'action' => ['view' => 'tvw']];
     }
     // Science – thí nghiệm nhỏ 15 phút: chủ nhật, nếu tuần này chưa làm
-    if (setting('sci_on', '1') !== '0' && $n === 7 && !q("SELECT 1 FROM readings WHERE kind = 'sciexp' AND score IS NOT NULL AND day >= ? AND day <= ?",
+    if (setting('sci_on', '1') !== '0' && str_contains(mb_strtolower($todayText.' '.$tomorrowText), 'science') && !q("SELECT 1 FROM readings WHERE kind = 'sciexp' AND score IS NOT NULL AND day >= ? AND day <= ?",
             [date('Y-m-d', strtotime('monday this week', $ts)), $day])->fetchColumn()) {
         $items[] = ['key' => 'sciexp', 'icon' => '🔬', 'title' => 'Thí nghiệm nhỏ (Science) 15 phút', 'minutes' => 15,
                     'reason' => 'Science: làm thí nghiệm an toàn ở nhà, quan sát rồi giải thích "I observe… because…"',

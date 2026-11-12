@@ -343,9 +343,10 @@ function r_answer(array $b): never
     if ($first) $answers[$key] = $picked;
     $right = $answers[$key] === $x['answer'];
 
-    // Sao không tính theo từng câu đúng (không chạy theo điểm): hoàn thành lượt đố vui trong "Hôm nay" mới được sao
+    // Thưởng mỗi câu đúng ở lần trả lời đầu tiên, chống cộng trùng bằng ref duy nhất.
     $bonus = false;
     if ($first) {
+        if ($right) award('quiz_correct', 'quiz:' . $quiz['id'] . ':question:' . $index, 'Trả lời đúng câu ' . ($index + 1));
         if (!$right) remember_mistake($quiz['subject'], $quiz['topic'], $x);
         q('UPDATE quizzes SET answers = ? WHERE id = ?', [json_encode($answers), $quiz['id']]);
     }
@@ -356,6 +357,7 @@ function r_answer(array $b): never
         if (array_key_exists((string)$i, $answers) && $answers[(string)$i] === $qq['answer']) $score++;
     }
     if ($done && $first) {
+        award('quiz_complete', 'quiz:' . $quiz['id'] . ':complete', 'Hoàn thành bài ôn tập 10 câu');
         q('UPDATE quizzes SET score = ?, finished_at = ? WHERE id = ?', [$score, time(), $quiz['id']]);
         log_activity($quiz['subject'], $quiz['topic'], 'quiz', $score, count($questions));
     }
