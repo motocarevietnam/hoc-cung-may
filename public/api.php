@@ -270,6 +270,22 @@ function quiz_confirmed_topics(string $subject): array
              WHERE p.subject IN ($ph) AND c.status='taught'",$labels)->fetchAll(PDO::FETCH_COLUMN);
     return array_values(array_unique(array_filter(array_map(fn($t)=>mb_substr(trim(preg_replace('/\s+/u',' ',(string)$t)),0,255),$rows))));
 }
+// Topic-level spaced practice: a new variant is used, not the same recent question.
+// 1,3,7,14,30,60 days for consecutive correct answers; wrong => tomorrow.
+function topic_mastery_record(string $subject,string $topic,bool $correct): void
+{
+    $topic=trim($topic);
+    if($topic==='')return; // No reliable lesson identity for general legacy quizzes.
+    $row=q('SELECT correct_streak FROM topic_mastery WHERE subject=? AND topic=?',[$subject,$topic])->fetch();
+    $streak=$correct?min(6,((int)($row['correct_streak']??0))+1):0;
+    $days=$correct?([1,3,7,14,30,60][$streak-1]):1;
+    $now=time();
+    q('INSERT INTO topic_mastery(subject,topic,correct_streak,attempts,correct_count,due_at,last_answered_at)
+       VALUES (?,?,?,1,?,?,?)
+       ON DUPLICATE KEY UPDATE correct_streak=VALUES(correct_streak),attempts=attempts+1,
+       correct_count=correct_count+VALUES(correct_count),due_at=VALUES(due_at),last_answered_at=VALUES(last_answered_at)',
+       [$subject,$topic,$streak,$correct?1:0,$now+$days*86400,$now]);
+}
 function quiz_bank_pick(string $subject,string $topic,int $count=10): array
 {
     if($topic===''){
@@ -284,6 +300,14 @@ function quiz_bank_pick(string $subject,string $topic,int $count=10): array
         $rows=q("SELECT * FROM question_bank WHERE subject=? AND topic=? AND status='approved'
                  ORDER BY used_count ASC,id ASC LIMIT 300",[$subject,$topic])->fetchAll();
     }
+    // Due lessons first, while retaining variety and the 180-day exact-question guard.
+    $dueRows=q('SELECT topic,due_at FROM topic_mastery WHERE subject=? AND due_at<=?',[$subject,time()])->fetchAll();
+    $dueTopics=array_fill_keys(array_column($dueRows,'topic'),true);
+    usort($rows,static function($a,$b) use($dueTopics){
+        $da=isset($dueTopics[(string)$a['topic']])?0:1;
+        $db=isset($dueTopics[(string)$b['topic']])?0:1;
+        return [$da,(int)$a['used_count'],(int)$a['id']] <=> [$db,(int)$b['used_count'],(int)$b['id']];
+    });
     $recent=recent_quiz_questions($subject,$topic);
     $selected=[];$perTopic=[];
     foreach($rows as $r){
@@ -436,6 +460,12 @@ function r_answer(array $b): never
     if ($first) {
         if ($right) award('quiz_correct', 'quiz:' . $quiz['id'] . ':question:' . $index, 'Trả lời đúng câu ' . ($index + 1));
         if (!$right) remember_mistake($quiz['subject'], $quiz['topic'], $x);
+        // Update topic proficiency once per first answer, never on retries.
+        $lesson=(string)($x['bank_id']??0)!=='0'
+            ? (string)(q('SELECT topic FROM question_bank WHERE id=?',[(int)$x['bank_id']])->fetchColumn() ?: '')
+            : (string)$quiz['topic'];
+        topic_mastery_record((string)$quiz['subject'],$lesson,$right);
+
         q('UPDATE quizzes SET answers = ? WHERE id = ?', [json_encode($answers), $quiz['id']]);
     }
 
@@ -2253,15 +2283,20 @@ function r_parent_question_qa_list(array $b): never
     require_parent();
     $status=(string)($b['status']??'needs_review');
     if(!in_array($status,['pending','approved','needs_review','rejected','all'],true))out(['error'=>'bad_status'],400);
+    $page=max(1,min(100000,(int)($b['page']??1)));
+    $perPage=10;
+    $where=$status==='all'?'':' WHERE b.status=?';
+    $params=$status==='all'?[]:[$status];
+    $total=(int)q("SELECT COUNT(*) FROM question_bank b".$where,$params)->fetchColumn();
+    $pages=max(1,(int)ceil($total/$perPage));
+    $page=min($page,$pages);
+    $offset=($page-1)*$perPage;
     $sql="SELECT b.id,b.subject,b.topic,b.q,b.options,b.answer,b.status,b.used_count,
                  (SELECT COUNT(*) FROM question_qa_cases c WHERE c.question_id=b.id AND c.status='open') AS open_cases
-          FROM question_bank b";
-    $params=[];
-    if($status!=='all'){$sql.=" WHERE b.status=?";$params[]=$status;}
-    $sql.=" ORDER BY b.id DESC LIMIT 100";
+          FROM question_bank b".$where." ORDER BY b.id DESC LIMIT $perPage OFFSET $offset";
     $rows=q($sql,$params)->fetchAll();
     $counts=q("SELECT status,COUNT(*) n FROM question_bank GROUP BY status")->fetchAll();
-    out(['questions'=>$rows,'counts'=>$counts]);
+    out(['questions'=>$rows,'counts'=>$counts,'page'=>$page,'pages'=>$pages,'per_page'=>$perPage,'total'=>$total]);
 }
 function r_parent_question_qa_report(array $b): never
 {

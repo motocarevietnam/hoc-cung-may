@@ -26,7 +26,7 @@ const HW_STATUS = ['right', 'partial', 'wrong', 'unclear', 'feedback'];
 
 // Cấu trúc cơ sở dữ liệu (MariaDB/MySQL, InnoDB, utf8mb4 để lưu được emoji).
 // Tăng SCHEMA_VERSION mỗi khi thêm bảng/cột; app tự tạo bảng khi chạy lần đầu.
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 const SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (
        k VARCHAR(64) NOT NULL PRIMARY KEY, v TEXT NOT NULL
@@ -92,6 +92,13 @@ const SCHEMA = [
        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
        questions MEDIUMTEXT NOT NULL, answers TEXT NOT NULL,
        score INT NULL, total INT NOT NULL, created_at INT UNSIGNED NOT NULL, finished_at INT UNSIGNED NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+    "CREATE TABLE IF NOT EXISTS topic_mastery (
+       subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL,
+       correct_streak INT UNSIGNED NOT NULL DEFAULT 0,
+       attempts INT UNSIGNED NOT NULL DEFAULT 0, correct_count INT UNSIGNED NOT NULL DEFAULT 0,
+       due_at INT UNSIGNED NOT NULL, last_answered_at INT UNSIGNED NOT NULL,
+       PRIMARY KEY(subject,topic), KEY idx_topic_mastery_due (due_at)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
     "CREATE TABLE IF NOT EXISTS mistakes (
        id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, subject VARCHAR(10) NOT NULL, topic VARCHAR(255) NOT NULL DEFAULT '',
