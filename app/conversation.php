@@ -192,7 +192,7 @@ function r_companion_turn(array $b): never
 {
     $nonce = (string)($b['request_id'] ?? '');
     $type = (string)($b['type'] ?? 'text');
-    $allowed = ['text', 'joy', 'recap', 'direct', 'rest', 'resume', 'subject', 'skip', 'offer', 'learning', 'reflection'];
+    $allowed = ['text', 'joy', 'recap', 'direct', 'rest', 'resume', 'chat_more', 'subject', 'skip', 'offer', 'learning', 'reflection'];
     if (!preg_match('/^[a-zA-Z0-9_-]{16,80}$/', $nonce) || !in_array($type, $allowed, true)) out(['error' => 'bad_request'], 400);
     $text = clean($b['text'] ?? '', 1500);
     if ($type === 'text' && $text === '') out(['error' => 'bad_request'], 400);
@@ -228,11 +228,11 @@ function r_companion_turn(array $b): never
             while ($history && $history[0]['role'] !== 'user') array_shift($history);
             $history[] = ['role' => 'user', 'content' => $text];
             $reply = trim(ask_claude((string)cfg('chat_model', 'claude-haiku-5-5'),
-                companion_system($state, $context['expected'], setting('nick')), $history, 1200, 60, (string)cfg('chat_effort', 'low')));
+                companion_system($state, $context['expected'], setting('nick'), $text), $history, 1200, 60, (string)cfg('chat_effort', 'low')));
             if ($reply === '') throw new UpstreamError('empty_companion_reply');
         }
         $labels = ['joy' => '😊 Có chuyện vui!', 'recap' => '📚 Kể chuyện học', 'direct' => '⭐ Kiếm thêm Sao',
-            'rest' => '😴 Hơi mệt rồi', 'resume' => 'Mình quay lại rồi', 'subject' => 'Mình muốn kể môn ' . ($event['selected']['label'] ?? ''),
+            'rest' => '😴 Hơi mệt rồi', 'resume' => 'Mình quay lại rồi', 'chat_more' => '💬 Nói chuyện tiếp', 'subject' => 'Mình muốn kể môn ' . ($event['selected']['label'] ?? ''),
             'skip' => 'Bỏ qua', 'offer' => 'Cùng ôn bài này', 'learning' => 'Mở hoạt động học', 'reflection' => 'Mình quay lại trò chuyện'];
         $pdo = db(); $pdo->beginTransaction();
         try {
@@ -241,6 +241,11 @@ function r_companion_turn(array $b): never
             $messageId = (int)$pdo->lastInsertId();
             if ($evidence) $state['recaps'][count($state['recaps']) - 1]['message_id'] = $messageId;
             q("INSERT INTO messages (conv_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)", [$id, $reply, $now]);
+            // Sau vài lượt trò chuyện tự do: câu rủ làm việc nhỏ do app viết sẵn, không phải AI
+            if (!empty($state['pending_offer'])) {
+                q("INSERT INTO messages (conv_id, role, content, created_at) VALUES (?, 'assistant', ?, ?)", [$id, COMPANION_OFFER_TEXT, $now]);
+                $state['pending_offer'] = false;
+            }
             q('UPDATE companion_sessions SET state = ?, revision = revision + 1, updated_at = ? WHERE conv_id = ?',
                 [json_encode($state, JSON_UNESCAPED_UNICODE), $now, $id]);
             q('INSERT INTO companion_events (conv_id, nonce, created_at) VALUES (?, ?, ?)', [$id, $nonce, $now]);
