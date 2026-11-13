@@ -20,14 +20,18 @@ không có quảng cáo và không bán hay chia sẻ dữ liệu cho bất kỳ
 <ul>
   <li>Nội dung trò chuyện, câu đố, kết quả chấm bài, kế hoạch học, sao thưởng: lưu trên máy chủ riêng của gia đình, ba mẹ xem và xoá được trong Cổng ba mẹ.</li>
   <li>Ảnh bài tập: không lưu trên máy chủ. Nếu ba mẹ kết nối Google Drive, bản ảnh đã nén được lưu vào Google Drive của chính gia đình và tự xoá sau thời hạn ba mẹ đặt (mặc định 365 ngày).</li>
-  <li>Giọng nói khi luyện nói: iPad chuyển thành chữ ngay trên máy; âm thanh không gửi lên máy chủ.</li>
+  <li>Giọng nói trong chat được trình duyệt chuyển thành chữ; dịch vụ nhận dạng phụ thuộc thiết bị/trình duyệt. Ứng dụng không lưu âm thanh chat. Khi dùng chức năng chấm phát âm, âm thanh được gửi qua máy chủ đến SpeechSuper và không được lưu lại.</li>
 </ul>
 
+<h2>Hội thoại và ngữ cảnh học tập</h2>
+<p>Mây phân biệt lịch học dự kiến với nội dung bé tự kể. Lời bé kể và phần tự giải thích được lưu có nguồn, không tự coi là điểm số hoặc bằng chứng thành thạo. Ba mẹ xem trong lịch sử trò chuyện và xoá cùng lịch sử đó.</p>
+<p>Tin nhắn và ngữ cảnh hội thoại được dọn theo thời hạn <code>chat_retention_days</code> (mặc định 30 ngày) bằng tác vụ hằng đêm, kể cả khi cuộc trò chuyện vẫn tiếp tục. Bản nháp chữ chưa gửi được giữ trên thiết bị trong cùng thời hạn; ảnh và âm thanh không được lưu vào bản nháp. Trên thiết bị dùng chung, ba mẹ có thể xoá bản nháp tại Cài đặt máy. Bản sao lưu cũ tuân theo thời hạn sao lưu riêng; xoá dữ liệu đang dùng không tự xoá mọi bản sao lưu trước đó.</p>
 <h2>Dịch vụ bên ngoài</h2>
 <ul>
   <li>Anthropic Claude: xử lý câu hỏi và ảnh bài tập để trả lời, chấm bài.</li>
   <li>Google Cloud Text-to-Speech: đọc to câu trả lời của Mây (chỉ gửi phần chữ cần đọc).</li>
   <li>Google Drive: chỉ khi ba mẹ bấm kết nối.</li>
+  <li>SpeechSuper: chỉ khi dùng chức năng chấm phát âm, nếu đã được cấu hình.</li>
 </ul>
 
 <h2>Quyền Google Drive</h2>

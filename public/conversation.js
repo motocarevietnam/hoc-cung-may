@@ -211,8 +211,9 @@ const Companion = (() => {
         ${card()&&!workspace?`<div class="cc-resume"><p>Bài đang làm vẫn ở đây.</p><button class="btn primary" id="ccResume">▶ Tiếp tục bài</button><button class="cc-tool" data-cc-turn="reflection">Quay lại trò chuyện</button></div>`:''}
         ${C.picker||s?.phase==='MISSION_OFFER'?activities():''}
       </div>
-      <div class="cc-compose"><label class="sr-only" for="ccBox">Nhắn cho Mây</label><textarea id="ccBox" rows="1" maxlength="1500" placeholder="Kể Mây nghe nhé…" ${C.busy?'readonly':''}>${esc(C.draft)}</textarea>
+      <div class="cc-compose"><label class="sr-only" for="ccBox">Nhắn cho Mây</label><textarea id="ccBox" rows="2" maxlength="1500" enterkeyhint="enter" aria-describedby="ccInputHelp" placeholder="Kể Mây nghe nhé…" ${C.busy?'readonly':''}>${esc(C.draft)}</textarea>
         <button class="btn" id="ccMic" aria-label="Nói với Mây" aria-pressed="false" ${C.busy||!has?'disabled':''}>🎤</button><button class="btn primary" id="ccSend" ${C.busy||!has?'disabled':''}>Gửi</button>
+        <div class="chat-input-tools"><button type="button" class="btn chat-linebreak" id="ccLineBreak" aria-label="Chèn dòng mới vào tin nhắn" ${C.busy?'disabled':''}>↵ Xuống dòng</button><span id="ccInputHelp">Enter: xuống dòng · Bấm Gửi khi viết xong.</span></div>
         <p id="ccMicStatus" class="muted" role="status">${navigator.onLine?'':'Đang mất mạng. Nội dung đang nhập được giữ trên máy; kết nối lại để gửi nhé.'}</p></div>
       </section>${workspace?'<section id="ccWorkspace" class="cc-workspace" aria-label="Vùng làm bài"><div class="cc-workspace-tools"><button class="btn" id="ccExpand" aria-pressed="false">⛶ Mở rộng</button><button class="btn" id="ccPause">⏸ Tạm dừng</button><button class="btn" id="ccReflect">Quay lại trò chuyện</button></div><div id="ccActivity"></div></section>':''}${scheduleDialog()}</div>`;
   }
@@ -231,7 +232,7 @@ const Companion = (() => {
   }
   function resizeBox(){
     const box=document.getElementById('ccBox');
-    if(box){box.style.height='auto';box.style.height=Math.min(box.scrollHeight,116)+'px';}
+    ChatInput.resize(box);
   }
   function restoreFeed(){
     const feed=app.querySelector('.cc-feed');if(!feed)return;
@@ -323,7 +324,8 @@ const Companion = (() => {
     on('ccReflect',async()=>{ if(await turn('reflection')){ C.fields={}; go('home'); saveDrafts(); } });
     on('ccExpand',()=>{const e=document.querySelector('.cc-shell');const expanded=e.classList.toggle('cc-expanded');document.getElementById('ccExpand').setAttribute('aria-pressed',String(expanded));});
     const box=document.getElementById('ccBox');
-    if(box){box.oninput=()=>{C.draft=box.value;resizeBox();saveDrafts();};box.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();turn();}};}
+    ChatInput.bind(box, {send:()=>turn(), canSend:()=>!C.busy&&ready()&&!!C.session,
+      onInput:value=>{C.draft=value;saveDrafts();}, lineBreakButton:document.getElementById('ccLineBreak')});
   }
   function renderHome(){
     chrome();
@@ -359,7 +361,8 @@ const Companion = (() => {
     if(C.busy) return;
     if(card() && !confirm('Bài đang làm vẫn có thể tiếp tục. Kem muốn mở hoạt động khác không?')) return;
     const actual=C.session.state.recaps.filter(r=>r.kind==='lesson_report'&&r.subject===subject).at(-1);
-    const selected={view,subject,topic:chosenTopic ? chosenTopic.slice(0,80) : (actual?.text.slice(0,80)||'')};
+    const topicLimit=view==='quiz'?255:80;
+    const selected={view,subject,topic:chosenTopic ? chosenTopic.slice(0,topicLimit) : (actual?.text.slice(0,topicLimit)||'')};
     if(!await turn('learning',{card:selected})) return;
     C.fields={}; saveDrafts(); launch(card());
   }

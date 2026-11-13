@@ -170,7 +170,7 @@ function companion_card(array $input, array $context): ?array
     $catalog = array_column($context['subjects'], null, 'id');
     if ($view === 'review') return ['view' => 'review', 'subject' => null, 'topic' => ''];
     if (!isset($catalog[$subject]['modes'][$view])) return null;
-    return ['view' => $view, 'subject' => $subject, 'topic' => clean($input['topic'] ?? '', 80)];
+    return ['view' => $view, 'subject' => $subject, 'topic' => clean($input['topic'] ?? '', $view === 'quiz' ? 255 : 80)];
 }
 
 function companion_lesson(array $b, string $view): string

@@ -62,6 +62,9 @@ return [
     // Số lượt tối đa mỗi ngày (1 tin nhắn = 1, 1 lượt đố vui = 3, 1 lần chấm bài tập = 5)
     'daily_limit' => 150,
 
+    // Ngày nghỉ được xác nhận (YYYY-MM-DD), không đoán từ thứ cuối tuần.
+    'school_days_off' => [],
+
     // Lịch sử trò chuyện tự xoá sau bao nhiêu ngày
     'chat_retention_days' => 30,
 

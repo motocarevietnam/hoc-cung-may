@@ -113,7 +113,7 @@ body.chat-first .bar .iconbtn { min-width: 44px; min-height: 44px; }
   min-width: 0;
   width: 100%;
   min-height: 44px;
-  max-height: 116px;
+  max-height: 168px;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -124,6 +124,7 @@ body.chat-first .bar .iconbtn { min-width: 44px; min-height: 44px; }
   resize: none;
 }
 .cc-compose .btn { min-width: 44px; min-height: 44px; padding: 9px; border-radius: 12px; }
+.cc-compose .chat-input-tools { grid-column: 1 / -1; margin: 0; }
 .cc-compose [aria-pressed=true] { background: var(--coral-bg); }
 .cc-compose p { grid-column: 1 / -1; font-size: 13px; margin: 0; }
 #ccMicStatus:empty { display: none; }
