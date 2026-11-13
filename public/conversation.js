@@ -169,6 +169,7 @@ const Companion = (() => {
         ${s?.phase==='REST'?'<button class="btn" data-cc-turn="resume">Mình muốn trò chuyện tiếp</button>':''}
         ${card()&&!workspace?`<div class="cc-resume"><p>Bài đang làm vẫn ở đây.</p><button class="btn primary" id="ccResume">▶ Tiếp tục bài</button><button class="cc-tool" data-cc-turn="reflection">Quay lại trò chuyện</button></div>`:''}
         ${C.picker||s?.phase==='MISSION_OFFER'?activities():''}
+        ${s?.phase==='MISSION_OFFER'&&!C.picker?`<button class="btn" data-cc-turn="chat_more" ${C.busy?'disabled':''}>💬 Nói chuyện tiếp</button>`:''}
       </div>
       <div class="cc-compose"><label class="sr-only" for="ccBox">Nhắn cho Mây</label><textarea id="ccBox" rows="1" maxlength="1500" placeholder="Kể Mây nghe nhé…" ${C.busy?'readonly':''}>${esc(C.draft)}</textarea>
         <button class="btn" id="ccMic" aria-label="Nói với Mây" aria-pressed="false" ${C.busy||!has?'disabled':''}>🎤</button><button class="btn primary" id="ccSend" ${C.busy||!has?'disabled':''}>Gửi</button>

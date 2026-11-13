@@ -1,6 +1,6 @@
 // Service worker nhỏ: giúp app mở nhanh và mở được giao diện khi mạng chập chờn.
 // Không bao giờ lưu các câu hỏi/trả lời (/api/*).
-const CACHE = "may-vps-v42-ipa-mouth-illustrations";
+const CACHE = "may-vps-v43-may-rules";
 const SHELL = ["/conversation.js", "/conversation.css", "/", "/index.html", "/manifest.webmanifest", "/icons/icon-180.png", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
